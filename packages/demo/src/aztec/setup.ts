@@ -171,9 +171,8 @@ async function main() {
   console.log("  Done.\n");
 
   console.log(`Config written to ${CONFIG_PATH}`);
-  console.log("\nSetup complete! Run the demo:");
-  console.log("  Terminal 1: bun run packages/demo/src/aztec/real-server.ts");
-  console.log("  Terminal 2: bun run packages/demo/src/aztec/real-client.ts");
+  console.log("\nSetup complete!");
+  process.exit(0);
 }
 
 main().catch((err) => {
