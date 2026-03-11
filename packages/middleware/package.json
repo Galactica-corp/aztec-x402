@@ -1,0 +1,27 @@
+{
+  "name": "@aztech-x402/middleware",
+  "version": "0.1.0",
+  "description": "Express middleware for x402 payment gating on Aztec",
+  "type": "module",
+  "main": "./dist/index.js",
+  "types": "./dist/index.d.ts",
+  "exports": {
+    ".": {
+      "import": "./dist/index.js",
+      "types": "./dist/index.d.ts"
+    }
+  },
+  "scripts": {
+    "build": "tsup",
+    "test": "vitest run",
+    "test:watch": "vitest watch",
+    "clean": "rm -rf dist"
+  },
+  "dependencies": {
+    "@aztech-x402/core": "workspace:*",
+    "@aztech-x402/mechanism": "workspace:*"
+  },
+  "devDependencies": {
+    "typescript": "^5.5.0"
+  }
+}

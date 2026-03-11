@@ -1,0 +1,38 @@
+{
+  "name": "@aztech-x402/mechanism",
+  "version": "0.1.0",
+  "description": "x402 mechanism plugin for Aztec — client, facilitator, and server schemes",
+  "type": "module",
+  "main": "./dist/index.js",
+  "types": "./dist/index.d.ts",
+  "exports": {
+    ".": {
+      "import": "./dist/index.js",
+      "types": "./dist/index.d.ts"
+    },
+    "./exact/client": {
+      "import": "./dist/exact/client/index.js",
+      "types": "./dist/exact/client/index.d.ts"
+    },
+    "./exact/facilitator": {
+      "import": "./dist/exact/facilitator/index.js",
+      "types": "./dist/exact/facilitator/index.d.ts"
+    },
+    "./exact/server": {
+      "import": "./dist/exact/server/index.js",
+      "types": "./dist/exact/server/index.d.ts"
+    }
+  },
+  "scripts": {
+    "build": "tsup",
+    "test": "vitest run",
+    "test:watch": "vitest watch",
+    "clean": "rm -rf dist"
+  },
+  "dependencies": {
+    "@aztech-x402/core": "workspace:*"
+  },
+  "devDependencies": {
+    "typescript": "^5.5.0"
+  }
+}
