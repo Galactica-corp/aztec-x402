@@ -46,9 +46,9 @@ console.log(`Payer address: ${alice}`);
 const token = await TokenContract.at(config.tokenAddress, aliceWallet);
 
 // Check balance before
-const { result: balanceBefore } = await token.methods
+const balanceBefore = await token.methods
   .balance_of_private(alice)
-  .simulate({ from: alice });
+  .simulate();
 console.log(`Balance before: ${balanceBefore}\n`);
 
 // Create real client signer and x402 payment-aware fetch
@@ -65,8 +65,8 @@ console.log(`Response (${response.status}):`);
 console.log(JSON.stringify(data, null, 2));
 
 // Check balance after
-const { result: balanceAfter } = await token.methods
+const balanceAfter = await token.methods
   .balance_of_private(alice)
-  .simulate({ from: alice });
+  .simulate();
 console.log(`\nBalance after: ${balanceAfter}`);
-console.log(`Spent: ${balanceBefore - balanceAfter}`);
+console.log(`Spent: ${Number(balanceBefore) - Number(balanceAfter)}`);

@@ -57,9 +57,9 @@ async function main() {
     .wait();
 
   // Verify balance
-  const { result: aliceBalance } = await token.methods
+  const aliceBalance = await token.methods
     .balance_of_private(alice)
-    .simulate({ from: alice });
+    .simulate();
   console.log(`  Alice's balance:     ${aliceBalance}\n`);
 
   // Register Bob as a sender on Alice's PXE (and vice versa)

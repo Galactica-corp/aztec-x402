@@ -43,10 +43,10 @@ export class RealFacilitatorAztecSigner implements FacilitatorAztecSigner {
   ): Promise<bigint> {
     // balance_of_private is an unconstrained function — we call .simulate()
     // with { from: owner } so the PXE decrypts the relevant notes.
-    const { result } = await this.token.methods
+    const balance = await this.token.methods
       .balance_of_private(ownerAddress)
-      .simulate({ from: ownerAddress });
+      .simulate();
 
-    return result;
+    return BigInt(balance);
   }
 }
