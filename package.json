@@ -1,0 +1,17 @@
+{
+  "name": "aztech-x402",
+  "private": true,
+  "description": "x402 HTTP 402 payment protocol for Aztec private stablecoins",
+  "workspaces": [
+    "packages/*"
+  ],
+  "scripts": {
+    "build": "bun run --filter '*' build",
+    "test": "bun run --filter '*' test",
+    "lint": "oxlint --config .oxlintrc.json packages/",
+    "clean": "bun run --filter '*' clean"
+  },
+  "devDependencies": {
+    "oxlint": "^1.52.0"
+  }
+}
