@@ -52,7 +52,7 @@ async function main() {
   // Mint tokens to Alice's private balance
   console.log(`Minting ${MINT_AMOUNT} to Alice's private balance...`);
   await token.methods
-    .mint_to_private(alice, MINT_AMOUNT)
+    .mint_to_private(alice, alice, MINT_AMOUNT)
     .send({ from: alice })
     .wait();
 
