@@ -29,9 +29,9 @@ All payments are fully private — transaction contents are hidden on-chain.
 ## Development
 
 ```bash
-pnpm install
-pnpm test
-pnpm build
+bun install
+bun test
+bun run build
 ```
 
 ## Architecture

@@ -7,26 +7,29 @@
   "types": "./dist/index.d.ts",
   "exports": {
     ".": {
+      "bun": "./src/index.ts",
       "import": "./dist/index.js",
       "types": "./dist/index.d.ts"
     },
     "./exact/client": {
+      "bun": "./src/exact/client/index.ts",
       "import": "./dist/exact/client/index.js",
       "types": "./dist/exact/client/index.d.ts"
     },
     "./exact/facilitator": {
+      "bun": "./src/exact/facilitator/index.ts",
       "import": "./dist/exact/facilitator/index.js",
       "types": "./dist/exact/facilitator/index.d.ts"
     },
     "./exact/server": {
+      "bun": "./src/exact/server/index.ts",
       "import": "./dist/exact/server/index.js",
       "types": "./dist/exact/server/index.d.ts"
     }
   },
   "scripts": {
     "build": "tsup",
-    "test": "vitest run",
-    "test:watch": "vitest watch",
+    "test": "bun test",
     "clean": "rm -rf dist"
   },
   "dependencies": {

@@ -1,0 +1,24 @@
+{
+  "name": "@aztech-x402/demo",
+  "version": "0.1.0",
+  "private": true,
+  "description": "Demo server and client for x402 payment-gated API on Aztec",
+  "type": "module",
+  "scripts": {
+    "server": "bun run src/server.ts",
+    "client": "bun run src/client.ts",
+    "setup": "bun run src/aztec/setup.ts",
+    "real:server": "bun run src/aztec/real-server.ts",
+    "real:client": "bun run src/aztec/real-client.ts",
+    "test": "bun test"
+  },
+  "dependencies": {
+    "@aztech-x402/core": "workspace:*",
+    "@aztech-x402/mechanism": "workspace:*",
+    "@aztech-x402/middleware": "workspace:*",
+    "@aztech-x402/client": "workspace:*",
+    "@aztec/aztec.js": "0.87.9",
+    "@aztec/accounts": "0.87.9",
+    "@aztec/noir-contracts.js": "0.87.9"
+  }
+}
