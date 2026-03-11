@@ -9,6 +9,8 @@ services:
     environment:
       NODE_ENV: production
     volumes:
-      - ./packages/demo/src/aztec/deploy.json:/app/packages/demo/src/aztec/deploy.json:ro
-      - ./packages/demo/src/aztec/keys.json:/app/packages/demo/src/aztec/keys.json:ro
+      - aztec-data:/app/packages/demo/src/aztec/data
     restart: unless-stopped
+
+volumes:
+  aztec-data:

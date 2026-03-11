@@ -28,8 +28,9 @@ const PRICE_AMOUNT = "10000"; // $0.01 with 6 decimals
 
 // Load deployment config
 const __dirname = dirname(new URL(import.meta.url).pathname);
-const CONFIG_PATH = join(__dirname, "deploy.json");
-const KEYS_PATH = join(__dirname, "keys.json");
+const DATA_DIR = process.env.DATA_DIR ?? __dirname;
+const CONFIG_PATH = join(DATA_DIR, "deploy.json");
+const KEYS_PATH = join(DATA_DIR, "keys.json");
 let config: Record<string, string>;
 try {
   config = JSON.parse(readFileSync(CONFIG_PATH, "utf-8"));

@@ -12,6 +12,7 @@ RUN bun install --frozen-lockfile
 
 # Copy source
 COPY packages/ packages/
+COPY entrypoint.sh .
 
 EXPOSE 4402
-CMD ["bun", "run", "./packages/demo/src/aztec/real-server.ts"]
+CMD ["./entrypoint.sh"]

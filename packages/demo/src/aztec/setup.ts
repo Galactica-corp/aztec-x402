@@ -29,8 +29,9 @@ const MINT_AMOUNT = 1_000_000n; // 1.0 oUSD (6 decimals)
 const TX_TIMEOUT = 120;
 
 const __dirname = dirname(new URL(import.meta.url).pathname);
-const CONFIG_PATH = join(__dirname, "deploy.json");
-const KEYS_PATH = join(__dirname, "keys.json");
+const DATA_DIR = process.env.DATA_DIR ?? __dirname;
+const CONFIG_PATH = join(DATA_DIR, "deploy.json");
+const KEYS_PATH = join(DATA_DIR, "keys.json");
 
 async function main() {
   console.log(`Connecting to Aztec node at ${NODE_URL}...`);

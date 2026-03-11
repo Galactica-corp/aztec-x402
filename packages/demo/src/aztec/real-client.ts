@@ -22,8 +22,9 @@ const SERVER_URL = process.env.SERVER_URL ?? "http://localhost:4402";
 
 // Load deployment config
 const __dirname = dirname(new URL(import.meta.url).pathname);
-const CONFIG_PATH = join(__dirname, "deploy.json");
-const KEYS_PATH = join(__dirname, "keys.json");
+const DATA_DIR = process.env.DATA_DIR ?? __dirname;
+const CONFIG_PATH = join(DATA_DIR, "deploy.json");
+const KEYS_PATH = join(DATA_DIR, "keys.json");
 let config: Record<string, string>;
 try {
   config = JSON.parse(readFileSync(CONFIG_PATH, "utf-8"));
