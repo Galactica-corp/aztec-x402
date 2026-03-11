@@ -118,16 +118,25 @@ export async function deployAccounts(
       console.log(`  ${name} already deployed on-chain — skipping.`);
     } else {
       console.log(`  Deploying ${name} account...`);
-      const deployMethod = await account.getDeployMethod();
-      const sendOpts: Record<string, unknown> = {
-        from: AztecAddress.ZERO,
-        wait: { timeout },
-      };
-      if (opts?.paymentMethod) {
-        sendOpts.fee = { paymentMethod: opts.paymentMethod };
+      try {
+        const deployMethod = await account.getDeployMethod();
+        const sendOpts: Record<string, unknown> = {
+          from: AztecAddress.ZERO,
+          wait: { timeout },
+        };
+        if (opts?.paymentMethod) {
+          sendOpts.fee = { paymentMethod: opts.paymentMethod };
+        }
+        await deployMethod.send(sendOpts);
+        console.log(`  ${name} deployed at ${account.address}`);
+      } catch (err) {
+        const msg = err instanceof Error ? err.message : String(err);
+        if (msg.includes("nullifier") || msg.includes("already deployed")) {
+          console.log(`  ${name} already deployed (caught duplicate) — continuing.`);
+        } else {
+          throw err;
+        }
       }
-      await deployMethod.send(sendOpts);
-      console.log(`  ${name} deployed at ${account.address}`);
     }
 
     result[`${name}Account`] = account;

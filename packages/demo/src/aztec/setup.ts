@@ -15,7 +15,7 @@ import { createAztecNodeClient } from "@aztec/aztec.js/node";
 import { AztecAddress } from "@aztec/aztec.js/addresses";
 import { TokenContract } from "@aztec/noir-contracts.js/Token";
 import { EmbeddedWallet } from "@aztec/wallets/embedded";
-import { writeFileSync } from "fs";
+import { writeFileSync, existsSync } from "fs";
 import { join, dirname } from "path";
 import { ensureKeys, deployAccounts, setupSponsoredPayment } from "./wallet-manager.js";
 
@@ -79,32 +79,44 @@ async function main() {
   };
 
   // Deploy token contract (Alice is admin)
+  let tokenAddress: AztecAddress;
   console.log(`Deploying ${TOKEN_NAME} (${TOKEN_SYMBOL})...`);
-  const tokenDeploy = TokenContract.deploy(
-    wallet,
-    alice,
-    TOKEN_NAME,
-    TOKEN_SYMBOL,
-    TOKEN_DECIMALS,
-  );
-  await tokenDeploy.simulate({ from: alice });
-  const token = await tokenDeploy.send(sendOpts(alice));
-  console.log(`  Token deployed at:   ${token.address}\n`);
+  try {
+    const tokenDeploy = TokenContract.deploy(
+      wallet,
+      alice,
+      TOKEN_NAME,
+      TOKEN_SYMBOL,
+      TOKEN_DECIMALS,
+    );
+    await tokenDeploy.simulate({ from: alice });
+    const token = await tokenDeploy.send(sendOpts(alice));
+    tokenAddress = token.address;
+    console.log(`  Token deployed at:   ${tokenAddress}\n`);
 
-  // Mint tokens to Alice's private balance
-  console.log(`Minting ${MINT_AMOUNT} to Alice's private balance...`);
-  await token.methods
-    .mint_to_private(alice, MINT_AMOUNT)
-    .simulate({ from: alice });
-  await token.methods
-    .mint_to_private(alice, MINT_AMOUNT)
-    .send(sendOpts(alice));
+    // Mint tokens to Alice's private balance
+    console.log(`Minting ${MINT_AMOUNT} to Alice's private balance...`);
+    await token.methods
+      .mint_to_private(alice, MINT_AMOUNT)
+      .simulate({ from: alice });
+    await token.methods
+      .mint_to_private(alice, MINT_AMOUNT)
+      .send(sendOpts(alice));
 
-  // Verify balance
-  const aliceBalance = await token.methods
-    .balance_of_private(alice)
-    .simulate({ from: alice });
-  console.log(`  Alice's balance:     ${aliceBalance}\n`);
+    // Verify balance
+    const aliceBalance = await token.methods
+      .balance_of_private(alice)
+      .simulate({ from: alice });
+    console.log(`  Alice's balance:     ${aliceBalance}\n`);
+  } catch (err) {
+    const msg = err instanceof Error ? err.message : String(err);
+    if (msg.includes("nullifier")) {
+      console.log("  Token deploy hit duplicate nullifier — contract may already exist.");
+      console.log("  Delete keys.json and deploy.json to start fresh, or provide existing deploy.json.");
+      throw err;
+    }
+    throw err;
+  }
 
   // Register cross-party senders so both sides can discover notes
   console.log("Registering cross-party senders...");
@@ -114,7 +126,7 @@ async function main() {
 
   // Register the token contract for Bob's view
   console.log("Registering token contract for Bob...");
-  const tokenInstance = await node.getContract(token.address);
+  const tokenInstance = await node.getContract(tokenAddress);
   if (tokenInstance) {
     await wallet.registerContract(tokenInstance, TokenContract.artifact);
   }
@@ -123,7 +135,7 @@ async function main() {
   // Write deployment config
   const config = {
     nodeUrl: NODE_URL,
-    tokenAddress: token.address.toString(),
+    tokenAddress: tokenAddress.toString(),
     tokenName: TOKEN_NAME,
     tokenSymbol: TOKEN_SYMBOL,
     tokenDecimals: TOKEN_DECIMALS,
