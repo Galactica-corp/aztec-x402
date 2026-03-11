@@ -2,27 +2,41 @@
  * Replay attack test — verifies that the same payment header
  * cannot be used twice (anti-replay protection).
  */
-import { AztecAddress, createPXEClient, waitForPXE } from "@aztec/aztec.js";
-import { getDeployedTestAccountsWallets } from "@aztec/accounts/testing";
+import { createAztecNodeClient } from "@aztec/aztec.js/node";
+import { AztecAddress } from "@aztec/aztec.js/addresses";
 import { TokenContract } from "@aztec/noir-contracts.js/Token";
+import { EmbeddedWallet } from "@aztec/wallets/embedded";
 import { readFileSync } from "fs";
 import { join, dirname } from "path";
 import { ExactAztecClientScheme } from "@aztech-x402/mechanism/exact/client";
 import { RealClientAztecSigner } from "./client-signer.js";
+import { loadKeys, loadAccount } from "./wallet-manager.js";
 
 const SERVER_URL = "http://localhost:4402";
-const CONFIG_PATH = join(dirname(new URL(import.meta.url).pathname), "deploy.json");
+const __dirname = dirname(new URL(import.meta.url).pathname);
+const CONFIG_PATH = join(__dirname, "deploy.json");
+const KEYS_PATH = join(__dirname, "keys.json");
 const config = JSON.parse(readFileSync(CONFIG_PATH, "utf-8"));
 
-const pxe = createPXEClient(config.pxeUrl);
-await waitForPXE(pxe);
+const NODE_URL = config.nodeUrl;
+const isDevnet = config.network !== "aztec:sandbox";
 
-const wallets = await getDeployedTestAccountsWallets(pxe);
-const aliceWallet = wallets[0];
+const node = createAztecNodeClient(NODE_URL);
+const wallet = await EmbeddedWallet.create(node, {
+  ephemeral: true,
+  pxeConfig: { proverEnabled: isDevnet },
+});
+
+const keys = loadKeys(KEYS_PATH);
+const aliceAccount = await loadAccount(wallet, keys, "alice");
 const tokenAddress = AztecAddress.fromString(config.tokenAddress);
-const token = await TokenContract.at(tokenAddress, aliceWallet);
+const tokenInstance = await node.getContract(tokenAddress);
+if (tokenInstance) {
+  await wallet.registerContract(tokenInstance, TokenContract.artifact);
+}
+const token = await TokenContract.at(tokenAddress, wallet);
 
-const clientSigner = new RealClientAztecSigner(aliceWallet, token);
+const clientSigner = new RealClientAztecSigner(aliceAccount, token);
 const scheme = new ExactAztecClientScheme(clientSigner);
 
 // Step 1: Get 402 + requirements

@@ -8,3 +8,4 @@ coverage/
 !.env.example
 store/
 deploy.json
+keys.json

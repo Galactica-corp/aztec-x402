@@ -17,8 +17,10 @@
     "@aztech-x402/mechanism": "workspace:*",
     "@aztech-x402/middleware": "workspace:*",
     "@aztech-x402/client": "workspace:*",
-    "@aztec/aztec.js": "0.87.9",
-    "@aztec/accounts": "0.87.9",
-    "@aztec/noir-contracts.js": "0.87.9"
+    "@aztec/aztec.js": "4.0.0-devnet.2-patch.1",
+    "@aztec/accounts": "4.0.0-devnet.2-patch.1",
+    "@aztec/constants": "4.0.0-devnet.2-patch.1",
+    "@aztec/noir-contracts.js": "4.0.0-devnet.2-patch.1",
+    "@aztec/wallets": "4.0.0-devnet.2-patch.1"
   }
 }

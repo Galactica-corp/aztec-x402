@@ -1,25 +1,29 @@
 /**
- * Real x402 demo client — connects to Aztec sandbox,
+ * Real x402 demo client — connects to Aztec node,
  * pays for a weather API call with private tokens.
  *
  * Prerequisites: run setup.ts first, then start real-server.ts.
  *
  * Usage: bun run packages/demo/src/aztec/real-client.ts
  */
-import { AztecAddress, createPXEClient, waitForPXE } from "@aztec/aztec.js";
-import { getDeployedTestAccountsWallets } from "@aztec/accounts/testing";
+import { createAztecNodeClient } from "@aztec/aztec.js/node";
+import { AztecAddress } from "@aztec/aztec.js/addresses";
 import { TokenContract } from "@aztec/noir-contracts.js/Token";
+import { EmbeddedWallet } from "@aztec/wallets/embedded";
 import { readFileSync } from "fs";
 import { join, dirname } from "path";
 
 import { ExactAztecClientScheme } from "@aztech-x402/mechanism/exact/client";
 import { wrapFetchWithPayment } from "@aztech-x402/client";
 import { RealClientAztecSigner } from "./client-signer.js";
+import { loadKeys, loadAccount, setupSponsoredPayment } from "./wallet-manager.js";
 
 const SERVER_URL = process.env.SERVER_URL ?? "http://localhost:4402";
 
 // Load deployment config
-const CONFIG_PATH = join(dirname(new URL(import.meta.url).pathname), "deploy.json");
+const __dirname = dirname(new URL(import.meta.url).pathname);
+const CONFIG_PATH = join(__dirname, "deploy.json");
+const KEYS_PATH = join(__dirname, "keys.json");
 let config: Record<string, string>;
 try {
   config = JSON.parse(readFileSync(CONFIG_PATH, "utf-8"));
@@ -29,31 +33,44 @@ try {
   process.exit(1);
 }
 
-const PXE_URL = config.pxeUrl;
+const NODE_URL = config.nodeUrl;
+const NETWORK = config.network;
+const isDevnet = NETWORK !== "aztec:sandbox";
 
 // Connect to Aztec
-console.log(`Connecting to Aztec sandbox at ${PXE_URL}...`);
-const pxe = createPXEClient(PXE_URL);
-await waitForPXE(pxe);
+console.log(`Connecting to Aztec node at ${NODE_URL}...`);
+const node = createAztecNodeClient(NODE_URL);
+const wallet = await EmbeddedWallet.create(node, {
+  ephemeral: true,
+  pxeConfig: { proverEnabled: isDevnet },
+});
 
 // Get Alice's wallet (the payer)
-const wallets = await getDeployedTestAccountsWallets(pxe);
-const aliceWallet = wallets[0];
-const alice = aliceWallet.getAddress();
+const keys = loadKeys(KEYS_PATH);
+const aliceAccount = await loadAccount(wallet, keys, "alice");
+const alice = aliceAccount.address;
 console.log(`Payer address: ${alice}`);
 
 // Get the deployed token contract
 const tokenAddress = AztecAddress.fromString(config.tokenAddress);
-const token = await TokenContract.at(tokenAddress, aliceWallet);
+const tokenInstance = await node.getContract(tokenAddress);
+if (tokenInstance) {
+  await wallet.registerContract(tokenInstance, TokenContract.artifact);
+}
+const token = await TokenContract.at(tokenAddress, wallet);
 
 // Check balance before
 const balanceBefore = await token.methods
   .balance_of_private(alice)
-  .simulate();
+  .simulate({ from: alice });
 console.log(`Balance before: ${balanceBefore}\n`);
 
+// Set up fee payment (Sponsored FPC on devnet, none on sandbox)
+const paymentMethod = isDevnet ? await setupSponsoredPayment(wallet) : undefined;
+const feeOpts = paymentMethod ? { fee: { paymentMethod } } : undefined;
+
 // Create real client signer and x402 payment-aware fetch
-const clientSigner = new RealClientAztecSigner(aliceWallet, token);
+const clientSigner = new RealClientAztecSigner(aliceAccount, token, feeOpts);
 const scheme = new ExactAztecClientScheme(clientSigner);
 const payFetch = wrapFetchWithPayment(fetch, scheme);
 
@@ -68,6 +85,6 @@ console.log(JSON.stringify(data, null, 2));
 // Check balance after
 const balanceAfter = await token.methods
   .balance_of_private(alice)
-  .simulate();
+  .simulate({ from: alice });
 console.log(`\nBalance after: ${balanceAfter}`);
 console.log(`Spent: ${Number(balanceBefore) - Number(balanceAfter)}`);

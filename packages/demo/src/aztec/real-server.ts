@@ -1,15 +1,16 @@
 /**
- * Real x402 demo server — connects to Aztec sandbox,
+ * Real x402 demo server — connects to Aztec node,
  * gates /api/weather behind a private token payment.
  *
  * Prerequisites: run setup.ts first to deploy the token contract.
  *
  * Usage: bun run packages/demo/src/aztec/real-server.ts
  */
-import { createPXEClient, waitForPXE } from "@aztec/aztec.js";
-import { getDeployedTestAccountsWallets } from "@aztec/accounts/testing";
+import { createAztecNodeClient } from "@aztec/aztec.js/node";
+import { EmbeddedWallet } from "@aztec/wallets/embedded";
 import { readFileSync } from "fs";
 import { join, dirname } from "path";
+import { loadKeys, loadAccount } from "./wallet-manager.js";
 
 import type { AztecNetwork } from "@aztech-x402/core";
 import { ExactAztecFacilitatorScheme } from "@aztech-x402/mechanism/exact/facilitator";
@@ -23,10 +24,12 @@ import type {
 import { RealFacilitatorAztecSigner } from "./facilitator-signer.js";
 
 const PORT = 4402;
-const PRICE_AMOUNT = "100000"; // $0.10 with 6 decimals
+const PRICE_AMOUNT = "10000"; // $0.01 with 6 decimals
 
 // Load deployment config
-const CONFIG_PATH = join(dirname(new URL(import.meta.url).pathname), "deploy.json");
+const __dirname = dirname(new URL(import.meta.url).pathname);
+const CONFIG_PATH = join(__dirname, "deploy.json");
+const KEYS_PATH = join(__dirname, "keys.json");
 let config: Record<string, string>;
 try {
   config = JSON.parse(readFileSync(CONFIG_PATH, "utf-8"));
@@ -36,24 +39,28 @@ try {
   process.exit(1);
 }
 
-const PXE_URL = config.pxeUrl;
+const NODE_URL = config.nodeUrl;
 const NETWORK = config.network as AztecNetwork;
 const TOKEN_ADDRESS = config.tokenAddress;
 const SERVER_ADDRESS = config.bobAddress;
+const isDevnet = NETWORK !== "aztec:sandbox";
 
 // Connect to Aztec
-console.log(`Connecting to Aztec sandbox at ${PXE_URL}...`);
-const pxe = createPXEClient(PXE_URL);
-await waitForPXE(pxe);
+console.log(`Connecting to Aztec node at ${NODE_URL}...`);
+const node = createAztecNodeClient(NODE_URL);
+const wallet = await EmbeddedWallet.create(node, {
+  ephemeral: true,
+  pxeConfig: { proverEnabled: isDevnet },
+});
 
 // Get Bob's wallet (the server/facilitator)
-const wallets = await getDeployedTestAccountsWallets(pxe);
-const bobWallet = wallets[1];
-const bob = bobWallet.getAddress();
+const keys = loadKeys(KEYS_PATH);
+const bobAccount = await loadAccount(wallet, keys, "bob");
+const bob = bobAccount.address;
 console.log(`Server address: ${bob}`);
 
 // Create real facilitator signer
-const facilitatorSigner = new RealFacilitatorAztecSigner(bobWallet, pxe);
+const facilitatorSigner = new RealFacilitatorAztecSigner(bobAccount, wallet, node);
 const facilitator = new ExactAztecFacilitatorScheme(facilitatorSigner, [NETWORK]);
 await facilitator.initialize();
 
@@ -65,7 +72,7 @@ const routes: RoutesConfig = {
     amount: PRICE_AMOUNT,
     payTo: SERVER_ADDRESS,
     maxTimeoutSeconds: 120,
-    description: "Current weather data — costs $0.10 per request (real Aztec payment)",
+    description: "Current weather data — costs $0.01 per request (real Aztec payment)",
   },
 };
 
@@ -157,4 +164,4 @@ const server = Bun.serve({
 
 console.log(`\nx402 demo server (REAL AZTEC) running on http://localhost:${server.port}`);
 console.log(`  GET /health          — server info`);
-console.log(`  GET /api/weather     — payment-gated ($0.10 oUSD)`);
+console.log(`  GET /api/weather     — payment-gated ($0.01 oUSD)`);

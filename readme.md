@@ -10,22 +10,20 @@ This monorepo implements the [x402 protocol](https://www.x402.org) for [Aztec](h
 sequenceDiagram
     participant Client as Client (Alice)
     participant Server as Server + Middleware
-    participant PXE as Aztec PXE
+    participant Node as Aztec Node
     participant Chain as Aztec Chain
 
     Client->>Server: GET /api/weather
     Server-->>Client: 402 + PAYMENT-REQUIRED<br/>{asset, amount, payTo, nonce}
 
-    Client->>PXE: transfer_private_to_private(bob, 100000)
-    PXE->>Chain: Submit private tx (encrypted notes)
-    Chain-->>PXE: Tx settled
+    Client->>Node: transfer_private_to_private(bob, 10000)
+    Node->>Chain: Submit private tx (encrypted notes)
+    Chain-->>Node: Tx settled
 
     Client->>Server: GET /api/weather<br/>PAYMENT-SIGNATURE: {senderAddr, txHash, nonce}
 
     Note over Server: Validate nonce (anti-replay)
-    Server->>PXE: getTxReceipt(txHash) → success?
-    Server->>PXE: getNotes({txHash, recipient: bob})
-    PXE-->>Server: payment notes ≥ amount
+    Server->>Node: getTxReceipt(txHash) → settled?
 
     Note over Server: Consume nonce + record txHash
     Server-->>Client: 200 OK + weather data<br/>PAYMENT-RESPONSE: {tx, payer}
@@ -48,10 +46,7 @@ flowchart TD
     F -- Yes --> R4[402: payment already used]
     F -- No --> G[getTxReceipt — tx succeeded?]
     G -- No --> R5a[402: tx failed/dropped]
-    G -- Yes --> H[getNotes — sum payment notes]
-    H --> I{notes ≥ amount?}
-    I -- No --> R5[402: insufficient payment]
-    I -- Yes --> J2[Settle + record txHash]
+    G -- Yes --> J2[Settle + record txHash]
     J2 --> J[200 OK + PAYMENT-RESPONSE]
 
     style E fill:#2d6,color:#fff
@@ -60,7 +55,6 @@ flowchart TD
     style R2 fill:#d33,color:#fff
     style R3 fill:#d33,color:#fff
     style R4 fill:#d33,color:#fff
-    style R5 fill:#d33,color:#fff
     style R5a fill:#d33,color:#fff
 ```
 
@@ -103,7 +97,7 @@ graph LR
 | `@aztech-x402/mechanism` | x402 mechanism plugin — client scheme (sign + transfer) and facilitator scheme (verify + settle) |
 | `@aztech-x402/middleware` | Express-compatible middleware — 402 responses, nonce lifecycle, payment verification |
 | `@aztech-x402/client` | Fetch wrapper — automatic 402 detection, payment, and retry |
-| `@aztech-x402/demo` | Mock demo + real Aztec sandbox demo + replay attack test |
+| `@aztech-x402/demo` | Mock demo + real Aztec devnet demo + replay attack test |
 
 ## Quick Start (Mock — No Blockchain)
 
@@ -119,44 +113,37 @@ bun run ./packages/demo/src/client.ts
 
 Uses mock signers — proves the full protocol flow without touching a real chain.
 
-## Real Demo (Aztec Sandbox)
+## Real Demo (Aztec Devnet)
 
-Runs actual private token transfers on a local Aztec network.
+Runs actual private token transfers on the Aztec devnet using `EmbeddedWallet` and Sponsored FPC for gas.
 
 ### Prerequisites
 
-- **Docker** — the Aztec sandbox runs in Docker
-- **Node.js v18+** — for the Aztec CLI
 - **bun** — for running the demo code
 
-### Step 1: Install and start the Aztec sandbox
-
-```bash
-# Install the Aztec toolchain (version 0.87.9)
-VERSION=0.87.9 bash -i <(curl -sL https://install.aztec.network)
-
-# Start the sandbox (wait for "Aztec Server listening on port 8080")
-aztec start --sandbox
-```
-
-### Step 2: Deploy token and fund accounts
+### Step 1: Deploy accounts and token
 
 ```bash
 bun install
+
+# Point at the Aztec devnet node
+NODE_URL=https://v4-devnet-2.aztec-labs.com \
+AZTEC_NETWORK=aztec:devnet \
+USE_SPONSORED_FPC=true \
 bun run ./packages/demo/src/aztec/setup.ts
 ```
 
-This deploys an Overcast USD (oUSD) token, mints 1,000,000 units (1.0 oUSD) to Alice, and writes config to `packages/demo/src/aztec/deploy.json`.
+This generates Schnorr key pairs (`keys.json`), deploys Alice and Bob accounts on devnet, deploys an Overcast USD (oUSD) token, mints 1,000,000 units (1.0 oUSD) to Alice, and writes config to `packages/demo/src/aztec/deploy.json`.
 
-### Step 3: Start the server
+### Step 2: Start the server
 
 ```bash
 bun run ./packages/demo/src/aztec/real-server.ts
 ```
 
-Gates `GET /api/weather` behind a 100,000 unit ($0.10) oUSD private payment. Runs on port 4402.
+Gates `GET /api/weather` behind a 10,000 unit ($0.01) oUSD private payment. Runs on port 4402.
 
-### Step 4: Run the client
+### Step 3: Run the client
 
 ```bash
 bun run ./packages/demo/src/aztec/real-client.ts
@@ -165,8 +152,8 @@ bun run ./packages/demo/src/aztec/real-client.ts
 Expected output:
 
 ```
-Connecting to Aztec sandbox at http://localhost:8080...
-Payer address: 0x1165...
+Connecting to Aztec node at https://v4-devnet-2.aztec-labs.com/...
+Payer address: 0x1d90...
 Balance before: 1000000
 
 Fetching http://localhost:4402/api/weather (payment-gated)...
@@ -177,14 +164,14 @@ Response (200):
   "temperature": 21,
   "conditions": "Clear skies, private transactions flowing smoothly",
   "paid": true,
-  "network": "aztec:sandbox"
+  "network": "aztec:devnet"
 }
 
-Balance after: 900000
-Spent: 100000
+Balance after: 990000
+Spent: 10000
 ```
 
-### Step 5: Test anti-replay protection
+### Step 4: Test anti-replay protection
 
 ```bash
 bun run ./packages/demo/src/aztec/replay-test.ts
@@ -204,13 +191,15 @@ bun run build   # Build all packages
 
 | Variable | Default | Description |
 |----------|---------|-------------|
-| `PXE_URL` | `http://localhost:8080` | Aztec PXE endpoint |
-| `SERVER_URL` | `http://localhost:4402` | x402 demo server endpoint |
+| `NODE_URL` | `http://localhost:8080` | Aztec node endpoint |
+| `AZTEC_NETWORK` | `aztec:sandbox` | CAIP-2 network id (`aztec:sandbox` or `aztec:devnet`) |
+| `USE_SPONSORED_FPC` | `false` | Use Sponsored FPC for gas fees (required on devnet) |
+| `SERVER_URL` | `http://localhost:4402` | x402 demo server endpoint (client only) |
 
 ## Design Decisions
 
 - **`transfer_private_to_private` only** — all payments stay fully private on-chain
-- **Per-transaction note verification** — server uses `getNotes({ txHash })` to verify the specific transaction created payment notes for the recipient, preventing replay via pre-existing balance
+- **Tx receipt verification** — server verifies the payment transaction settled on-chain via `getTxReceipt`; the ZK proof guarantees correctness of the private transfer
 - **Server = facilitator** — no separate facilitator service; the server verifies and settles payments directly
 - **Nonce in `extra` field** — flows through the protocol without any client-side code changes
 - **UUID v7 nonces** — time-ordered for debuggability, expire after `maxTimeoutSeconds`

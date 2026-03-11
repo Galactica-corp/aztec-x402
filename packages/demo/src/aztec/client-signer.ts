@@ -1,30 +1,32 @@
 /**
- * Real ClientAztecSigner — wraps an Aztec AccountWallet and TokenContract
+ * Real ClientAztecSigner — wraps an Aztec AccountManager and TokenContract
  * to execute private-to-private token transfers on the Aztec network.
  */
 import type { ClientAztecSigner } from "@aztech-x402/core";
-import { AztecAddress } from "@aztec/aztec.js";
+import { AztecAddress } from "@aztec/aztec.js/addresses";
 
-interface AztecWallet {
-  getAddress(): AztecAddress;
+interface AztecAccount {
+  address: AztecAddress;
 }
 
 interface TokenContract {
   methods: {
     transfer(to: AztecAddress, amount: bigint): {
-      send(): { wait(): Promise<{ txHash: { toString(): string } }> };
+      simulate(opts: { from: AztecAddress }): Promise<unknown>;
+      send(opts: Record<string, unknown>): Promise<{ txHash: { toString(): string } }>;
     };
   };
 }
 
 export class RealClientAztecSigner implements ClientAztecSigner {
   constructor(
-    private readonly wallet: AztecWallet,
+    private readonly account: AztecAccount,
     private readonly token: TokenContract,
+    private readonly sendOpts?: { fee?: unknown },
   ) {}
 
   async getAddress(): Promise<string> {
-    return this.wallet.getAddress().toString();
+    return this.account.address.toString();
   }
 
   async transferPrivateToPrivate(
@@ -32,15 +34,15 @@ export class RealClientAztecSigner implements ClientAztecSigner {
     to: string,
     amount: bigint,
   ): Promise<string> {
-    // Convert string address to AztecAddress for the SDK.
-    // token.methods.transfer(to, amount) does private-to-private
-    // where sender = msg_sender (this wallet).
     const recipient = AztecAddress.fromString(to);
-    const receipt = await this.token.methods
-      .transfer(recipient, amount)
-      .send()
-      .wait();
-
+    const from = this.account.address;
+    const method = this.token.methods.transfer(recipient, amount);
+    await method.simulate({ from });
+    const opts: Record<string, unknown> = { from, wait: { timeout: 120 } };
+    if (this.sendOpts?.fee) {
+      opts.fee = this.sendOpts.fee;
+    }
+    const receipt = await method.send(opts);
     return receipt.txHash.toString();
   }
 }
