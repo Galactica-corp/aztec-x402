@@ -80,6 +80,7 @@ console.log("  Body:", JSON.stringify(body2, null, 2));
 // Verdict
 if (resp1.status === 200 && resp2.status === 402) {
   console.log("\n✅ Anti-replay protection works!");
+  process.exit(0);
 } else {
   console.log("\n❌ Anti-replay protection FAILED");
   process.exit(1);

@@ -191,8 +191,8 @@ bun run build   # Build all packages
 
 | Variable | Default | Description |
 |----------|---------|-------------|
-| `NODE_URL` | `http://localhost:8080` | Aztec node endpoint |
-| `AZTEC_NETWORK` | `aztec:sandbox` | CAIP-2 network id (`aztec:sandbox` or `aztec:devnet`) |
+| `NODE_URL` | `http://localhost:8080` | Aztec node endpoint (use `https://v4-devnet-2.aztec-labs.com` for devnet) |
+| `AZTEC_NETWORK` | `aztec:sandbox` | CAIP-2 network id (`aztec:devnet` for devnet) |
 | `USE_SPONSORED_FPC` | `false` | Use Sponsored FPC for gas fees (required on devnet) |
 | `SERVER_URL` | `http://localhost:4402` | x402 demo server endpoint (client only) |
 
@@ -203,9 +203,3 @@ bun run build   # Build all packages
 - **Server = facilitator** — no separate facilitator service; the server verifies and settles payments directly
 - **Nonce in `extra` field** — flows through the protocol without any client-side code changes
 - **UUID v7 nonces** — time-ordered for debuggability, expire after `maxTimeoutSeconds`
-
-## Docs
-
-- [Status Report](docs/status-report.md) — sandbox testing log and known issues
-- [Anti-Replay (RU)](docs/anti-replay-ru.md) — txHash-based anti-replay explanation (Russian)
-- [Full Report (RU)](docs/report-ru.md) — implementation report (Russian)

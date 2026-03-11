@@ -88,3 +88,4 @@ const balanceAfter = await token.methods
   .simulate({ from: alice });
 console.log(`\nBalance after: ${balanceAfter}`);
 console.log(`Spent: ${Number(balanceBefore) - Number(balanceAfter)}`);
+process.exit(0);
