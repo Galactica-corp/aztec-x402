@@ -6,7 +6,7 @@
  *
  * Usage: bun run packages/demo/src/aztec/real-client.ts
  */
-import { createPXEClient, waitForPXE } from "@aztec/aztec.js";
+import { AztecAddress, createPXEClient, waitForPXE } from "@aztec/aztec.js";
 import { getDeployedTestAccountsWallets } from "@aztec/accounts/testing";
 import { TokenContract } from "@aztec/noir-contracts.js/Token";
 import { readFileSync } from "fs";
@@ -43,7 +43,8 @@ const alice = aliceWallet.getAddress();
 console.log(`Payer address: ${alice}`);
 
 // Get the deployed token contract
-const token = await TokenContract.at(config.tokenAddress, aliceWallet);
+const tokenAddress = AztecAddress.fromString(config.tokenAddress);
+const token = await TokenContract.at(tokenAddress, aliceWallet);
 
 // Check balance before
 const balanceBefore = await token.methods

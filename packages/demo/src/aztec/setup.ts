@@ -53,7 +53,7 @@ async function main() {
   console.log(`Minting ${MINT_AMOUNT} to Alice's private balance...`);
   await token.methods
     .mint_to_private(alice, alice, MINT_AMOUNT)
-    .send({ from: alice })
+    .send()
     .wait();
 
   // Verify balance
