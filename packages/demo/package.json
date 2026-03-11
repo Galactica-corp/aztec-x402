@@ -13,14 +13,15 @@
     "test": "bun test"
   },
   "dependencies": {
+    "@aztec-x402/client": "workspace:*",
     "@aztec-x402/core": "workspace:*",
     "@aztec-x402/mechanism": "workspace:*",
     "@aztec-x402/middleware": "workspace:*",
-    "@aztec-x402/client": "workspace:*",
-    "@aztec/aztec.js": "4.0.0-devnet.2-patch.1",
     "@aztec/accounts": "4.0.0-devnet.2-patch.1",
+    "@aztec/aztec.js": "4.0.0-devnet.2-patch.1",
     "@aztec/constants": "4.0.0-devnet.2-patch.1",
     "@aztec/noir-contracts.js": "4.0.0-devnet.2-patch.1",
-    "@aztec/wallets": "4.0.0-devnet.2-patch.1"
+    "@aztec/wallets": "4.0.0-devnet.2-patch.1",
+    "@sentry/bun": "^10.43.0"
   }
 }

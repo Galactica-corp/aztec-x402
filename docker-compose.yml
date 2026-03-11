@@ -8,6 +8,7 @@ services:
       - "1005:4402"
     environment:
       NODE_ENV: production
+      SENTRY_DSN: ${SENTRY_DSN:-}
     volumes:
       - aztec-data:/app/packages/demo/src/aztec/data
     restart: unless-stopped

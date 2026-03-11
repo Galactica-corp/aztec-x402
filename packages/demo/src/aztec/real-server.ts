@@ -6,6 +6,14 @@
  *
  * Usage: bun run packages/demo/src/aztec/real-server.ts
  */
+import * as Sentry from "@sentry/bun";
+
+Sentry.init({
+  dsn: process.env.SENTRY_DSN,
+  environment: process.env.NODE_ENV ?? "development",
+  tracesSampleRate: 1.0,
+});
+
 import { createAztecNodeClient } from "@aztec/aztec.js/node";
 import { EmbeddedWallet } from "@aztec/wallets/embedded";
 import { readFileSync } from "fs";
@@ -80,7 +88,7 @@ const routes: RoutesConfig = {
 const middleware = createPaymentMiddleware(routes, { facilitator });
 
 // Bun.serve adapter (same as mock demo)
-function handleRequest(req: Request): Promise<Response> {
+async function handleRequest(req: Request): Promise<Response> {
   const url = new URL(req.url);
 
   if (url.pathname === "/health") {
@@ -161,6 +169,10 @@ function handleRequest(req: Request): Promise<Response> {
 const server = Bun.serve({
   port: PORT,
   fetch: handleRequest,
+  error(error) {
+    Sentry.captureException(error);
+    return new Response("Internal Server Error", { status: 500 });
+  },
 });
 
 console.log(`\nx402 demo server (REAL AZTEC) running on http://localhost:${server.port}`);
