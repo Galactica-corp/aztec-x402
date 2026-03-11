@@ -1,4 +1,4 @@
-# @aztech-x402/demo
+# @aztec-x402/demo
 
 Demo of x402 payment-gated API on Aztec — both mock (no blockchain needed) and real (against Aztec sandbox).
 
@@ -54,7 +54,7 @@ The sandbox provides:
 ### Step 3: Install dependencies
 
 ```bash
-cd aztech-x402
+cd aztec-x402
 bun install
 ```
 

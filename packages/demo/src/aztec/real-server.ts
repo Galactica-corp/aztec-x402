@@ -12,15 +12,15 @@ import { readFileSync } from "fs";
 import { join, dirname } from "path";
 import { loadKeys, loadAccount } from "./wallet-manager.js";
 
-import type { AztecNetwork } from "@aztech-x402/core";
-import { ExactAztecFacilitatorScheme } from "@aztech-x402/mechanism/exact/facilitator";
-import { createPaymentMiddleware } from "@aztech-x402/middleware";
+import type { AztecNetwork } from "@aztec-x402/core";
+import { ExactAztecFacilitatorScheme } from "@aztec-x402/mechanism/exact/facilitator";
+import { createPaymentMiddleware } from "@aztec-x402/middleware";
 import type {
   MiddlewareRequest,
   MiddlewareResponse,
   NextFunction,
   RoutesConfig,
-} from "@aztech-x402/middleware";
+} from "@aztec-x402/middleware";
 import { RealFacilitatorAztecSigner } from "./facilitator-signer.js";
 
 const PORT = 4402;

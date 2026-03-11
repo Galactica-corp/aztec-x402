@@ -1,6 +1,6 @@
 import { describe, it, expect, jest, beforeEach } from "bun:test";
 import { ExactAztecFacilitatorScheme } from "../exact/facilitator/scheme.js";
-import type { FacilitatorAztecSigner, AztecNetwork } from "@aztech-x402/core";
+import type { FacilitatorAztecSigner, AztecNetwork } from "@aztec-x402/core";
 import type {
   PaymentPayload,
   PaymentRequirements,

@@ -1,5 +1,5 @@
 {
-  "name": "@aztech-x402/mechanism",
+  "name": "@aztec-x402/mechanism",
   "version": "0.1.0",
   "description": "x402 mechanism plugin for Aztec — client, facilitator, and server schemes",
   "type": "module",
@@ -33,7 +33,7 @@
     "clean": "rm -rf dist"
   },
   "dependencies": {
-    "@aztech-x402/core": "workspace:*"
+    "@aztec-x402/core": "workspace:*"
   },
   "devDependencies": {
     "typescript": "^5.5.0"

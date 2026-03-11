@@ -1,5 +1,5 @@
 {
-  "name": "@aztech-x402/middleware",
+  "name": "@aztec-x402/middleware",
   "version": "0.1.0",
   "description": "Express middleware for x402 payment gating on Aztec",
   "type": "module",
@@ -18,8 +18,8 @@
     "clean": "rm -rf dist"
   },
   "dependencies": {
-    "@aztech-x402/core": "workspace:*",
-    "@aztech-x402/mechanism": "workspace:*",
+    "@aztec-x402/core": "workspace:*",
+    "@aztec-x402/mechanism": "workspace:*",
     "uuid": "^13.0.0"
   },
   "devDependencies": {

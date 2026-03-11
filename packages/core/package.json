@@ -1,5 +1,5 @@
 {
-  "name": "@aztech-x402/core",
+  "name": "@aztec-x402/core",
   "version": "0.1.0",
   "description": "Core types, constants, and signer abstractions for x402 on Aztec",
   "type": "module",

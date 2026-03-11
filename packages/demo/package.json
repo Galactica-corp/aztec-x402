@@ -1,5 +1,5 @@
 {
-  "name": "@aztech-x402/demo",
+  "name": "@aztec-x402/demo",
   "version": "0.1.0",
   "private": true,
   "description": "Demo server and client for x402 payment-gated API on Aztec",
@@ -13,10 +13,10 @@
     "test": "bun test"
   },
   "dependencies": {
-    "@aztech-x402/core": "workspace:*",
-    "@aztech-x402/mechanism": "workspace:*",
-    "@aztech-x402/middleware": "workspace:*",
-    "@aztech-x402/client": "workspace:*",
+    "@aztec-x402/core": "workspace:*",
+    "@aztec-x402/mechanism": "workspace:*",
+    "@aztec-x402/middleware": "workspace:*",
+    "@aztec-x402/client": "workspace:*",
     "@aztec/aztec.js": "4.0.0-devnet.2-patch.1",
     "@aztec/accounts": "4.0.0-devnet.2-patch.1",
     "@aztec/constants": "4.0.0-devnet.2-patch.1",

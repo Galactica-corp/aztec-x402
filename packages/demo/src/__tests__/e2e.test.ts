@@ -3,17 +3,17 @@ import type {
   ClientAztecSigner,
   FacilitatorAztecSigner,
   AztecNetwork,
-} from "@aztech-x402/core";
-import { ExactAztecClientScheme } from "@aztech-x402/mechanism/exact/client";
-import { ExactAztecFacilitatorScheme } from "@aztech-x402/mechanism/exact/facilitator";
-import { createPaymentMiddleware } from "@aztech-x402/middleware";
+} from "@aztec-x402/core";
+import { ExactAztecClientScheme } from "@aztec-x402/mechanism/exact/client";
+import { ExactAztecFacilitatorScheme } from "@aztec-x402/mechanism/exact/facilitator";
+import { createPaymentMiddleware } from "@aztec-x402/middleware";
 import type {
   MiddlewareRequest,
   MiddlewareResponse,
   NextFunction,
   RoutesConfig,
-} from "@aztech-x402/middleware";
-import { wrapFetchWithPayment } from "@aztech-x402/client";
+} from "@aztec-x402/middleware";
+import { wrapFetchWithPayment } from "@aztec-x402/client";
 
 const NETWORK: AztecNetwork = "aztec:sandbox";
 const SERVER_ADDRESS = "0x" + "bb".repeat(32);

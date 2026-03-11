@@ -2,7 +2,7 @@
  * Real ClientAztecSigner — wraps an Aztec AccountManager and TokenContract
  * to execute private-to-private token transfers on the Aztec network.
  */
-import type { ClientAztecSigner } from "@aztech-x402/core";
+import type { ClientAztecSigner } from "@aztec-x402/core";
 import { AztecAddress } from "@aztec/aztec.js/addresses";
 
 interface AztecAccount {

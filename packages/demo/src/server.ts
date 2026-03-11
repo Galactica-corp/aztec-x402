@@ -1,15 +1,15 @@
 import type {
   FacilitatorAztecSigner,
   AztecNetwork,
-} from "@aztech-x402/core";
-import { ExactAztecFacilitatorScheme } from "@aztech-x402/mechanism/exact/facilitator";
-import { createPaymentMiddleware } from "@aztech-x402/middleware";
+} from "@aztec-x402/core";
+import { ExactAztecFacilitatorScheme } from "@aztec-x402/mechanism/exact/facilitator";
+import { createPaymentMiddleware } from "@aztec-x402/middleware";
 import type {
   MiddlewareRequest,
   MiddlewareResponse,
   NextFunction,
-} from "@aztech-x402/middleware";
-import type { RoutesConfig } from "@aztech-x402/middleware";
+} from "@aztec-x402/middleware";
+import type { RoutesConfig } from "@aztec-x402/middleware";
 
 const PORT = 4402;
 const NETWORK: AztecNetwork = "aztec:sandbox";

@@ -1,5 +1,5 @@
 {
-  "name": "aztech-x402",
+  "name": "aztec-x402",
   "private": true,
   "description": "x402 HTTP 402 payment protocol for Aztec private stablecoins",
   "workspaces": [
@@ -9,7 +9,10 @@
     "build": "bun run --filter '*' build",
     "test": "bun run --filter '*' test",
     "lint": "oxlint --config .oxlintrc.json packages/",
-    "clean": "bun run --filter '*' clean"
+    "clean": "bun run --filter '*' clean",
+    "setup": "NODE_URL=https://v4-devnet-2.aztec-labs.com AZTEC_NETWORK=aztec:devnet USE_SPONSORED_FPC=true bun run ./packages/demo/src/aztec/setup.ts",
+    "demo": "bun run ./packages/demo/src/aztec/real-client.ts",
+    "demo:replay": "bun run ./packages/demo/src/aztec/replay-test.ts"
   },
   "devDependencies": {
     "oxlint": "^1.52.0"

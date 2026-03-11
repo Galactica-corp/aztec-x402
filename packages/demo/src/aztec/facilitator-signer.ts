@@ -9,7 +9,7 @@
 import type {
   FacilitatorAztecSigner,
   PaymentNoteVerification,
-} from "@aztech-x402/core";
+} from "@aztec-x402/core";
 import { AztecAddress } from "@aztec/aztec.js/addresses";
 import { Fr } from "@aztec/aztec.js/fields";
 import { TxHash } from "@aztec/aztec.js/tx";

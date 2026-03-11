@@ -13,8 +13,8 @@ import { EmbeddedWallet } from "@aztec/wallets/embedded";
 import { readFileSync } from "fs";
 import { join, dirname } from "path";
 
-import { ExactAztecClientScheme } from "@aztech-x402/mechanism/exact/client";
-import { wrapFetchWithPayment } from "@aztech-x402/client";
+import { ExactAztecClientScheme } from "@aztec-x402/mechanism/exact/client";
+import { wrapFetchWithPayment } from "@aztec-x402/client";
 import { RealClientAztecSigner } from "./client-signer.js";
 import { loadKeys, loadAccount, setupSponsoredPayment } from "./wallet-manager.js";
 

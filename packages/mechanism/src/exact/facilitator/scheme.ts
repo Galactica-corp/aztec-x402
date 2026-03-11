@@ -5,7 +5,7 @@ import {
   SCHEME,
   CAIP_FAMILY,
   isValidAztecAddress,
-} from "@aztech-x402/core";
+} from "@aztec-x402/core";
 
 /**
  * Parse the generic payload record into an ExactAztecPayload.

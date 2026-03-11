@@ -9,54 +9,54 @@
       },
     },
     "packages/client": {
-      "name": "@aztech-x402/client",
+      "name": "@aztec-x402/client",
       "version": "0.1.0",
       "dependencies": {
-        "@aztech-x402/core": "workspace:*",
-        "@aztech-x402/mechanism": "workspace:*",
+        "@aztec-x402/core": "workspace:*",
+        "@aztec-x402/mechanism": "workspace:*",
       },
       "devDependencies": {
         "typescript": "^5.5.0",
       },
     },
     "packages/core": {
-      "name": "@aztech-x402/core",
+      "name": "@aztec-x402/core",
       "version": "0.1.0",
       "devDependencies": {
         "typescript": "^5.5.0",
       },
     },
     "packages/demo": {
-      "name": "@aztech-x402/demo",
+      "name": "@aztec-x402/demo",
       "version": "0.1.0",
       "dependencies": {
+        "@aztec-x402/client": "workspace:*",
+        "@aztec-x402/core": "workspace:*",
+        "@aztec-x402/mechanism": "workspace:*",
+        "@aztec-x402/middleware": "workspace:*",
         "@aztec/accounts": "4.0.0-devnet.2-patch.1",
         "@aztec/aztec.js": "4.0.0-devnet.2-patch.1",
         "@aztec/constants": "4.0.0-devnet.2-patch.1",
         "@aztec/noir-contracts.js": "4.0.0-devnet.2-patch.1",
         "@aztec/wallets": "4.0.0-devnet.2-patch.1",
-        "@aztech-x402/client": "workspace:*",
-        "@aztech-x402/core": "workspace:*",
-        "@aztech-x402/mechanism": "workspace:*",
-        "@aztech-x402/middleware": "workspace:*",
       },
     },
     "packages/mechanism": {
-      "name": "@aztech-x402/mechanism",
+      "name": "@aztec-x402/mechanism",
       "version": "0.1.0",
       "dependencies": {
-        "@aztech-x402/core": "workspace:*",
+        "@aztec-x402/core": "workspace:*",
       },
       "devDependencies": {
         "typescript": "^5.5.0",
       },
     },
     "packages/middleware": {
-      "name": "@aztech-x402/middleware",
+      "name": "@aztec-x402/middleware",
       "version": "0.1.0",
       "dependencies": {
-        "@aztech-x402/core": "workspace:*",
-        "@aztech-x402/mechanism": "workspace:*",
+        "@aztec-x402/core": "workspace:*",
+        "@aztec-x402/mechanism": "workspace:*",
         "uuid": "^13.0.0",
       },
       "devDependencies": {
@@ -148,6 +148,16 @@
 
     "@aws/lambda-invoke-store": ["@aws/lambda-invoke-store@0.2.3", "", {}, "sha512-oLvsaPMTBejkkmHhjf09xTgk71mOqyr/409NKhRIL08If7AhVfUsJhVsx386uJaqNd42v9kWamQ9lFbkoC2dYw=="],
 
+    "@aztec-x402/client": ["@aztec-x402/client@workspace:packages/client"],
+
+    "@aztec-x402/core": ["@aztec-x402/core@workspace:packages/core"],
+
+    "@aztec-x402/demo": ["@aztec-x402/demo@workspace:packages/demo"],
+
+    "@aztec-x402/mechanism": ["@aztec-x402/mechanism@workspace:packages/mechanism"],
+
+    "@aztec-x402/middleware": ["@aztec-x402/middleware@workspace:packages/middleware"],
+
     "@aztec/accounts": ["@aztec/accounts@4.0.0-devnet.2-patch.1", "", { "dependencies": { "@aztec/aztec.js": "4.0.0-devnet.2-patch.1", "@aztec/entrypoints": "4.0.0-devnet.2-patch.1", "@aztec/ethereum": "4.0.0-devnet.2-patch.1", "@aztec/foundation": "4.0.0-devnet.2-patch.1", "@aztec/stdlib": "4.0.0-devnet.2-patch.1", "tslib": "^2.4.0" } }, "sha512-1zylLQOQjWK6/heWo2c2y+VKee+E5fFWptk/x8mxZFD5F8Z2jcw82TGN1keKp38V7qk0K8jROCYq/QCEZy3SKg=="],
 
     "@aztec/aztec.js": ["@aztec/aztec.js@4.0.0-devnet.2-patch.1", "", { "dependencies": { "@aztec/constants": "4.0.0-devnet.2-patch.1", "@aztec/entrypoints": "4.0.0-devnet.2-patch.1", "@aztec/ethereum": "4.0.0-devnet.2-patch.1", "@aztec/foundation": "4.0.0-devnet.2-patch.1", "@aztec/l1-artifacts": "4.0.0-devnet.2-patch.1", "@aztec/protocol-contracts": "4.0.0-devnet.2-patch.1", "@aztec/stdlib": "4.0.0-devnet.2-patch.1", "axios": "^1.12.0", "tslib": "^2.4.0", "viem": "npm:@aztec/viem@2.38.2", "zod": "^3.23.8" } }, "sha512-tyaKVxp/Ba2FqTtPrM0u0j8ravdqWIggKtCxO+yusyg3sV/dZGa44BFoqrPX3pXPVITrcQGgRfqhOA13hNcc/Q=="],
@@ -207,16 +217,6 @@
     "@aztec/wallets": ["@aztec/wallets@4.0.0-devnet.2-patch.1", "", { "dependencies": { "@aztec/accounts": "4.0.0-devnet.2-patch.1", "@aztec/aztec.js": "4.0.0-devnet.2-patch.1", "@aztec/entrypoints": "4.0.0-devnet.2-patch.1", "@aztec/foundation": "4.0.0-devnet.2-patch.1", "@aztec/kv-store": "4.0.0-devnet.2-patch.1", "@aztec/protocol-contracts": "4.0.0-devnet.2-patch.1", "@aztec/pxe": "4.0.0-devnet.2-patch.1", "@aztec/stdlib": "4.0.0-devnet.2-patch.1", "@aztec/wallet-sdk": "4.0.0-devnet.2-patch.1" } }, "sha512-g34ULDFovIVmXv2VpkydAFkmp8mmDkHd94/+8BFwKzieg7omlIwQqSvGaClki7nxWBeLJ6r71OD8PK8PV54qpQ=="],
 
     "@aztec/world-state": ["@aztec/world-state@4.0.0-devnet.2-patch.1", "", { "dependencies": { "@aztec/constants": "4.0.0-devnet.2-patch.1", "@aztec/foundation": "4.0.0-devnet.2-patch.1", "@aztec/kv-store": "4.0.0-devnet.2-patch.1", "@aztec/merkle-tree": "4.0.0-devnet.2-patch.1", "@aztec/native": "4.0.0-devnet.2-patch.1", "@aztec/protocol-contracts": "4.0.0-devnet.2-patch.1", "@aztec/stdlib": "4.0.0-devnet.2-patch.1", "@aztec/telemetry-client": "4.0.0-devnet.2-patch.1", "tslib": "^2.4.0", "zod": "^3.23.8" } }, "sha512-3NqI9Y8rhWp4pWD5qTO3QGoXTIajuTwoz3Up2/Sif7q/blBfnqfU5fiImiZgXER7waxDtJkBzeji02KhJip0uA=="],
-
-    "@aztech-x402/client": ["@aztech-x402/client@workspace:packages/client"],
-
-    "@aztech-x402/core": ["@aztech-x402/core@workspace:packages/core"],
-
-    "@aztech-x402/demo": ["@aztech-x402/demo@workspace:packages/demo"],
-
-    "@aztech-x402/mechanism": ["@aztech-x402/mechanism@workspace:packages/mechanism"],
-
-    "@aztech-x402/middleware": ["@aztech-x402/middleware@workspace:packages/middleware"],
 
     "@crate-crypto/node-eth-kzg": ["@crate-crypto/node-eth-kzg@0.10.0", "", { "optionalDependencies": { "@crate-crypto/node-eth-kzg-darwin-arm64": "0.10.0", "@crate-crypto/node-eth-kzg-darwin-x64": "0.10.0", "@crate-crypto/node-eth-kzg-linux-arm64-gnu": "0.10.0", "@crate-crypto/node-eth-kzg-linux-x64-gnu": "0.10.0", "@crate-crypto/node-eth-kzg-win32-arm64-msvc": "0.10.0", "@crate-crypto/node-eth-kzg-win32-x64-msvc": "0.10.0" } }, "sha512-sGDPH1nW2EhJzjzHyINvTQwDNGRzdq/2vVzFwwrmFOHtIBaRjXGqo7wKj/JoJoNjuRSGeXz/EmaahRq0pgxzqw=="],
 

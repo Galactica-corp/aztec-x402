@@ -1,6 +1,6 @@
 import { describe, it, expect, jest, beforeEach } from "bun:test";
 import { wrapFetchWithPayment } from "../client.js";
-import type { SchemeNetworkClient, PaymentRequirements } from "@aztech-x402/mechanism";
+import type { SchemeNetworkClient, PaymentRequirements } from "@aztec-x402/mechanism";
 
 const SENDER_ADDRESS = "0x" + "aa".repeat(32);
 const SERVER_ADDRESS = "0x" + "bb".repeat(32);

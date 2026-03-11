@@ -8,7 +8,7 @@ import { TokenContract } from "@aztec/noir-contracts.js/Token";
 import { EmbeddedWallet } from "@aztec/wallets/embedded";
 import { readFileSync } from "fs";
 import { join, dirname } from "path";
-import { ExactAztecClientScheme } from "@aztech-x402/mechanism/exact/client";
+import { ExactAztecClientScheme } from "@aztec-x402/mechanism/exact/client";
 import { RealClientAztecSigner } from "./client-signer.js";
 import { loadKeys, loadAccount } from "./wallet-manager.js";
 

@@ -2,7 +2,7 @@ import type {
   SchemeNetworkClient,
   PaymentPayload,
   PaymentRequirements,
-} from "@aztech-x402/mechanism";
+} from "@aztec-x402/mechanism";
 
 type FetchFunction = typeof fetch;
 

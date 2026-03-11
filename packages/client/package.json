@@ -1,5 +1,5 @@
 {
-  "name": "@aztech-x402/client",
+  "name": "@aztec-x402/client",
   "version": "0.1.0",
   "description": "Fetch wrapper for automatic x402 payment handling on Aztec",
   "type": "module",
@@ -18,8 +18,8 @@
     "clean": "rm -rf dist"
   },
   "dependencies": {
-    "@aztech-x402/core": "workspace:*",
-    "@aztech-x402/mechanism": "workspace:*"
+    "@aztec-x402/core": "workspace:*",
+    "@aztec-x402/mechanism": "workspace:*"
   },
   "devDependencies": {
     "typescript": "^5.5.0"

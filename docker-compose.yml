@@ -1,0 +1,14 @@
+services:
+  aztec-x402:
+    build: .
+    image: aztec-x402
+    labels:
+      deploy.url: "https://aztec-x402.unfazed.engineering"
+    ports:
+      - "1005:4402"
+    environment:
+      NODE_ENV: production
+    volumes:
+      - ./packages/demo/src/aztec/deploy.json:/app/packages/demo/src/aztec/deploy.json:ro
+      - ./packages/demo/src/aztec/keys.json:/app/packages/demo/src/aztec/keys.json:ro
+    restart: unless-stopped

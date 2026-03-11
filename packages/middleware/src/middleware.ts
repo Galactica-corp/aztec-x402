@@ -1,5 +1,5 @@
 import { v7 as uuidv7 } from "uuid";
-import type { PaymentPayload, PaymentRequirements } from "@aztech-x402/mechanism";
+import type { PaymentPayload, PaymentRequirements } from "@aztec-x402/mechanism";
 import type {
   RoutesConfig,
   MiddlewareConfig,

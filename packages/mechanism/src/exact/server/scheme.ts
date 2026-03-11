@@ -2,7 +2,7 @@ import {
   type AztecServerConfig,
   SCHEME,
   parsePrice as corePriceParser,
-} from "@aztech-x402/core";
+} from "@aztec-x402/core";
 import type {
   SchemeNetworkServer,
   Price,

@@ -2,7 +2,7 @@ import {
   type ClientAztecSigner,
   SCHEME,
   generateCorrelationId,
-} from "@aztech-x402/core";
+} from "@aztec-x402/core";
 import type {
   SchemeNetworkClient,
   PaymentRequirements,

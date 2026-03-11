@@ -1,4 +1,4 @@
-# aztech-x402
+# aztec-x402
 
 x402 payment protocol for Aztec private tokens — HTTP-native micropayments with full transaction privacy.
 
@@ -67,16 +67,16 @@ flowchart TD
 ```mermaid
 graph LR
     subgraph Client Side
-        CL["@aztech-x402/client<br/><i>wrapFetchWithPayment()</i>"]
+        CL["@aztec-x402/client<br/><i>wrapFetchWithPayment()</i>"]
         MC["mechanism/client<br/><i>ExactAztecClientScheme</i>"]
     end
 
     subgraph Server Side
-        MW["@aztech-x402/middleware<br/><i>createPaymentMiddleware()</i><br/>Nonce lifecycle"]
+        MW["@aztec-x402/middleware<br/><i>createPaymentMiddleware()</i><br/>Nonce lifecycle"]
         MF["mechanism/facilitator<br/><i>ExactAztecFacilitatorScheme</i><br/>txHash anti-replay"]
     end
 
-    CO["@aztech-x402/core<br/><i>Types, signer interfaces</i>"]
+    CO["@aztec-x402/core<br/><i>Types, signer interfaces</i>"]
 
     CL --> MC
     MW --> MF
@@ -93,91 +93,52 @@ graph LR
 
 | Package | Description |
 |---------|-------------|
-| `@aztech-x402/core` | Types, constants, signer abstractions (`ClientAztecSigner`, `FacilitatorAztecSigner`) |
-| `@aztech-x402/mechanism` | x402 mechanism plugin — client scheme (sign + transfer) and facilitator scheme (verify + settle) |
-| `@aztech-x402/middleware` | Express-compatible middleware — 402 responses, nonce lifecycle, payment verification |
-| `@aztech-x402/client` | Fetch wrapper — automatic 402 detection, payment, and retry |
-| `@aztech-x402/demo` | Mock demo + real Aztec devnet demo + replay attack test |
+| `@aztec-x402/core` | Types, constants, signer abstractions (`ClientAztecSigner`, `FacilitatorAztecSigner`) |
+| `@aztec-x402/mechanism` | x402 mechanism plugin — client scheme (sign + transfer) and facilitator scheme (verify + settle) |
+| `@aztec-x402/middleware` | Express-compatible middleware — 402 responses, nonce lifecycle, payment verification |
+| `@aztec-x402/client` | Fetch wrapper — automatic 402 detection, payment, and retry |
+| `@aztec-x402/demo` | Mock demo + real Aztec devnet demo + replay attack test |
 
-## Quick Start (Mock — No Blockchain)
+## Quick Start
 
 ```bash
 bun install
 
-# Terminal 1: start mock server
+# One-time: deploy accounts + token on Aztec devnet
+bun run setup
+
+# Run the payment-gated client demo
+bun run demo
+
+# Test anti-replay protection
+bun run demo:replay
+```
+
+### What happens
+
+1. **`bun run setup`** — generates Schnorr key pairs (`keys.json`), deploys Alice and Bob accounts on Aztec devnet, deploys an Overcast USD (oUSD) token, mints 1.0 oUSD to Alice, and writes config to `deploy.json`. Only needed once.
+
+2. **`bun run demo`** — Alice pays $0.01 oUSD (private transfer) for a weather API call. The client gets a 402 challenge, sends a private token transfer, and retries with the payment proof. Server verifies the tx on-chain and returns weather data.
+
+3. **`bun run demo:replay`** — sends a payment, then replays the exact same header. First request gets 200, replay gets 402 "invalid or expired payment nonce".
+
+### Mock demo (no blockchain)
+
+```bash
+# Terminal 1
 bun run ./packages/demo/src/server.ts
 
-# Terminal 2: call paid API
+# Terminal 2
 bun run ./packages/demo/src/client.ts
 ```
 
-Uses mock signers — proves the full protocol flow without touching a real chain.
-
-## Real Demo (Aztec Devnet)
-
-Runs actual private token transfers on the Aztec devnet using `EmbeddedWallet` and Sponsored FPC for gas.
-
-### Prerequisites
-
-- **bun** — for running the demo code
-
-### Step 1: Deploy accounts and token
+### Deploy server
 
 ```bash
-bun install
-
-# Point at the Aztec devnet node
-NODE_URL=https://v4-devnet-2.aztec-labs.com \
-AZTEC_NETWORK=aztec:devnet \
-USE_SPONSORED_FPC=true \
-bun run ./packages/demo/src/aztec/setup.ts
+docker compose up -d
 ```
 
-This generates Schnorr key pairs (`keys.json`), deploys Alice and Bob accounts on devnet, deploys an Overcast USD (oUSD) token, mints 1,000,000 units (1.0 oUSD) to Alice, and writes config to `packages/demo/src/aztec/deploy.json`.
-
-### Step 2: Start the server
-
-```bash
-bun run ./packages/demo/src/aztec/real-server.ts
-```
-
-Gates `GET /api/weather` behind a 10,000 unit ($0.01) oUSD private payment. Runs on port 4402.
-
-### Step 3: Run the client
-
-```bash
-bun run ./packages/demo/src/aztec/real-client.ts
-```
-
-Expected output:
-
-```
-Connecting to Aztec node at https://v4-devnet-2.aztec-labs.com/...
-Payer address: 0x1d90...
-Balance before: 1000000
-
-Fetching http://localhost:4402/api/weather (payment-gated)...
-
-Response (200):
-{
-  "location": "Aztec Network",
-  "temperature": 21,
-  "conditions": "Clear skies, private transactions flowing smoothly",
-  "paid": true,
-  "network": "aztec:devnet"
-}
-
-Balance after: 990000
-Spent: 10000
-```
-
-### Step 4: Test anti-replay protection
-
-```bash
-bun run ./packages/demo/src/aztec/replay-test.ts
-```
-
-Sends a payment, then replays the exact same `PAYMENT-SIGNATURE` header. First request gets 200, replay gets 402 "invalid or expired payment nonce".
+Server runs on port 1005, available at `https://aztec-x402.unfazed.engineering`.
 
 ## Development
 
@@ -191,9 +152,9 @@ bun run build   # Build all packages
 
 | Variable | Default | Description |
 |----------|---------|-------------|
-| `NODE_URL` | `http://localhost:8080` | Aztec node endpoint (use `https://v4-devnet-2.aztec-labs.com` for devnet) |
-| `AZTEC_NETWORK` | `aztec:sandbox` | CAIP-2 network id (`aztec:devnet` for devnet) |
-| `USE_SPONSORED_FPC` | `false` | Use Sponsored FPC for gas fees (required on devnet) |
+| `NODE_URL` | `https://v4-devnet-2.aztec-labs.com` | Aztec node endpoint |
+| `AZTEC_NETWORK` | `aztec:devnet` | CAIP-2 network id |
+| `USE_SPONSORED_FPC` | `true` | Use Sponsored FPC for gas fees |
 | `SERVER_URL` | `http://localhost:4402` | x402 demo server endpoint (client only) |
 
 ## Design Decisions

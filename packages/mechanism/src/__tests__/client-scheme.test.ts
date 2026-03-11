@@ -1,6 +1,6 @@
 import { describe, it, expect, jest, beforeEach } from "bun:test";
 import { ExactAztecClientScheme } from "../exact/client/scheme.js";
-import type { ClientAztecSigner } from "@aztech-x402/core";
+import type { ClientAztecSigner } from "@aztec-x402/core";
 import type { PaymentRequirements } from "../x402-types.js";
 
 function createMockSigner(overrides?: Partial<ClientAztecSigner>): ClientAztecSigner {
