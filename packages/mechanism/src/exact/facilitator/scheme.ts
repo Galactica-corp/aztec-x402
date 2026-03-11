@@ -53,6 +53,7 @@ export class ExactAztecFacilitatorScheme implements SchemeNetworkFacilitator {
   readonly caipFamily = CAIP_FAMILY;
 
   private cachedAddresses: string[] = [];
+  private consumedTxHashes = new Set<string>();
 
   constructor(
     private readonly signer: FacilitatorAztecSigner,
@@ -83,7 +84,17 @@ export class ExactAztecFacilitatorScheme implements SchemeNetworkFacilitator {
   ): Promise<VerifyResponse> {
     const aztecPayload = parseAztecPayload(payload.payload);
 
-    // 1. Validate payload structure
+    // 1. Reject replayed payments
+    if (aztecPayload.txHash && this.consumedTxHashes.has(aztecPayload.txHash)) {
+      return {
+        isValid: false,
+        invalidReason: "payment already used",
+        invalidMessage: "This payment has already been consumed.",
+        payer: aztecPayload.senderAddress,
+      };
+    }
+
+    // 2. Validate payload structure
     const validationError = this.validatePayload(aztecPayload);
     if (validationError) {
       return {
@@ -94,10 +105,10 @@ export class ExactAztecFacilitatorScheme implements SchemeNetworkFacilitator {
     }
 
     try {
-      // 2. Register sender so PXE discovers their notes
+      // 3. Register sender so PXE discovers their notes
       await this.signer.registerSender(aztecPayload.senderAddress);
 
-      // 3. Query facilitator's private balance
+      // 4. Query facilitator's private balance
       const balance = await this.signer.getPrivateBalance(
         requirements.asset,
         requirements.payTo,
@@ -150,6 +161,10 @@ export class ExactAztecFacilitatorScheme implements SchemeNetworkFacilitator {
 
     // For Aztec, the client has already submitted the private transfer.
     // Settlement is just acknowledgment — the funds are already in our notes.
+    if (aztecPayload.txHash) {
+      this.consumedTxHashes.add(aztecPayload.txHash);
+    }
+
     return {
       success: true,
       payer: aztecPayload.senderAddress,
