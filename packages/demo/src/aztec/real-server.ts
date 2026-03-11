@@ -91,7 +91,7 @@ const middleware = createPaymentMiddleware(routes, { facilitator });
 async function handleRequest(req: Request): Promise<Response> {
   const url = new URL(req.url);
 
-  if (url.pathname === "/health") {
+  if (url.pathname === "/" || url.pathname === "/health") {
     return Promise.resolve(
       Response.json({
         status: "ok",
