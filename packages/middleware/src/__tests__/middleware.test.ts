@@ -83,6 +83,46 @@ function createMockRes(): MockRes {
   return res;
 }
 
+/** Helper: send a request without payment to get a 402 and extract the nonce */
+async function getNonce(
+  middleware: ReturnType<typeof createPaymentMiddleware>,
+  path: string,
+): Promise<string> {
+  const req = createMockReq(path);
+  const res = createMockRes();
+  await middleware(req, res, jest.fn());
+  const decoded = JSON.parse(
+    Buffer.from(res.headers["PAYMENT-REQUIRED"], "base64").toString(),
+  );
+  return decoded.accepts[0].extra.nonce;
+}
+
+/** Helper: build a payment payload with the given nonce */
+function buildPaymentPayload(nonce?: string) {
+  return {
+    x402Version: 2,
+    accepted: {
+      scheme: "exact",
+      network: "aztec:sandbox",
+      asset: TOKEN_ADDRESS,
+      amount: "100000",
+      payTo: SERVER_ADDRESS,
+      maxTimeoutSeconds: 120,
+      extra: nonce != null ? { nonce } : {},
+    },
+    payload: {
+      senderAddress: SENDER_ADDRESS,
+      correlationId: "test-id",
+      txHash: TX_HASH,
+      timestamp: new Date().toISOString(),
+    },
+  };
+}
+
+function encodePayload(payload: object): string {
+  return Buffer.from(JSON.stringify(payload)).toString("base64");
+}
+
 describe("createPaymentMiddleware", () => {
   let config: MiddlewareConfig;
 
@@ -107,7 +147,7 @@ describe("createPaymentMiddleware", () => {
     expect(res.statusCode).toBe(200);
   });
 
-  it("returns 402 with PAYMENT-REQUIRED header when no payment provided", async () => {
+  it("returns 402 with PAYMENT-REQUIRED header and nonce when no payment provided", async () => {
     const routeConfig = createRouteConfig();
     const middleware = createPaymentMiddleware({ "/api/data": routeConfig }, config);
     const req = createMockReq("/api/data");
@@ -129,33 +169,24 @@ describe("createPaymentMiddleware", () => {
     expect(decoded.accepts[0].scheme).toBe("exact");
     expect(decoded.accepts[0].network).toBe("aztec:sandbox");
     expect(decoded.accepts[0].amount).toBe("100000");
+    // Nonce should be present and be a UUID string
+    expect(decoded.accepts[0].extra.nonce).toBeTruthy();
+    expect(typeof decoded.accepts[0].extra.nonce).toBe("string");
+    expect(decoded.accepts[0].extra.nonce.length).toBe(36);
   });
 
-  it("verifies and settles when PAYMENT-SIGNATURE is provided", async () => {
+  it("verifies and settles when valid nonce is provided", async () => {
     const routeConfig = createRouteConfig();
     const middleware = createPaymentMiddleware({ "/api/data": routeConfig }, config);
 
-    const paymentPayload = {
-      x402Version: 2,
-      accepted: {
-        scheme: "exact",
-        network: "aztec:sandbox",
-        asset: TOKEN_ADDRESS,
-        amount: "100000",
-        payTo: SERVER_ADDRESS,
-        maxTimeoutSeconds: 120,
-        extra: {},
-      },
-      payload: {
-        senderAddress: SENDER_ADDRESS,
-        correlationId: "test-id",
-        txHash: TX_HASH,
-        timestamp: new Date().toISOString(),
-      },
-    };
+    // Step 1: Get nonce from 402 response
+    const nonce = await getNonce(middleware, "/api/data");
 
-    const encodedPayment = Buffer.from(JSON.stringify(paymentPayload)).toString("base64");
-    const req = createMockReq("/api/data", { "payment-signature": encodedPayment });
+    // Step 2: Send payment with that nonce
+    const paymentPayload = buildPaymentPayload(nonce);
+    const req = createMockReq("/api/data", {
+      "payment-signature": encodePayload(paymentPayload),
+    });
     const res = createMockRes();
     const next = jest.fn();
 
@@ -174,19 +205,11 @@ describe("createPaymentMiddleware", () => {
 
     const middleware = createPaymentMiddleware({ "/api/data": createRouteConfig() }, config);
 
-    const paymentPayload = {
-      x402Version: 2,
-      accepted: createRouteConfig(),
-      payload: {
-        senderAddress: SENDER_ADDRESS,
-        correlationId: "test-id",
-        txHash: TX_HASH,
-        timestamp: new Date().toISOString(),
-      },
-    };
-
-    const encodedPayment = Buffer.from(JSON.stringify(paymentPayload)).toString("base64");
-    const req = createMockReq("/api/data", { "payment-signature": encodedPayment });
+    const nonce = await getNonce(middleware, "/api/data");
+    const paymentPayload = buildPaymentPayload(nonce);
+    const req = createMockReq("/api/data", {
+      "payment-signature": encodePayload(paymentPayload),
+    });
     const res = createMockRes();
     const next = jest.fn();
 
@@ -204,19 +227,11 @@ describe("createPaymentMiddleware", () => {
 
     const middleware = createPaymentMiddleware({ "/api/data": createRouteConfig() }, config);
 
-    const paymentPayload = {
-      x402Version: 2,
-      accepted: createRouteConfig(),
-      payload: {
-        senderAddress: SENDER_ADDRESS,
-        correlationId: "test-id",
-        txHash: TX_HASH,
-        timestamp: new Date().toISOString(),
-      },
-    };
-
-    const encodedPayment = Buffer.from(JSON.stringify(paymentPayload)).toString("base64");
-    const req = createMockReq("/api/data", { "payment-signature": encodedPayment });
+    const nonce = await getNonce(middleware, "/api/data");
+    const paymentPayload = buildPaymentPayload(nonce);
+    const req = createMockReq("/api/data", {
+      "payment-signature": encodePayload(paymentPayload),
+    });
     const res = createMockRes();
     const next = jest.fn();
 
@@ -229,19 +244,11 @@ describe("createPaymentMiddleware", () => {
   it("sets PAYMENT-RESPONSE header after successful settlement", async () => {
     const middleware = createPaymentMiddleware({ "/api/data": createRouteConfig() }, config);
 
-    const paymentPayload = {
-      x402Version: 2,
-      accepted: createRouteConfig(),
-      payload: {
-        senderAddress: SENDER_ADDRESS,
-        correlationId: "test-id",
-        txHash: TX_HASH,
-        timestamp: new Date().toISOString(),
-      },
-    };
-
-    const encodedPayment = Buffer.from(JSON.stringify(paymentPayload)).toString("base64");
-    const req = createMockReq("/api/data", { "payment-signature": encodedPayment });
+    const nonce = await getNonce(middleware, "/api/data");
+    const paymentPayload = buildPaymentPayload(nonce);
+    const req = createMockReq("/api/data", {
+      "payment-signature": encodePayload(paymentPayload),
+    });
     const res = createMockRes();
     const next = jest.fn();
 
@@ -253,5 +260,106 @@ describe("createPaymentMiddleware", () => {
     );
     expect(decoded.success).toBe(true);
     expect(decoded.transaction).toBe(TX_HASH);
+  });
+
+  // Nonce-specific tests
+
+  it("rejects payment with missing nonce", async () => {
+    const middleware = createPaymentMiddleware({ "/api/data": createRouteConfig() }, config);
+
+    const paymentPayload = buildPaymentPayload(); // no nonce
+    const req = createMockReq("/api/data", {
+      "payment-signature": encodePayload(paymentPayload),
+    });
+    const res = createMockRes();
+    const next = jest.fn();
+
+    await middleware(req, res, next);
+
+    expect(res.statusCode).toBe(402);
+    expect(next).not.toHaveBeenCalled();
+    const body = res.body as { error?: string };
+    expect(body.error).toBe("missing payment nonce");
+  });
+
+  it("rejects payment with fabricated nonce", async () => {
+    const middleware = createPaymentMiddleware({ "/api/data": createRouteConfig() }, config);
+
+    const paymentPayload = buildPaymentPayload("00000000-0000-0000-0000-000000000000");
+    const req = createMockReq("/api/data", {
+      "payment-signature": encodePayload(paymentPayload),
+    });
+    const res = createMockRes();
+    const next = jest.fn();
+
+    await middleware(req, res, next);
+
+    expect(res.statusCode).toBe(402);
+    expect(next).not.toHaveBeenCalled();
+    const body = res.body as { error?: string };
+    expect(body.error).toBe("invalid or expired payment nonce");
+  });
+
+  it("rejects replay of consumed nonce", async () => {
+    const middleware = createPaymentMiddleware({ "/api/data": createRouteConfig() }, config);
+
+    // Get nonce and use it
+    const nonce = await getNonce(middleware, "/api/data");
+    const paymentPayload = buildPaymentPayload(nonce);
+
+    const req1 = createMockReq("/api/data", {
+      "payment-signature": encodePayload(paymentPayload),
+    });
+    const res1 = createMockRes();
+    await middleware(req1, res1, jest.fn());
+    expect(res1.statusCode).not.toBe(402);
+
+    // Replay with same nonce
+    const req2 = createMockReq("/api/data", {
+      "payment-signature": encodePayload(paymentPayload),
+    });
+    const res2 = createMockRes();
+    const next2 = jest.fn();
+    await middleware(req2, res2, next2);
+
+    expect(res2.statusCode).toBe(402);
+    expect(next2).not.toHaveBeenCalled();
+    const body = res2.body as { error?: string };
+    expect(body.error).toBe("invalid or expired payment nonce");
+  });
+
+  it("rejects expired nonce", async () => {
+    const routeConfig = createRouteConfig();
+    routeConfig.maxTimeoutSeconds = 1; // 1 second timeout
+    const middleware = createPaymentMiddleware({ "/api/data": routeConfig }, config);
+
+    // Get nonce
+    const nonce = await getNonce(middleware, "/api/data");
+
+    // Wait for expiration
+    await new Promise((resolve) => setTimeout(resolve, 1100));
+
+    const paymentPayload = buildPaymentPayload(nonce);
+    const req = createMockReq("/api/data", {
+      "payment-signature": encodePayload(paymentPayload),
+    });
+    const res = createMockRes();
+    const next = jest.fn();
+
+    await middleware(req, res, next);
+
+    expect(res.statusCode).toBe(402);
+    expect(next).not.toHaveBeenCalled();
+    const body = res.body as { error?: string };
+    expect(body.error).toBe("invalid or expired payment nonce");
+  });
+
+  it("generates unique nonces per 402 response", async () => {
+    const middleware = createPaymentMiddleware({ "/api/data": createRouteConfig() }, config);
+
+    const nonce1 = await getNonce(middleware, "/api/data");
+    const nonce2 = await getNonce(middleware, "/api/data");
+
+    expect(nonce1).not.toBe(nonce2);
   });
 });

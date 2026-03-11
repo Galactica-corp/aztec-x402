@@ -1,3 +1,4 @@
+import { v7 as uuidv7 } from "uuid";
 import type { PaymentPayload, PaymentRequirements } from "@aztech-x402/mechanism";
 import type {
   RoutesConfig,
@@ -12,13 +13,20 @@ import type {
  *
  * Flow:
  * 1. Check if the request path matches a payment-gated route
- * 2. If no PAYMENT-SIGNATURE header → return 402 with PAYMENT-REQUIRED
- * 3. If PAYMENT-SIGNATURE present → decode, verify, settle, pass through
+ * 2. If no PAYMENT-SIGNATURE header → return 402 with PAYMENT-REQUIRED (includes nonce)
+ * 3. If PAYMENT-SIGNATURE present → validate nonce, verify, settle, pass through
+ *
+ * The middleware owns a pendingNonces map for anti-replay protection.
+ * Each 402 response includes a unique nonce in `extra.nonce`. The client
+ * echoes it back automatically via `accepted.extra.nonce`. The nonce is
+ * consumed on use and expires after `maxTimeoutSeconds`.
  */
 export function createPaymentMiddleware(
   routes: RoutesConfig,
   config: MiddlewareConfig,
 ) {
+  const pendingNonces = new Map<string, { createdAt: number; timeoutMs: number }>();
+
   return async (
     req: MiddlewareRequest,
     res: MiddlewareResponse,
@@ -30,6 +38,8 @@ export function createPaymentMiddleware(
       next();
       return;
     }
+
+    const timeoutMs = (routeConfig.maxTimeoutSeconds ?? 120) * 1000;
 
     // Build payment requirements
     const requirements: PaymentRequirements = {
@@ -45,6 +55,14 @@ export function createPaymentMiddleware(
     // Check for payment header
     const paymentHeader = getHeader(req, "payment-signature");
     if (!paymentHeader) {
+      // Generate nonce and inject into requirements
+      const nonce = uuidv7();
+      pendingNonces.set(nonce, { createdAt: Date.now(), timeoutMs });
+      requirements.extra = { nonce };
+
+      // Lazy-sweep expired nonces
+      sweepExpiredNonces(pendingNonces);
+
       return send402(res, requirements, routeConfig.description);
     }
 
@@ -56,6 +74,26 @@ export function createPaymentMiddleware(
     } catch {
       return send402(res, requirements, routeConfig.description, "Invalid payment payload encoding");
     }
+
+    // Validate nonce
+    const nonce = (paymentPayload.accepted as PaymentRequirements)?.extra?.nonce as string | undefined;
+    if (!nonce) {
+      return send402(res, requirements, routeConfig.description, "missing payment nonce");
+    }
+
+    const nonceEntry = pendingNonces.get(nonce);
+    if (!nonceEntry) {
+      return send402(res, requirements, routeConfig.description, "invalid or expired payment nonce");
+    }
+
+    // Check if nonce has expired
+    if (Date.now() - nonceEntry.createdAt > nonceEntry.timeoutMs) {
+      pendingNonces.delete(nonce);
+      return send402(res, requirements, routeConfig.description, "invalid or expired payment nonce");
+    }
+
+    // Consume nonce (one-shot)
+    pendingNonces.delete(nonce);
 
     // Verify payment
     const verifyResult = await config.facilitator.verify(
@@ -96,6 +134,17 @@ export function createPaymentMiddleware(
     // Pass through to the actual route handler
     next();
   };
+}
+
+function sweepExpiredNonces(
+  nonces: Map<string, { createdAt: number; timeoutMs: number }>,
+): void {
+  const now = Date.now();
+  for (const [key, entry] of nonces) {
+    if (now - entry.createdAt > entry.timeoutMs) {
+      nonces.delete(key);
+    }
+  }
 }
 
 function send402(

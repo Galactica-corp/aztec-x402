@@ -22,16 +22,13 @@ const TOKEN_ADDRESS = "0x" + "dd".repeat(32);
 const AMOUNT = "100000";
 
 function createMockFacilitator() {
-  let callCount = 0;
-
   const signer: FacilitatorAztecSigner = {
     async getAddresses() {
       return [SERVER_ADDRESS];
     },
     async registerSender() {},
     async getPrivateBalance() {
-      callCount++;
-      return callCount % 2 === 1 ? 0n : BigInt(AMOUNT);
+      return BigInt(AMOUNT);
     },
   };
 
