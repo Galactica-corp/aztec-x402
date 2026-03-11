@@ -301,21 +301,25 @@ describe("createPaymentMiddleware", () => {
   });
 
   it("rejects replay of consumed nonce", async () => {
-    const middleware = createPaymentMiddleware({ "/api/data": createRouteConfig() }, config);
+    // Use two routes so we can test nonce replay on an unpaid resource
+    const middleware = createPaymentMiddleware({
+      "/api/r1": createRouteConfig(),
+      "/api/r2": createRouteConfig(),
+    }, config);
 
-    // Get nonce and use it
-    const nonce = await getNonce(middleware, "/api/data");
+    // Get nonce and use it on /api/r1
+    const nonce = await getNonce(middleware, "/api/r1");
     const paymentPayload = buildPaymentPayload(nonce);
 
-    const req1 = createMockReq("/api/data", {
+    const req1 = createMockReq("/api/r1", {
       "payment-signature": encodePayload(paymentPayload),
     });
     const res1 = createMockRes();
     await middleware(req1, res1, jest.fn());
     expect(res1.statusCode).not.toBe(402);
 
-    // Replay with same nonce
-    const req2 = createMockReq("/api/data", {
+    // Replay same consumed nonce on a different unpaid resource
+    const req2 = createMockReq("/api/r2", {
       "payment-signature": encodePayload(paymentPayload),
     });
     const res2 = createMockRes();

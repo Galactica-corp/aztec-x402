@@ -41,7 +41,7 @@ const clientSigner = new RealClientAztecSigner(aliceAccount, token);
 const scheme = new ExactAztecClientScheme(clientSigner);
 
 // Step 1: Get 402 + requirements
-const initialResp = await fetch(SERVER_URL + "/api/weather");
+const initialResp = await fetch(SERVER_URL + "/api/weather/london");
 console.log("Step 1 — Initial response:", initialResp.status);
 
 const payReqHeader = initialResp.headers.get("payment-required");
@@ -62,7 +62,7 @@ const encoded = Buffer.from(JSON.stringify(fullPayload)).toString("base64");
 
 // Step 3: Send payment (should succeed — 200)
 console.log("\nStep 2 — First payment request...");
-const resp1 = await fetch(SERVER_URL + "/api/weather", {
+const resp1 = await fetch(SERVER_URL + "/api/weather/london", {
   headers: { "PAYMENT-SIGNATURE": encoded },
 });
 console.log(`  Status: ${resp1.status}`);
@@ -71,7 +71,7 @@ console.log("  Body:", JSON.stringify(body1, null, 2));
 
 // Step 4: Replay the EXACT same header (should fail — 402 "payment already used")
 console.log("\nStep 3 — REPLAY (same header)...");
-const resp2 = await fetch(SERVER_URL + "/api/weather", {
+const resp2 = await fetch(SERVER_URL + "/api/weather/london", {
   headers: { "PAYMENT-SIGNATURE": encoded },
 });
 console.log(`  Status: ${resp2.status}`);

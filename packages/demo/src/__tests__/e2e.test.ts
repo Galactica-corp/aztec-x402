@@ -50,7 +50,7 @@ function createMockClient() {
 
 function createServer(facilitator: ExactAztecFacilitatorScheme) {
   const routes: RoutesConfig = {
-    "/api/weather": {
+    "/api/weather/:id": {
       network: NETWORK,
       asset: TOKEN_ADDRESS,
       amount: AMOUNT,
@@ -137,7 +137,7 @@ describe("e2e: client → server payment flow", () => {
     const scheme = createMockClient();
     const payFetch = wrapFetchWithPayment(fetch, scheme);
 
-    const response = await payFetch(`http://localhost:${server.port}/api/weather`);
+    const response = await payFetch(`http://localhost:${server.port}/api/weather/test1`);
     const data = await response.json();
 
     expect(response.status).toBe(200);
@@ -146,7 +146,7 @@ describe("e2e: client → server payment flow", () => {
   });
 
   it("returns 402 when no payment is provided", async () => {
-    const response = await fetch(`http://localhost:${server.port}/api/weather`);
+    const response = await fetch(`http://localhost:${server.port}/api/weather/unpaid`);
 
     expect(response.status).toBe(402);
     expect(response.headers.get("PAYMENT-REQUIRED")).toBeTruthy();

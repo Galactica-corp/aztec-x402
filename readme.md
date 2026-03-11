@@ -13,14 +13,14 @@ sequenceDiagram
     participant Node as Aztec Node
     participant Chain as Aztec Chain
 
-    Client->>Server: GET /api/weather
+    Client->>Server: GET /api/weather/london
     Server-->>Client: 402 + PAYMENT-REQUIRED<br/>{asset, amount, payTo, nonce}
 
     Client->>Node: transfer_private_to_private(bob, 10000)
     Node->>Chain: Submit private tx (encrypted notes)
     Chain-->>Node: Tx settled
 
-    Client->>Server: GET /api/weather<br/>PAYMENT-SIGNATURE: {senderAddr, txHash, nonce}
+    Client->>Server: GET /api/weather/london<br/>PAYMENT-SIGNATURE: {senderAddr, txHash, nonce}
 
     Note over Server: Validate nonce (anti-replay)
     Server->>Node: getTxReceipt(txHash) → settled?
@@ -118,7 +118,7 @@ bun run demo:replay
 
 1. **`bun run setup`** — generates Schnorr key pairs (`keys.json`), deploys Alice and Bob accounts on Aztec devnet, deploys an Overcast USD (oUSD) token, mints 1.0 oUSD to Alice, and writes config to `deploy.json`. Only needed once.
 
-2. **`bun run demo`** — Alice pays $0.01 oUSD (private transfer) for a weather API call. The client gets a 402 challenge, sends a private token transfer, and retries with the payment proof. Server verifies the tx on-chain and returns weather data.
+2. **`bun run demo`** — Alice pays $0.01 oUSD (private transfer) for a weather resource (e.g. `/api/weather/abc123`). Each unique resource ID requires a separate payment; repeat access to a paid resource is free. The client gets a 402 challenge, sends a private token transfer, and retries with the payment proof. Server verifies the tx on-chain and returns weather data.
 
 3. **`bun run demo:replay`** — sends a payment, then replays the exact same header. First request gets 200, replay gets 402 "invalid or expired payment nonce".
 

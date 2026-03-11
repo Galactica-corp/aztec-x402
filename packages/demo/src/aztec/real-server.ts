@@ -75,13 +75,13 @@ await facilitator.initialize();
 
 // Configure payment-gated routes
 const routes: RoutesConfig = {
-  "/api/weather": {
+  "/api/weather/:id": {
     network: NETWORK,
     asset: TOKEN_ADDRESS,
     amount: PRICE_AMOUNT,
     payTo: SERVER_ADDRESS,
     maxTimeoutSeconds: 120,
-    description: "Current weather data — costs $0.01 per request (real Aztec payment)",
+    description: "Current weather data — costs $0.01 per resource (real Aztec payment)",
   },
 };
 
@@ -145,9 +145,11 @@ async function handleRequest(req: Request): Promise<Response> {
     };
 
     const next: NextFunction = () => {
+      const resourceId = url.pathname.split("/").pop();
       resolve(
         new Response(
           JSON.stringify({
+            resource: resourceId,
             location: "Aztec Network",
             temperature: 21,
             conditions: "Clear skies, private transactions flowing smoothly",
@@ -177,4 +179,4 @@ const server = Bun.serve({
 
 console.log(`\nx402 demo server (REAL AZTEC) running on http://localhost:${server.port}`);
 console.log(`  GET /health          — server info`);
-console.log(`  GET /api/weather     — payment-gated ($0.01 oUSD)`);
+console.log(`  GET /api/weather/:id — payment-gated ($0.01 oUSD per resource)`);

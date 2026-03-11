@@ -1,6 +1,7 @@
 import { v7 as uuidv7 } from "uuid";
 import type { PaymentPayload, PaymentRequirements } from "@aztec-x402/mechanism";
 import type {
+  RouteConfig,
   RoutesConfig,
   MiddlewareConfig,
   MiddlewareRequest,
@@ -26,6 +27,7 @@ export function createPaymentMiddleware(
   config: MiddlewareConfig,
 ) {
   const pendingNonces = new Map<string, { createdAt: number; timeoutMs: number }>();
+  const paidResources = new Set<string>();
 
   return async (
     req: MiddlewareRequest,
@@ -33,8 +35,17 @@ export function createPaymentMiddleware(
     next: NextFunction,
   ): Promise<void> => {
     // Check if this route requires payment
-    const routeConfig = routes[req.path];
-    if (!routeConfig) {
+    const match = matchRoute(req.path, routes);
+    if (!match) {
+      next();
+      return;
+    }
+
+    const { config: routeConfig, params } = match;
+    req.params = params;
+
+    // If this exact resource was already paid for, let it through
+    if (paidResources.has(req.path)) {
       next();
       return;
     }
@@ -131,9 +142,32 @@ export function createPaymentMiddleware(
     ).toString("base64");
     res.setHeader("PAYMENT-RESPONSE", responsePayload);
 
+    // Mark this resource as paid
+    paidResources.add(req.path);
+
     // Pass through to the actual route handler
     next();
   };
+}
+
+function matchRoute(path: string, routes: RoutesConfig): { config: RouteConfig; params: Record<string, string> } | null {
+  // Try exact match first
+  if (routes[path]) return { config: routes[path], params: {} };
+  // Try :param patterns
+  for (const [pattern, config] of Object.entries(routes)) {
+    if (!pattern.includes(":")) continue;
+    const patParts = pattern.split("/");
+    const pathParts = path.split("/");
+    if (patParts.length !== pathParts.length) continue;
+    const params: Record<string, string> = {};
+    let match = true;
+    for (let i = 0; i < patParts.length; i++) {
+      if (patParts[i].startsWith(":")) params[patParts[i].slice(1)] = pathParts[i];
+      else if (patParts[i] !== pathParts[i]) { match = false; break; }
+    }
+    if (match) return { config, params };
+  }
+  return null;
 }
 
 function sweepExpiredNonces(

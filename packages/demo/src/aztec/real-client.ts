@@ -75,9 +75,13 @@ const clientSigner = new RealClientAztecSigner(aliceAccount, token, feeOpts);
 const scheme = new ExactAztecClientScheme(clientSigner);
 const payFetch = wrapFetchWithPayment(fetch, scheme);
 
+// Generate a random resource ID
+const resourceId = crypto.randomUUID().slice(0, 8);
+console.log(`Requesting weather for resource: ${resourceId}`);
+
 // Make the payment-gated request
-console.log(`Fetching ${SERVER_URL}/api/weather (payment-gated)...\n`);
-const response = await payFetch(`${SERVER_URL}/api/weather`);
+console.log(`Fetching ${SERVER_URL}/api/weather/${resourceId} (payment-gated)...\n`);
+const response = await payFetch(`${SERVER_URL}/api/weather/${resourceId}`);
 const data = await response.json();
 
 console.log(`Response (${response.status}):`);
