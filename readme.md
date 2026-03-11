@@ -23,8 +23,9 @@ sequenceDiagram
     Client->>Server: GET /api/weather<br/>PAYMENT-SIGNATURE: {senderAddr, txHash, nonce}
 
     Note over Server: Validate nonce (anti-replay)
-    Server->>PXE: balance_of_private(bob)
-    PXE-->>Server: balance ≥ amount
+    Server->>PXE: getTxReceipt(txHash) → success?
+    Server->>PXE: getNotes({txHash, recipient: bob})
+    PXE-->>Server: payment notes ≥ amount
 
     Note over Server: Consume nonce + record txHash
     Server-->>Client: 200 OK + weather data<br/>PAYMENT-RESPONSE: {tx, payer}
@@ -45,19 +46,22 @@ flowchart TD
     D -- No --> E[Consume nonce — delete from Map]
     E --> F{txHash already used?}
     F -- Yes --> R4[402: payment already used]
-    F -- No --> G[Verify balance on PXE]
-    G --> H{balance ≥ amount?}
-    H -- No --> R5[402: insufficient balance]
-    H -- Yes --> I[Settle + record txHash]
-    I --> J[200 OK + PAYMENT-RESPONSE]
+    F -- No --> G[getTxReceipt — tx succeeded?]
+    G -- No --> R5a[402: tx failed/dropped]
+    G -- Yes --> H[getNotes — sum payment notes]
+    H --> I{notes ≥ amount?}
+    I -- No --> R5[402: insufficient payment]
+    I -- Yes --> J2[Settle + record txHash]
+    J2 --> J[200 OK + PAYMENT-RESPONSE]
 
     style E fill:#2d6,color:#fff
-    style I fill:#2d6,color:#fff
+    style J2 fill:#2d6,color:#fff
     style R1 fill:#d33,color:#fff
     style R2 fill:#d33,color:#fff
     style R3 fill:#d33,color:#fff
     style R4 fill:#d33,color:#fff
     style R5 fill:#d33,color:#fff
+    style R5a fill:#d33,color:#fff
 ```
 
 **Layer 1 — Nonce (middleware):** Each 402 response includes a server-generated UUID v7 nonce in `extra.nonce`. The client echoes it back automatically via `accepted.extra`. The nonce is one-shot (consumed on use) and expires after `maxTimeoutSeconds`. This binds each payment to a specific 402 challenge.
@@ -192,7 +196,7 @@ Sends a payment, then replays the exact same `PAYMENT-SIGNATURE` header. First r
 
 ```bash
 bun install
-bun test        # Run all tests (82 across 5 packages)
+bun test        # Run all tests (84 across 5 packages)
 bun run build   # Build all packages
 ```
 
@@ -206,7 +210,7 @@ bun run build   # Build all packages
 ## Design Decisions
 
 - **`transfer_private_to_private` only** — all payments stay fully private on-chain
-- **Balance threshold verification** — server checks `balance ≥ amount` (not balance delta, which is always 0 in shared-PXE sandbox)
+- **Per-transaction note verification** — server uses `getNotes({ txHash })` to verify the specific transaction created payment notes for the recipient, preventing replay via pre-existing balance
 - **Server = facilitator** — no separate facilitator service; the server verifies and settles payments directly
 - **Nonce in `extra` field** — flows through the protocol without any client-side code changes
 - **UUID v7 nonces** — time-ordered for debuggability, expire after `maxTimeoutSeconds`

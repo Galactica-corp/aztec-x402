@@ -6,9 +6,8 @@
  *
  * Usage: bun run packages/demo/src/aztec/real-server.ts
  */
-import { AztecAddress, createPXEClient, waitForPXE } from "@aztec/aztec.js";
+import { createPXEClient, waitForPXE } from "@aztec/aztec.js";
 import { getDeployedTestAccountsWallets } from "@aztec/accounts/testing";
-import { TokenContract } from "@aztec/noir-contracts.js/Token";
 import { readFileSync } from "fs";
 import { join, dirname } from "path";
 
@@ -53,12 +52,8 @@ const bobWallet = wallets[1];
 const bob = bobWallet.getAddress();
 console.log(`Server address: ${bob}`);
 
-// Get the deployed token contract
-const tokenAddress = AztecAddress.fromString(config.tokenAddress);
-const token = await TokenContract.at(tokenAddress, bobWallet);
-
 // Create real facilitator signer
-const facilitatorSigner = new RealFacilitatorAztecSigner(bobWallet, token, pxe);
+const facilitatorSigner = new RealFacilitatorAztecSigner(bobWallet, pxe);
 const facilitator = new ExactAztecFacilitatorScheme(facilitatorSigner, [NETWORK]);
 await facilitator.initialize();
 

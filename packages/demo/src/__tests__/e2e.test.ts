@@ -27,8 +27,8 @@ function createMockFacilitator() {
       return [SERVER_ADDRESS];
     },
     async registerSender() {},
-    async getPrivateBalance() {
-      return BigInt(AMOUNT);
+    async verifyPaymentNotes() {
+      return { isValid: true, amountFound: BigInt(AMOUNT) };
     },
   };
 

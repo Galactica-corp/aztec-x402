@@ -17,7 +17,7 @@ function createMockSigner(
   return {
     getAddresses: jest.fn().mockResolvedValue([SERVER_ADDRESS]),
     registerSender: jest.fn().mockResolvedValue(undefined),
-    getPrivateBalance: jest.fn().mockResolvedValue(0n),
+    verifyPaymentNotes: jest.fn().mockResolvedValue({ isValid: true, amountFound: 100_000n }),
     ...overrides,
   };
 }
@@ -118,6 +118,21 @@ describe("ExactAztecFacilitatorScheme", () => {
       expect(result.invalidReason).toContain("correlationId");
     });
 
+    it("rejects payload with missing txHash", async () => {
+      const payload = createPayload({
+        payload: {
+          senderAddress: SENDER_ADDRESS,
+          correlationId: "test",
+          timestamp: new Date().toISOString(),
+        },
+      });
+
+      const result = await scheme.verify(payload, createRequirements());
+
+      expect(result.isValid).toBe(false);
+      expect(result.invalidReason).toContain("txHash");
+    });
+
     it("rejects payload with invalid sender address format", async () => {
       const payload = createPayload({
         payload: {
@@ -134,22 +149,25 @@ describe("ExactAztecFacilitatorScheme", () => {
       expect(result.invalidReason).toContain("address");
     });
 
-    it("registers sender and checks balance meets threshold", async () => {
-      signer.getPrivateBalance = jest.fn().mockResolvedValue(100_000n);
-
+    it("registers sender and verifies payment notes", async () => {
       const result = await scheme.verify(createPayload(), createRequirements());
 
       expect(signer.registerSender).toHaveBeenCalledWith(SENDER_ADDRESS);
+      expect(signer.verifyPaymentNotes).toHaveBeenCalledWith(
+        TX_HASH,
+        TOKEN_ADDRESS,
+        SERVER_ADDRESS,
+        100_000n,
+      );
       expect(result.isValid).toBe(true);
       expect(result.payer).toBe(SENDER_ADDRESS);
     });
 
-    it("rejects when balance delta is insufficient", async () => {
-      // Balance doesn't change enough
-      let callCount = 0;
-      signer.getPrivateBalance = jest.fn().mockImplementation(async () => {
-        callCount++;
-        return callCount === 1 ? 0n : 50_000n; // only half the required amount
+    it("rejects when payment notes are insufficient", async () => {
+      signer.verifyPaymentNotes = jest.fn().mockResolvedValue({
+        isValid: false,
+        amountFound: 50_000n,
+        error: "insufficient payment: found 50000, need 100000",
       });
 
       const result = await scheme.verify(createPayload(), createRequirements());
@@ -158,11 +176,10 @@ describe("ExactAztecFacilitatorScheme", () => {
       expect(result.invalidReason).toContain("insufficient");
     });
 
-    it("accepts when balance delta exactly matches", async () => {
-      let callCount = 0;
-      signer.getPrivateBalance = jest.fn().mockImplementation(async () => {
-        callCount++;
-        return callCount === 1 ? 500_000n : 600_000n; // delta = 100000
+    it("accepts when payment notes exactly match", async () => {
+      signer.verifyPaymentNotes = jest.fn().mockResolvedValue({
+        isValid: true,
+        amountFound: 100_000n,
       });
 
       const result = await scheme.verify(createPayload(), createRequirements());
@@ -170,9 +187,31 @@ describe("ExactAztecFacilitatorScheme", () => {
       expect(result.isValid).toBe(true);
     });
 
-    it("rejects replayed payment with same txHash", async () => {
-      signer.getPrivateBalance = jest.fn().mockResolvedValue(100_000n);
+    it("accepts overpayment", async () => {
+      signer.verifyPaymentNotes = jest.fn().mockResolvedValue({
+        isValid: true,
+        amountFound: 200_000n,
+      });
 
+      const result = await scheme.verify(createPayload(), createRequirements());
+
+      expect(result.isValid).toBe(true);
+    });
+
+    it("rejects when tx not found", async () => {
+      signer.verifyPaymentNotes = jest.fn().mockResolvedValue({
+        isValid: false,
+        amountFound: 0n,
+        error: "transaction status is 'dropped'",
+      });
+
+      const result = await scheme.verify(createPayload(), createRequirements());
+
+      expect(result.isValid).toBe(false);
+      expect(result.invalidReason).toContain("dropped");
+    });
+
+    it("rejects replayed payment with same txHash", async () => {
       const payload = createPayload();
       const requirements = createRequirements();
 
@@ -185,14 +224,6 @@ describe("ExactAztecFacilitatorScheme", () => {
       const replay = await scheme.verify(payload, requirements);
       expect(replay.isValid).toBe(false);
       expect(replay.invalidReason).toContain("payment already used");
-    });
-
-    it("accepts when balance exceeds requirement (overpayment)", async () => {
-      signer.getPrivateBalance = jest.fn().mockResolvedValue(200_000n);
-
-      const result = await scheme.verify(createPayload(), createRequirements());
-
-      expect(result.isValid).toBe(true);
     });
   });
 

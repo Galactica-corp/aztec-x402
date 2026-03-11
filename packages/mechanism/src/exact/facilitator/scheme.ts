@@ -33,15 +33,11 @@ import type {
  * Facilitator-side x402 scheme for Aztec.
  *
  * Verification flow:
- * 1. Validate the payload structure (sender address, correlation ID)
- * 2. Register the sender in PXE so we can discover their notes
- * 3. Query our private balance and verify it meets the required amount
- *
- * Note: In a shared PXE (sandbox), notes are discovered immediately —
- * the before/after delta approach yields 0 because both reads see the
- * same state. Instead we verify the facilitator's balance is at least
- * the required amount. A production implementation would track per-request
- * payments via note nonces or a ledger.
+ * 1. Validate the payload structure (sender address, correlation ID, txHash)
+ * 2. Check txHash against consumed set (anti-replay)
+ * 3. Register the sender in PXE so we can discover their notes
+ * 4. Use verifyPaymentNotes to confirm the specific tx created payment notes
+ *    for the facilitator with at least the required amount
  *
  * Settlement:
  * For Aztec private transfers, settlement happens at transfer time
@@ -108,32 +104,19 @@ export class ExactAztecFacilitatorScheme implements SchemeNetworkFacilitator {
       // 3. Register sender so PXE discovers their notes
       await this.signer.registerSender(aztecPayload.senderAddress);
 
-      // 4. Query facilitator's private balance
-      const balance = await this.signer.getPrivateBalance(
+      // 4. Verify this specific transaction created payment notes for the facilitator
+      const verification = await this.signer.verifyPaymentNotes(
+        aztecPayload.txHash,
         requirements.asset,
         requirements.payTo,
+        BigInt(requirements.amount),
       );
 
-      if (typeof balance !== "bigint") {
+      if (!verification.isValid) {
         return {
           isValid: false,
-          invalidReason: `balance check failed: balance=${balance}`,
-          invalidMessage: "Failed to read private balance from PXE.",
-          payer: aztecPayload.senderAddress,
-        };
-      }
-
-      const requiredAmount = BigInt(requirements.amount);
-
-      // Verify the facilitator has received at least the required amount.
-      // In a shared PXE (sandbox) notes are discovered immediately, so
-      // a before/after delta check always yields 0. Instead we confirm
-      // the balance covers the payment.
-      if (balance < requiredAmount) {
-        return {
-          isValid: false,
-          invalidReason: `insufficient balance: have ${balance}, need ${requiredAmount}`,
-          invalidMessage: `Payment not found. Facilitator balance ${balance} is less than required ${requiredAmount}.`,
+          invalidReason: verification.error ?? "payment verification failed",
+          invalidMessage: `Payment verification failed: ${verification.error ?? "unknown error"}`,
           payer: aztecPayload.senderAddress,
         };
       }
@@ -184,6 +167,10 @@ export class ExactAztecFacilitatorScheme implements SchemeNetworkFacilitator {
 
     if (!payload.correlationId) {
       return "missing correlationId";
+    }
+
+    if (!payload.txHash) {
+      return "missing txHash";
     }
 
     return undefined;

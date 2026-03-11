@@ -52,8 +52,8 @@ export interface ExactAztecPayload {
 
   /**
    * The transaction hash of the private transfer.
-   * Included for record-keeping but NOT used for verification
-   * (private tx contents are hidden from observers).
+   * Used by the facilitator to look up payment notes via `getNotes({ txHash })`
+   * and verify that this specific transaction created the expected payment.
    */
   txHash: string;
 
@@ -98,7 +98,7 @@ export interface ClientAztecSigner {
  * The facilitator signer needs to:
  * 1. Provide its addresses (for PaymentRequirements)
  * 2. Register senders so PXE can discover their notes
- * 3. Check its private balance to verify payment receipt
+ * 3. Verify that a specific transaction created the expected payment notes
  */
 export interface FacilitatorAztecSigner {
   /** Get all facilitator addresses for supported networks */
@@ -113,16 +113,21 @@ export interface FacilitatorAztecSigner {
   registerSender(senderAddress: string): Promise<void>;
 
   /**
-   * Get the private token balance for a specific address.
+   * Verify that a specific transaction created payment notes for the recipient
+   * with at least the required amount. Uses PXE's getNotes + getTxReceipt
+   * to prove the exact transfer happened.
    *
+   * @param txHash - The transaction hash to verify
    * @param tokenAddress - The token contract address
-   * @param ownerAddress - The address to check balance for
-   * @returns Balance in smallest token units
+   * @param recipientAddress - The expected recipient's Aztec address
+   * @param requiredAmount - Minimum amount expected in the payment notes
    */
-  getPrivateBalance(
+  verifyPaymentNotes(
+    txHash: string,
     tokenAddress: string,
-    ownerAddress: string,
-  ): Promise<bigint>;
+    recipientAddress: string,
+    requiredAmount: bigint,
+  ): Promise<PaymentNoteVerification>;
 }
 
 // ---------------------------------------------------------------------------
@@ -153,15 +158,12 @@ export interface AztecServerConfig {
 // Verification
 // ---------------------------------------------------------------------------
 
-/**
- * Snapshot of the facilitator's balance before and after a payment,
- * used to verify that the expected amount was received.
- */
-export interface BalanceSnapshot {
-  /** Balance before registering the sender / syncing notes */
-  before: bigint;
-  /** Balance after syncing notes */
-  after: bigint;
-  /** The difference (should equal the expected payment amount) */
-  delta: bigint;
+/** Result of verifying payment notes for a specific transaction */
+export interface PaymentNoteVerification {
+  /** Whether the payment notes meet the required amount */
+  isValid: boolean;
+  /** Total amount found in the payment notes */
+  amountFound: bigint;
+  /** Error description when isValid is false */
+  error?: string;
 }
