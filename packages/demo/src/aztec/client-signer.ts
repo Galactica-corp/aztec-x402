@@ -3,21 +3,24 @@
  * to execute private-to-private token transfers on the Aztec network.
  */
 import type { ClientAztecSigner } from "@aztech-x402/core";
-
-interface TokenMethods {
-  transfer(to: unknown, amount: bigint): {
-    send(opts?: { from?: unknown }): { wait(): Promise<unknown> };
-  };
-}
+import { AztecAddress } from "@aztec/aztec.js";
 
 interface AztecWallet {
-  getAddress(): unknown;
+  getAddress(): AztecAddress;
+}
+
+interface TokenContract {
+  methods: {
+    transfer(to: AztecAddress, amount: bigint): {
+      send(): { wait(): Promise<{ txHash: { toString(): string } }> };
+    };
+  };
 }
 
 export class RealClientAztecSigner implements ClientAztecSigner {
   constructor(
     private readonly wallet: AztecWallet,
-    private readonly token: { methods: TokenMethods },
+    private readonly token: TokenContract,
   ) {}
 
   async getAddress(): Promise<string> {
@@ -29,14 +32,15 @@ export class RealClientAztecSigner implements ClientAztecSigner {
     to: string,
     amount: bigint,
   ): Promise<string> {
+    // Convert string address to AztecAddress for the SDK.
     // token.methods.transfer(to, amount) does private-to-private
-    // where sender = msg_sender (this wallet)
+    // where sender = msg_sender (this wallet).
+    const recipient = AztecAddress.fromString(to);
     const receipt = await this.token.methods
-      .transfer(to, amount)
-      .send({ from: this.wallet.getAddress() })
+      .transfer(recipient, amount)
+      .send()
       .wait();
 
-    // Return the tx hash for record-keeping
-    return String((receipt as Record<string, unknown>).txHash ?? "0x0");
+    return receipt.txHash.toString();
   }
 }

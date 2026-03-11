@@ -105,6 +105,15 @@ export class ExactAztecFacilitatorScheme implements SchemeNetworkFacilitator {
       );
 
       // 5. Check balance delta
+      if (typeof balanceBefore !== "bigint" || typeof balanceAfter !== "bigint") {
+        return {
+          isValid: false,
+          invalidReason: `balance check failed: before=${balanceBefore}, after=${balanceAfter}`,
+          invalidMessage: "Failed to read private balance from PXE.",
+          payer: aztecPayload.senderAddress,
+        };
+      }
+
       const delta = balanceAfter - balanceBefore;
       const requiredAmount = BigInt(requirements.amount);
 
