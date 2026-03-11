@@ -4,6 +4,8 @@
  * Connects to an Aztec node (sandbox or devnet), deploys accounts and a token contract,
  * mints tokens to the payer, and writes deployment info to a config file.
  *
+ * Resumable: saves progress to deploy.json after each step. Safe to restart.
+ *
  * Usage: bun run packages/demo/src/aztec/setup.ts
  *
  * Environment variables:
@@ -13,9 +15,10 @@
  */
 import { createAztecNodeClient } from "@aztec/aztec.js/node";
 import { AztecAddress } from "@aztec/aztec.js/addresses";
+import { Fr } from "@aztec/aztec.js/fields";
 import { TokenContract } from "@aztec/noir-contracts.js/Token";
 import { EmbeddedWallet } from "@aztec/wallets/embedded";
-import { writeFileSync, existsSync } from "fs";
+import { writeFileSync, existsSync, readFileSync } from "fs";
 import { join, dirname } from "path";
 import { ensureKeys, deployAccounts, setupSponsoredPayment } from "./wallet-manager.js";
 
@@ -33,6 +36,19 @@ const DATA_DIR = process.env.DATA_DIR ?? __dirname;
 const CONFIG_PATH = join(DATA_DIR, "deploy.json");
 const KEYS_PATH = join(DATA_DIR, "keys.json");
 
+/** Load partial config if it exists */
+function loadConfig(): Record<string, string> {
+  if (existsSync(CONFIG_PATH)) {
+    return JSON.parse(readFileSync(CONFIG_PATH, "utf-8"));
+  }
+  return {};
+}
+
+/** Save config incrementally */
+function saveConfig(config: Record<string, unknown>) {
+  writeFileSync(CONFIG_PATH, JSON.stringify(config, null, 2));
+}
+
 async function main() {
   console.log(`Connecting to Aztec node at ${NODE_URL}...`);
   const node = createAztecNodeClient(NODE_URL);
@@ -43,7 +59,6 @@ async function main() {
   });
   console.log("Connected.\n");
 
-  // Set up Sponsored FPC payment method (devnet) or undefined (sandbox)
   const paymentMethod = USE_SPONSORED_FPC
     ? await setupSponsoredPayment(wallet)
     : undefined;
@@ -52,10 +67,18 @@ async function main() {
     console.log("Using Sponsored FPC for fee payment.\n");
   }
 
-  // Ensure Schnorr account keys exist (generate if first run)
-  const keys = await ensureKeys(KEYS_PATH, wallet);
+  // Load any existing partial config
+  const config = loadConfig();
+  config.nodeUrl = NODE_URL;
+  config.network = NETWORK;
 
-  // Deploy accounts (skips if already registered)
+  // Step 1: Ensure keys
+  const keys = await ensureKeys(KEYS_PATH, wallet);
+  config.aliceAddress = keys.alice.address;
+  config.bobAddress = keys.bob.address;
+  saveConfig(config);
+
+  // Step 2: Deploy accounts
   console.log("Deploying accounts...");
   const { aliceAccount, bobAccount } = await deployAccounts(wallet, node, keys, {
     paymentMethod,
@@ -66,7 +89,6 @@ async function main() {
   console.log(`  Alice (payer):       ${alice}`);
   console.log(`  Bob   (server):      ${bob}\n`);
 
-  // Build send options (with fee payment on devnet)
   const sendOpts = (from: AztecAddress) => {
     const opts: Record<string, unknown> = {
       from,
@@ -78,10 +100,23 @@ async function main() {
     return opts;
   };
 
-  // Deploy token contract (Alice is admin)
+  // Step 3: Deploy token (skip if already recorded and exists on-chain)
   let tokenAddress: AztecAddress;
-  console.log(`Deploying ${TOKEN_NAME} (${TOKEN_SYMBOL})...`);
-  try {
+  if (config.tokenAddress) {
+    const existing = AztecAddress.fromString(config.tokenAddress);
+    const onChain = await node.getContract(existing);
+    if (onChain) {
+      console.log(`Token already deployed at ${existing} — skipping.\n`);
+      tokenAddress = existing;
+    } else {
+      console.log(`Token address ${existing} recorded but not found on-chain — redeploying.\n`);
+      config.tokenAddress = "";
+      config.minted = "";
+    }
+  }
+
+  if (!config.tokenAddress) {
+    console.log(`Deploying ${TOKEN_NAME} (${TOKEN_SYMBOL})...`);
     const tokenDeploy = TokenContract.deploy(
       wallet,
       alice,
@@ -94,7 +129,21 @@ async function main() {
     tokenAddress = token.address;
     console.log(`  Token deployed at:   ${tokenAddress}\n`);
 
-    // Mint tokens to Alice's private balance
+    config.tokenAddress = tokenAddress.toString();
+    config.tokenName = TOKEN_NAME;
+    config.tokenSymbol = TOKEN_SYMBOL;
+    config.tokenDecimals = String(TOKEN_DECIMALS);
+    saveConfig(config);
+  }
+
+  // Step 4: Mint tokens (skip if already done)
+  if (config.minted !== "true") {
+    const tokenInstance = await node.getContract(tokenAddress!);
+    if (tokenInstance) {
+      await wallet.registerContract(tokenInstance, TokenContract.artifact);
+    }
+    const token = await TokenContract.at(tokenAddress!, wallet);
+
     console.log(`Minting ${MINT_AMOUNT} to Alice's private balance...`);
     await token.methods
       .mint_to_private(alice, MINT_AMOUNT)
@@ -103,49 +152,24 @@ async function main() {
       .mint_to_private(alice, MINT_AMOUNT)
       .send(sendOpts(alice));
 
-    // Verify balance
     const aliceBalance = await token.methods
       .balance_of_private(alice)
       .simulate({ from: alice });
     console.log(`  Alice's balance:     ${aliceBalance}\n`);
-  } catch (err) {
-    const msg = err instanceof Error ? err.message : String(err);
-    if (msg.includes("nullifier")) {
-      console.log("  Token deploy hit duplicate nullifier — contract may already exist.");
-      console.log("  Delete keys.json and deploy.json to start fresh, or provide existing deploy.json.");
-      throw err;
-    }
-    throw err;
+
+    config.minted = "true";
+    config.mintAmount = MINT_AMOUNT.toString();
+    saveConfig(config);
+  } else {
+    console.log("Tokens already minted — skipping.\n");
   }
 
-  // Register cross-party senders so both sides can discover notes
+  // Step 5: Register cross-party senders
   console.log("Registering cross-party senders...");
   await wallet.registerSender(bob, "bob");
   await wallet.registerSender(alice, "alice");
   console.log("  Done.\n");
 
-  // Register the token contract for Bob's view
-  console.log("Registering token contract for Bob...");
-  const tokenInstance = await node.getContract(tokenAddress);
-  if (tokenInstance) {
-    await wallet.registerContract(tokenInstance, TokenContract.artifact);
-  }
-  console.log("  Done.\n");
-
-  // Write deployment config
-  const config = {
-    nodeUrl: NODE_URL,
-    tokenAddress: tokenAddress.toString(),
-    tokenName: TOKEN_NAME,
-    tokenSymbol: TOKEN_SYMBOL,
-    tokenDecimals: TOKEN_DECIMALS,
-    aliceAddress: alice.toString(),
-    bobAddress: bob.toString(),
-    mintAmount: MINT_AMOUNT.toString(),
-    network: NETWORK,
-  };
-
-  writeFileSync(CONFIG_PATH, JSON.stringify(config, null, 2));
   console.log(`Config written to ${CONFIG_PATH}`);
   console.log("\nSetup complete! Run the demo:");
   console.log("  Terminal 1: bun run packages/demo/src/aztec/real-server.ts");
