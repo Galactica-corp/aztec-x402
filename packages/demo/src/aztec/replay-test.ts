@@ -12,7 +12,7 @@ import { ExactAztecClientScheme } from "@aztec-x402/mechanism/exact/client";
 import { RealClientAztecSigner } from "./client-signer.js";
 import { loadKeys, loadAccount } from "./wallet-manager.js";
 
-const SERVER_URL = "http://localhost:4402";
+const SERVER_URL = process.env.SERVER_URL ?? "https://aztec-x402.unfazed.engineering";
 const __dirname = dirname(new URL(import.meta.url).pathname);
 const DATA_DIR = process.env.DATA_DIR ?? __dirname;
 const CONFIG_PATH = join(DATA_DIR, "deploy.json");

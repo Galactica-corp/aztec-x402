@@ -18,7 +18,7 @@ import { wrapFetchWithPayment } from "@aztec-x402/client";
 import { RealClientAztecSigner } from "./client-signer.js";
 import { loadKeys, loadAccount, setupSponsoredPayment } from "./wallet-manager.js";
 
-const SERVER_URL = process.env.SERVER_URL ?? "http://localhost:4402";
+const SERVER_URL = process.env.SERVER_URL ?? "https://aztec-x402.unfazed.engineering";
 
 // Load deployment config
 const __dirname = dirname(new URL(import.meta.url).pathname);

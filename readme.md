@@ -155,7 +155,7 @@ bun run build   # Build all packages
 | `NODE_URL` | `https://v4-devnet-2.aztec-labs.com` | Aztec node endpoint |
 | `AZTEC_NETWORK` | `aztec:devnet` | CAIP-2 network id |
 | `USE_SPONSORED_FPC` | `true` | Use Sponsored FPC for gas fees |
-| `SERVER_URL` | `http://localhost:4402` | x402 demo server endpoint (client only) |
+| `SERVER_URL` | `https://aztec-x402.unfazed.engineering` | x402 demo server endpoint (client only) |
 
 ## Design Decisions
 
