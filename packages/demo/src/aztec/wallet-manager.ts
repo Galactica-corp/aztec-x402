@@ -4,7 +4,9 @@
  * Replaces sandbox-only `getDeployedTestAccountsWallets` with programmatic
  * Schnorr wallet creation that works on sandbox, devnet, and testnet.
  *
- * Uses the v4 EmbeddedWallet API with Sponsored FPC for fee payment on devnet.
+ * Uses PXEWallet (see pxe-wallet.ts) instead of EmbeddedWallet directly.
+ * EmbeddedWallet's stub-account simulation causes commitment mismatches
+ * in the partial note flow — see pxe-wallet.ts for details.
  */
 import { Fr, GrumpkinScalar } from "@aztec/aztec.js/fields";
 import { AztecAddress } from "@aztec/aztec.js/addresses";
@@ -13,7 +15,7 @@ import { getContractInstanceFromInstantiationParams } from "@aztec/aztec.js/cont
 import { SponsoredFPCContractArtifact } from "@aztec/noir-contracts.js/SponsoredFPC";
 import { SPONSORED_FPC_SALT } from "@aztec/constants";
 import type { AztecNode } from "@aztec/aztec.js/node";
-import type { EmbeddedWallet } from "@aztec/wallets/embedded";
+import type { PXEWallet } from "./pxe-wallet.js";
 import type { AccountManager } from "@aztec/aztec.js/wallet";
 import { readFileSync, writeFileSync, existsSync } from "fs";
 
@@ -44,7 +46,7 @@ export function loadKeys(keysPath: string): StoredKeys {
 /**
  * If keys.json exists, load it. Otherwise generate fresh keys, save, and return.
  */
-export async function ensureKeys(keysPath: string, wallet: EmbeddedWallet): Promise<StoredKeys> {
+export async function ensureKeys(keysPath: string, wallet: PXEWallet): Promise<StoredKeys> {
   if (existsSync(keysPath)) {
     console.log("Loading existing keys from keys.json...");
     return loadKeys(keysPath);
@@ -79,7 +81,7 @@ export async function ensureKeys(keysPath: string, wallet: EmbeddedWallet): Prom
  * On sandbox (no sponsoredFPC), returns undefined.
  */
 export async function setupSponsoredPayment(
-  wallet: EmbeddedWallet,
+  wallet: PXEWallet,
 ): Promise<SponsoredFeePaymentMethod> {
   const sponsoredFPC = await getContractInstanceFromInstantiationParams(
     SponsoredFPCContractArtifact,
@@ -97,7 +99,7 @@ export async function setupSponsoredPayment(
  * On sandbox, fees are zero — pass undefined.
  */
 export async function deployAccounts(
-  wallet: EmbeddedWallet,
+  wallet: PXEWallet,
   node: AztecNode,
   keys: StoredKeys,
   opts?: { paymentMethod?: SponsoredFeePaymentMethod; timeout?: number },
@@ -149,7 +151,7 @@ export async function deployAccounts(
  * Load an account for an already-registered account (no deployment).
  */
 export async function loadAccount(
-  wallet: EmbeddedWallet,
+  wallet: PXEWallet,
   keys: StoredKeys,
   who: "alice" | "bob",
 ): Promise<AccountManager> {

@@ -11,7 +11,7 @@
 import { createAztecNodeClient } from "@aztec/aztec.js/node";
 import { AztecAddress } from "@aztec/aztec.js/addresses";
 import { TokenContract } from "@aztec-x402/contracts/Token";
-import { EmbeddedWallet } from "@aztec/wallets/embedded";
+import { createPXEWallet } from "./pxe-wallet.js";
 import { readFileSync } from "fs";
 import { join, dirname } from "path";
 import { loadKeys, loadAccount, setupSponsoredPayment } from "./wallet-manager.js";
@@ -41,7 +41,7 @@ console.log("=== Phase 0: Commitment Pattern Test (forked x402 TokenContract) ==
 // 1. Connect to Aztec node
 console.log(`Connecting to Aztec node at ${NODE_URL}...`);
 const node = createAztecNodeClient(NODE_URL);
-const wallet = await EmbeddedWallet.create(node, {
+const wallet = await createPXEWallet(node, {
   ephemeral: true,
   pxeConfig: { proverEnabled: isDevnet },
 });
@@ -83,11 +83,11 @@ if (BigInt(String(balanceBefore)) < TRANSFER_AMOUNT) {
   process.exit(1);
 }
 
-// 5. Bob calls: prepare_private_balance_increase(bobAddr, aliceAddr)
-console.log("\nStep 1: Bob creates commitment (prepare_private_balance_increase with completer=alice)...");
+// 5. Test: Same-person flow first (Alice calls both prepare and finalize)
+console.log("\nStep 1: Alice creates commitment (prepare_private_balance_increase with completer=alice)...");
 try {
-  const interaction = token.methods.prepare_private_balance_increase(bob, alice);
-  const commitmentResult = await interaction.simulate({ from: bob });
+  const interaction = token.methods.prepare_private_balance_increase(alice, alice);
+  const commitmentResult = await interaction.simulate({ from: alice });
   console.log(`  simulate() succeeded, result: ${String(commitmentResult)}`);
 
   // Extract commitment field
@@ -99,15 +99,40 @@ try {
   }
   console.log(`  Commitment: ${String(commitment)}`);
 
-  const sendOpts: Record<string, unknown> = { from: bob, wait: { timeout: 120 }, ...feeOpts };
+  const sendOpts: Record<string, unknown> = { from: alice, wait: { timeout: 120 }, ...feeOpts };
   const receipt = await interaction.send(sendOpts);
   console.log(`  Tx mined: ${receipt.txHash}`);
 
+  // Debug: Check what nullifiers the prepare tx created
+  const prepareEffect = await node.getTxEffect(receipt.txHash);
+  if (prepareEffect) {
+    const nullifiers = (prepareEffect as { data?: { nullifiers?: unknown[] } }).data?.nullifiers ??
+      (prepareEffect as { nullifiers?: unknown[] }).nullifiers ?? [];
+    const nonZero = nullifiers.filter((n: unknown) => {
+      const s = String(n);
+      return s !== "0" && s !== "0x0" && !/^0x0+$/.test(s);
+    });
+    console.log(`\n  Prepare tx nullifiers (${nonZero.length}):`);
+    for (const n of nonZero) {
+      console.log(`    ${String(n)}`);
+    }
+  }
+
+  // Debug: Check prepare tx block
+  const prepareReceipt = await node.getTxReceipt(receipt.txHash);
+  console.log(`\n  Prepare tx block number: ${prepareReceipt.blockNumber}`);
+  console.log(`  Current node block number: ${await node.getBlockNumber()}`);
+
+  // Debug: log commitment details
+  console.log(`\n  Commitment type: ${typeof commitment}, constructor: ${(commitment as any)?.constructor?.name}`);
+  console.log(`  Full commitmentResult: ${JSON.stringify(commitmentResult, (_, v) => typeof v === 'bigint' ? v.toString() : v)}`);
+
   // 6. Alice calls: finalize_transfer_to_private_from_private(aliceAddr, {commitment}, amount, 0)
   console.log(`\nStep 2: Alice completes transfer (finalize_transfer_to_private_from_private, amount=${TRANSFER_AMOUNT})...`);
+  // Try passing commitmentResult directly instead of re-wrapping
   const transferInteraction = token.methods.finalize_transfer_to_private_from_private(
     alice,
-    { commitment },
+    commitmentResult,
     TRANSFER_AMOUNT,
     0,
   );

@@ -254,10 +254,219 @@ describe("payment failure scenarios (commitment-based)", () => {
     });
   });
 
-  /**
-   * Wrong-address scenario is structurally prevented by the server-side
-   * commitment pattern. The facilitator creates the partial note for its own
-   * address, so the completed note can only go to the facilitator. No test
-   * needed for "wrong recipient" — it's impossible by construction.
-   */
+  describe("no private notes in transaction", () => {
+    let server: ReturnType<typeof Bun.serve>;
+
+    afterAll(() => {
+      server?.stop();
+    });
+
+    it("rejects payment when transaction produced no private notes", async () => {
+      const signer: FacilitatorAztecSigner = {
+        async getAddresses() { return [SERVER_ADDRESS]; },
+        async prepareCommitment() { return "0x" + "ff".repeat(32); },
+        async verifyPayment(): Promise<PaymentNoteVerification> {
+          return {
+            isValid: false,
+            amountFound: 0n,
+            error: "transaction produced no private notes — not a valid private transfer",
+          };
+        },
+      };
+
+      const facilitator = new ExactAztecFacilitatorScheme(signer, [NETWORK]);
+      await facilitator.initialize();
+      server = createServer(facilitator);
+
+      const scheme = createMockClient();
+      const payFetch = wrapFetchWithPayment(fetch, scheme);
+
+      const response = await payFetch(
+        `http://localhost:${server.port}/api/weather/no-notes`,
+      );
+
+      expect(response.status).not.toBe(200);
+    });
+  });
+
+  describe("wrong token contract", () => {
+    let server: ReturnType<typeof Bun.serve>;
+
+    afterAll(() => {
+      server?.stop();
+    });
+
+    it("rejects payment against a different token than required", async () => {
+      const WRONG_TOKEN = "0x" + "ee".repeat(32);
+
+      const signer: FacilitatorAztecSigner = {
+        async getAddresses() { return [SERVER_ADDRESS]; },
+        async prepareCommitment() { return "0x" + "ff".repeat(32); },
+        async verifyPayment(
+          _txHash: string,
+          tokenAddress: string,
+          requiredAmount: bigint,
+        ): Promise<PaymentNoteVerification> {
+          // A real implementation would verify that the tx interacted with
+          // the correct token contract. For now, this simulates the check.
+          if (tokenAddress !== TOKEN_ADDRESS) {
+            return {
+              isValid: false,
+              amountFound: 0n,
+              error: `wrong token: expected ${TOKEN_ADDRESS}, got ${tokenAddress}`,
+            };
+          }
+          return { isValid: true, amountFound: requiredAmount };
+        },
+      };
+
+      const facilitator = new ExactAztecFacilitatorScheme(signer, [NETWORK]);
+      await facilitator.initialize();
+
+      // Override routes to use wrong token
+      const routes: RoutesConfig = {
+        "/api/weather/:id": {
+          network: NETWORK,
+          asset: WRONG_TOKEN,
+          amount: AMOUNT,
+          payTo: SERVER_ADDRESS,
+          maxTimeoutSeconds: 60,
+        },
+      };
+      const middleware = createPaymentMiddleware(routes, { facilitator });
+
+      server = Bun.serve({
+        port: 0,
+        fetch(req: Request) {
+          const url = new URL(req.url);
+          return new Promise((resolve) => {
+            const headers: Record<string, string> = {};
+            req.headers.forEach((value, key) => { headers[key] = value; });
+            const mwReq: MiddlewareRequest = { path: url.pathname, method: req.method, url: req.url, headers };
+            let statusCode = 200;
+            const responseHeaders: Record<string, string> = {};
+            const mwRes: MiddlewareResponse = {
+              statusCode,
+              status(code: number) { statusCode = code; return mwRes; },
+              setHeader(key: string, value: string) { responseHeaders[key] = value; return mwRes; },
+              json(data: unknown) {
+                resolve(new Response(JSON.stringify(data), { status: statusCode, headers: { "content-type": "application/json", ...responseHeaders } }));
+                return mwRes;
+              },
+              end() { resolve(new Response(null, { status: statusCode, headers: responseHeaders })); return mwRes; },
+            };
+            const next: NextFunction = () => {
+              resolve(new Response(JSON.stringify({ weather: "sunny", paid: true }), { status: 200, headers: { "content-type": "application/json", ...responseHeaders } }));
+            };
+            middleware(mwReq, mwRes, next);
+          });
+        },
+      });
+
+      const scheme = createMockClient();
+      const payFetch = wrapFetchWithPayment(fetch, scheme);
+
+      const response = await payFetch(
+        `http://localhost:${server.port}/api/weather/wrong-token`,
+      );
+
+      expect(response.status).not.toBe(200);
+    });
+  });
+
+  describe("wrong recipient address", () => {
+    let server: ReturnType<typeof Bun.serve>;
+
+    afterAll(() => {
+      server?.stop();
+    });
+
+    it("rejects payment sent to wrong address", async () => {
+      const WRONG_ADDRESS = "0x" + "99".repeat(32);
+
+      // Simulate a facilitator that detects payment was sent to wrong recipient.
+      // With the commitment pattern, this is structurally prevented at the contract
+      // level. But verification should still check as a defense-in-depth measure.
+      const signer: FacilitatorAztecSigner = {
+        async getAddresses() { return [SERVER_ADDRESS]; },
+        async prepareCommitment() { return "0x" + "ff".repeat(32); },
+        async verifyPayment(): Promise<PaymentNoteVerification> {
+          return {
+            isValid: false,
+            amountFound: 0n,
+            error: `payment sent to wrong recipient: ${WRONG_ADDRESS} instead of ${SERVER_ADDRESS}`,
+          };
+        },
+      };
+
+      const facilitator = new ExactAztecFacilitatorScheme(signer, [NETWORK]);
+      await facilitator.initialize();
+      server = createServer(facilitator);
+
+      const scheme = createMockClient();
+      const payFetch = wrapFetchWithPayment(fetch, scheme);
+
+      const response = await payFetch(
+        `http://localhost:${server.port}/api/weather/wrong-address`,
+      );
+
+      expect(response.status).not.toBe(200);
+    });
+  });
+
+  describe("commitment not issued by facilitator", () => {
+    let server: ReturnType<typeof Bun.serve>;
+
+    afterAll(() => {
+      server?.stop();
+    });
+
+    it("rejects payment with a fabricated commitment", async () => {
+      // The facilitator tracks which commitments it issued. A client cannot
+      // fabricate a commitment and have it accepted.
+      const facilitator = createValidatingFacilitator();
+      await facilitator.initialize();
+      server = createServer(facilitator);
+
+      // Manually craft a payment with a commitment the facilitator never issued
+      const nonce = await getInitialNonce(server);
+      const fakeCommitment = "0x" + "12".repeat(32);
+
+      const paymentPayload = {
+        x402Version: 2,
+        accepted: {
+          scheme: "exact",
+          network: NETWORK,
+          asset: TOKEN_ADDRESS,
+          amount: AMOUNT,
+          payTo: SERVER_ADDRESS,
+          maxTimeoutSeconds: 60,
+          extra: { nonce, commitment: fakeCommitment },
+        },
+        payload: {
+          senderAddress: SENDER_ADDRESS,
+          correlationId: "test-fake-commitment",
+          txHash: "0x" + "cc".repeat(32),
+          timestamp: new Date().toISOString(),
+        },
+      };
+
+      const encoded = Buffer.from(JSON.stringify(paymentPayload)).toString("base64");
+      const response = await fetch(
+        `http://localhost:${server.port}/api/weather/fake-commitment`,
+        { headers: { "PAYMENT-SIGNATURE": encoded } },
+      );
+
+      expect(response.status).not.toBe(200);
+    });
+  });
 });
+
+/** Helper: make an initial request to get a nonce from the 402 response */
+async function getInitialNonce(server: ReturnType<typeof Bun.serve>): Promise<string> {
+  const response = await fetch(`http://localhost:${server.port}/api/weather/nonce-probe`);
+  const header = response.headers.get("PAYMENT-REQUIRED");
+  if (!header) throw new Error("No PAYMENT-REQUIRED header");
+  const decoded = JSON.parse(Buffer.from(header, "base64").toString());
+  return decoded.accepts[0].extra.nonce;
+}

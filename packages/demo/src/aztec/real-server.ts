@@ -17,7 +17,7 @@ Sentry.init({
 import { createAztecNodeClient } from "@aztec/aztec.js/node";
 import { AztecAddress } from "@aztec/aztec.js/addresses";
 import { TokenContract } from "@aztec-x402/contracts/Token";
-import { EmbeddedWallet } from "@aztec/wallets/embedded";
+import { createPXEWallet } from "./pxe-wallet.js";
 import { readFileSync } from "fs";
 import { join, dirname } from "path";
 import { loadKeys, loadAccount, setupSponsoredPayment } from "./wallet-manager.js";
@@ -61,7 +61,7 @@ const isDevnet = NETWORK !== "aztec:sandbox";
 // Connect to Aztec
 console.log(`Connecting to Aztec node at ${NODE_URL}...`);
 const node = createAztecNodeClient(NODE_URL);
-const wallet = await EmbeddedWallet.create(node, {
+const wallet = await createPXEWallet(node, {
   ephemeral: true,
   pxeConfig: { proverEnabled: isDevnet },
 });

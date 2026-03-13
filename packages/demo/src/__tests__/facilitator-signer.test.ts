@@ -290,23 +290,54 @@ describe("RealFacilitatorAztecSigner", () => {
   });
 
   /**
-   * COMMITMENT PATTERN — RECIPIENT VERIFICATION IS NOW CLOSED
+   * VERIFICATION GAPS — documented for transparency
    *
-   * With the server-side commitment pattern, the facilitator creates
-   * the partial note for its own address. This means recipient
-   * verification is structural: the note can ONLY go to the facilitator.
+   * With the commitment pattern (initialize_transfer_commitment), recipient
+   * verification is structural: the partial note is bound to the facilitator's
+   * address. However, two gaps remain:
    *
-   * Remaining gap: amount verification requires PXE note queries.
+   * 1. Amount verification: requires PXE note queries to read the note value.
+   *    Currently returns the required amount without on-chain verification.
+   *
+   * 2. Token contract verification: the current implementation checks tx
+   *    status and note creation but does not verify which contract produced
+   *    the notes. A malicious client could submit a tx from a different
+   *    token contract.
+   *
+   * These gaps should be closed by querying the PXE for note details or
+   * by checking the tx's called contract address in the tx effects.
    */
-  describe("remaining verification gap — amount", () => {
+  describe("verification gaps", () => {
     it("KNOWN GAP: reports required amount without verifying actual amount", async () => {
+      // The facilitator cannot currently verify the amount in the completed
+      // note without PXE note queries. It trusts the ZK proof but cannot
+      // independently verify the transferred amount.
       const result = await createSigner("success").verifyPayment(
         TX_HASH,
         TOKEN_ADDRESS_STR,
         100_000n,
       );
 
+      // This is the gap: amountFound echoes requiredAmount instead of
+      // reading the actual note value from the PXE.
       expect(result.amountFound).toBe(100_000n);
+    });
+
+    it("KNOWN GAP: does not verify which token contract produced notes", async () => {
+      // A proper implementation should verify that the tx interacted with
+      // the expected token contract, not just that it produced notes.
+      const result = await createSigner({
+        status: "success",
+        txEffect: {
+          noteHashes: [
+            "0x0abababababababababababababababababababababababababababababababab",
+          ],
+        },
+      }).verifyPayment(TX_HASH, TOKEN_ADDRESS_STR, 100_000n);
+
+      // Currently passes even though we can't verify the notes came from
+      // the correct token contract.
+      expect(result.isValid).toBe(true);
     });
   });
 
