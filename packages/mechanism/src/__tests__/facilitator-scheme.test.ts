@@ -211,6 +211,56 @@ describe("ExactAztecFacilitatorScheme", () => {
       expect(result.invalidReason).toContain("dropped");
     });
 
+    it("rejects payment sent to wrong address", async () => {
+      signer.verifyPaymentNotes = jest.fn().mockResolvedValue({
+        isValid: false,
+        amountFound: 0n,
+        error: `payment sent to wrong address: expected ${SERVER_ADDRESS}, got 0x${"ee".repeat(32)}`,
+      });
+
+      const result = await scheme.verify(createPayload(), createRequirements());
+
+      expect(result.isValid).toBe(false);
+      expect(result.invalidReason).toContain("wrong address");
+    });
+
+    it("rejects payment with wrong token contract", async () => {
+      signer.verifyPaymentNotes = jest.fn().mockResolvedValue({
+        isValid: false,
+        amountFound: 0n,
+        error: `wrong token contract: expected ${TOKEN_ADDRESS}, got 0x${"99".repeat(32)}`,
+      });
+
+      const result = await scheme.verify(createPayload(), createRequirements());
+
+      expect(result.isValid).toBe(false);
+      expect(result.invalidReason).toContain("wrong token");
+    });
+
+    it("rejects payment with no private notes", async () => {
+      signer.verifyPaymentNotes = jest.fn().mockResolvedValue({
+        isValid: false,
+        amountFound: 0n,
+        error: "transaction produced no private notes — not a valid private transfer",
+      });
+
+      const result = await scheme.verify(createPayload(), createRequirements());
+
+      expect(result.isValid).toBe(false);
+      expect(result.invalidReason).toContain("no private notes");
+    });
+
+    it("handles verification errors from signer", async () => {
+      signer.verifyPaymentNotes = jest
+        .fn()
+        .mockRejectedValue(new Error("node connection lost"));
+
+      const result = await scheme.verify(createPayload(), createRequirements());
+
+      expect(result.isValid).toBe(false);
+      expect(result.invalidReason).toContain("node connection lost");
+    });
+
     it("rejects replayed payment with same txHash", async () => {
       const payload = createPayload();
       const requirements = createRequirements();
