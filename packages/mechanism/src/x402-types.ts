@@ -107,17 +107,23 @@ export interface SchemeNetworkFacilitator {
   getSigners(network: string): string[];
 
   /**
-   * Prepare async payment data for a 402 response.
+   * Prepare a commitment for a pending payment.
    *
-   * For Aztec: returns any extra data needed for the 402 response.
-   * The returned record is merged into PaymentRequirements.extra.
+   * Called by the middleware during the prepare phase. The client sends
+   * its address, and the facilitator creates a commitment via
+   * `prepare_private_balance_increase(facilitatorAddr)`.
    *
-   * Optional — if not implemented, only getExtra is used.
+   * The returned record is merged into PaymentRequirements.extra
+   * (includes `commitment`).
    *
-   * @param tokenAddress - The token contract address for the payment
+   * @param tokenAddress - The token contract address
+   * @param completerAddress - The client's Aztec address
    * @returns Extra data to merge into requirements.extra
    */
-  preparePayment?(tokenAddress: string): Promise<Record<string, unknown>>;
+  preparePayment?(
+    tokenAddress: string,
+    completerAddress: string,
+  ): Promise<Record<string, unknown>>;
 
   verify(
     payload: PaymentPayload,

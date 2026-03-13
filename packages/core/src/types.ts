@@ -2,12 +2,18 @@
  * x402 on Aztec — Core Types
  *
  * These types define the Aztec-specific payload and signer abstractions
- * used by the x402 mechanism plugin. The payment flow uses direct private
- * transfers:
+ * used by the x402 mechanism plugin. The payment flow uses the commitment-based
+ * pattern from the forked x402 token contract:
  *
- * 1. Client receives 402 with payTo address
- * 2. Client calls transfer_private_to_private(from, payTo, amount, nonce)
- * 3. Facilitator verifies payment via tx status and tx effects
+ * 1. Server calls prepare_private_balance_increase(serverAddr, clientAddr) — partial note
+ * 2. Server returns commitment to client in 402 response
+ * 3. Client calls finalize_transfer_to_private_from_private(clientAddr, {commitment}, amount, 0)
+ * 4. Client sends txHash to server
+ * 5. Server verifies tx status + note creation
+ *
+ * The server controls `to` (its own address), providing structural recipient
+ * verification. The `completer` parameter ensures only the specified client
+ * can finalize the transfer.
  */
 
 // ---------------------------------------------------------------------------
@@ -38,9 +44,10 @@ export const CAIP_FAMILY = "aztec:*" as const;
 /**
  * The Aztec-specific payload carried inside PaymentPayload.payload.
  *
- * Direct transfer flow:
- * 1. Client transfers tokens to the facilitator's payTo address
- * 2. Facilitator verifies tx status and tx effects
+ * The commitment-based flow:
+ * 1. Facilitator prepares a commitment via prepare_private_balance_increase
+ * 2. Client finalizes the transfer using that commitment
+ * 3. Facilitator verifies the completed note in its PXE
  */
 export interface ExactAztecPayload {
   /** The sender's Aztec address (hex string) */
@@ -66,47 +73,67 @@ export interface ExactAztecPayload {
 /**
  * Client-side signer — represents the payer's wallet capabilities.
  *
- * The client signer needs to:
- * 1. Provide its Aztec address
- * 2. Transfer tokens directly to the facilitator's payTo address
+ * The client signer:
+ * 1. Provides its Aztec address
+ * 2. Completes a transfer to a server-provided commitment
  */
 export interface ClientAztecSigner {
   /** The payer's Aztec address */
   getAddress(): Promise<string>;
 
   /**
-   * Execute a direct private transfer to the facilitator.
+   * Complete a private payment using a server-provided commitment.
    *
-   * Calls `transfer_private_to_private(from, payTo, amount, nonce)` on
-   * the token contract to send tokens to the facilitator's address.
+   * Calls `finalize_transfer_to_private_from_private(clientAddr, {commitment}, amount, 0)`
+   * on the Aztec token contract. The commitment was created by the
+   * server via `prepare_private_balance_increase(serverAddr)`.
    *
    * @param tokenAddress - The token contract address
-   * @param payTo - The facilitator's Aztec address to pay
+   * @param commitment - The commitment Field from the server's prepare step
    * @param amount - Amount in smallest token units
    * @returns Transaction hash
    */
   finalizePayment(
     tokenAddress: string,
-    payTo: string,
+    commitment: string,
     amount: bigint,
   ): Promise<string>;
 }
 
 /**
  * Facilitator/server-side signer — represents the payment receiver's
- * capabilities for verifying and acknowledging payments.
+ * capabilities for creating commitments and verifying payments.
  *
- * Verifies direct private transfers by checking tx status and tx effects.
+ * The facilitator creates commitments via `prepare_private_balance_increase`
+ * and verifies completed transfers.
  */
 export interface FacilitatorAztecSigner {
   /** Get all facilitator addresses for supported networks */
   getAddresses(): Promise<string[]>;
 
   /**
-   * Verify that a direct private transfer completed correctly.
+   * Create a commitment (partial note) for the facilitator's address.
    *
-   * Checks tx status and verifies that the transaction produced
-   * private notes (indicating a valid private transfer).
+   * Calls `prepare_private_balance_increase(facilitatorAddr, completerAddr)` on the
+   * forked x402 token contract. The resulting commitment binds the partial note to
+   * the facilitator's address (recipient) and the client's address (completer) —
+   * only the specified client can finalize the transfer TO the facilitator.
+   *
+   * @param tokenAddress - The token contract address
+   * @param completerAddress - The client's address (will call finalize_transfer_to_private_from_private)
+   * @returns The commitment Field value as a string
+   */
+  prepareCommitment(
+    tokenAddress: string,
+    completerAddress: string,
+  ): Promise<string>;
+
+  /**
+   * Verify that a transfer completed correctly.
+   *
+   * Checks tx status and verifies that the transaction produced private
+   * notes. Recipient is structurally guaranteed because the server created
+   * the commitment for its own address.
    *
    * @param txHash - The transaction hash to verify
    * @param tokenAddress - The token contract address

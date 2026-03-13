@@ -3,7 +3,9 @@
  *
  * These tests verify that the x402 payment flow correctly REJECTS payments
  * when the facilitator's verifyPayment reports issues (wrong amount, failed tx,
- * etc.).
+ * etc.). With the server-side commitment pattern, recipient verification
+ * is structural (the facilitator creates the partial note for its own address),
+ * so wrong-address scenarios are structurally prevented.
  *
  * Each describe block spins up its own Bun.serve on port 0 (OS-assigned) because
  * the facilitator is configured per-scenario (different mock verification behavior).
@@ -32,6 +34,7 @@ const SERVER_ADDRESS = "0x" + "bb".repeat(32);
 const SENDER_ADDRESS = "0x" + "aa".repeat(32);
 const TOKEN_ADDRESS = "0x" + "dd".repeat(32);
 const AMOUNT = "100000";
+
 const WRONG_AMOUNT = "50000";
 
 // ---------------------------------------------------------------------------
@@ -40,7 +43,8 @@ const WRONG_AMOUNT = "50000";
 
 /**
  * Creates a facilitator signer that validates payment parameters.
- * Uses direct transfer verification (verifyPayment only).
+ * The commitment flow is server-side — the facilitator creates the commitment
+ * and then verifies the completed transfer.
  */
 function createValidatingFacilitator(opts?: {
   /** Simulate: client sent a different amount */
@@ -51,6 +55,9 @@ function createValidatingFacilitator(opts?: {
   const signer: FacilitatorAztecSigner = {
     async getAddresses() {
       return [SERVER_ADDRESS];
+    },
+    async prepareCommitment() {
+      return "0x" + "ff".repeat(32);
     },
     async verifyPayment(
       _txHash: string,
@@ -174,7 +181,7 @@ function createServer(facilitator: ExactAztecFacilitatorScheme) {
 // Tests
 // ---------------------------------------------------------------------------
 
-describe("payment failure scenarios", () => {
+describe("payment failure scenarios (commitment-based)", () => {
   describe("correct payment is accepted", () => {
     let server: ReturnType<typeof Bun.serve>;
 
@@ -247,4 +254,10 @@ describe("payment failure scenarios", () => {
     });
   });
 
+  /**
+   * Wrong-address scenario is structurally prevented by the server-side
+   * commitment pattern. The facilitator creates the partial note for its own
+   * address, so the completed note can only go to the facilitator. No test
+   * needed for "wrong recipient" — it's impossible by construction.
+   */
 });

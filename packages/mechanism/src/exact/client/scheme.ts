@@ -13,10 +13,14 @@ import type {
 /**
  * Client-side x402 scheme for Aztec.
  *
- * When the client receives a 402 response:
- * 1. Reads payTo from PaymentRequirements
- * 2. Calls finalizePayment to transfer tokens directly to payTo
+ * When the client receives a 402 response with a commitment:
+ * 1. Reads the commitment from PaymentRequirements.extra.commitment
+ * 2. Calls finalizePayment to complete the transfer using that commitment
  * 3. Returns the sender address + txHash as the payload
+ *
+ * The commitment was created by the server via
+ * prepare_private_balance_increase(serverAddr), so the transfer
+ * is structurally bound to the server's address.
  */
 export class ExactAztecClientScheme implements SchemeNetworkClient {
   readonly scheme = SCHEME;
@@ -31,10 +35,20 @@ export class ExactAztecClientScheme implements SchemeNetworkClient {
     const senderAddress = await this.signer.getAddress();
     const correlationId = generateCorrelationId();
 
-    // Transfer tokens directly to the facilitator's payTo address
+    // Read the server-created commitment from the prepare phase
+    const commitment = paymentRequirements.extra?.commitment as
+      | string
+      | undefined;
+    if (!commitment) {
+      throw new Error(
+        "missing commitment in payment requirements — server must include extra.commitment",
+      );
+    }
+
+    // Complete the transfer using the server's commitment
     const txHash = await this.signer.finalizePayment(
       paymentRequirements.asset,
-      paymentRequirements.payTo,
+      commitment,
       BigInt(paymentRequirements.amount),
     );
 

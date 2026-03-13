@@ -1,0 +1,14 @@
+{
+  "name": "@aztec-x402/contracts",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "description": "Forked Aztec token contract with cross-party commitment support",
+  "exports": {
+    "./Token": "./src/Token.ts",
+    "./artifacts/token_contract-Token.json": "./token/target/token_contract-Token.json"
+  },
+  "dependencies": {
+    "@aztec/aztec.js": "4.0.4"
+  }
+}

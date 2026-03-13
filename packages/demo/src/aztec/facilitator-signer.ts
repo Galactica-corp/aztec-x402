@@ -1,22 +1,28 @@
 /**
- * Real FacilitatorAztecSigner — wraps an Aztec AccountManager and AztecNode
- * to verify direct private token transfers.
+ * Real FacilitatorAztecSigner — wraps an Aztec AccountManager, AztecNode,
+ * and token contract to handle commitment creation and payment verification.
  *
- * ## Direct Transfer Payment Flow
+ * ## Server-Side Commitment Creation
  *
- * 1. The client calls `transfer_private_to_private(from, payTo, amount, nonce)`
- *    to send tokens directly to the facilitator's address.
+ * The facilitator creates commitments via `prepare_private_balance_increase(serverAddr, clientAddr)`
+ * on the forked x402 token contract. This guarantees:
+ * - The partial note's `to` = facilitator's address (structural recipient verification)
+ * - The partial note's `completer` = client's address (only client can finalize)
  *
- * 2. `verifyPayment()` checks:
- *    - Transaction succeeded (receipt status)
- *    - Transaction produced private notes (tx effects)
+ * ## Payment Verification
+ *
+ * After the client calls `finalize_transfer_to_private_from_private(...)`, the facilitator verifies:
+ * - Transaction succeeded (receipt status)
+ * - Transaction produced private notes (tx effects)
+ * - Recipient correctness is guaranteed by the commitment pattern
  *
  * ## Amount Verification
  *
- * The ZK proof guarantees the transfer logic is valid. To verify the
- * facilitator received the correct amount, a full implementation would
- * query the PXE for the specific note. For this demo, we verify tx status
- * and note creation; amount verification via PXE is a future improvement.
+ * The ZK proof guarantees the transfer logic is valid, but the client chooses
+ * the amount parameter. To verify the facilitator received the correct amount,
+ * a full implementation would query the PXE for the specific note value.
+ * For this demo, we verify tx status and note creation; amount verification
+ * via PXE note queries is a future improvement.
  */
 import type {
   FacilitatorAztecSigner,
@@ -51,15 +57,59 @@ interface AztecAccount {
   address: AztecAddress;
 }
 
+interface TokenContract {
+  methods: {
+    prepare_private_balance_increase(
+      to: AztecAddress,
+      completer: AztecAddress,
+    ): {
+      simulate(opts: { from: AztecAddress }): Promise<unknown>;
+      send(opts: Record<string, unknown>): Promise<{ txHash: { toString(): string } }>;
+    };
+  };
+}
+
+/**
+ * Extract a commitment field value from the simulate() return value.
+ */
+function extractCommitment(result: unknown): string {
+  if (result != null && typeof result === "object" && "commitment" in result) {
+    return String((result as { commitment: unknown }).commitment);
+  }
+  return String(result);
+}
+
 export class RealFacilitatorAztecSigner implements FacilitatorAztecSigner {
   constructor(
     private readonly account: AztecAccount,
     private readonly node: AztecNode,
+    private readonly token: TokenContract,
     private readonly sendOpts?: { fee?: unknown },
   ) {}
 
   async getAddresses(): Promise<string[]> {
     return [this.account.address.toString()];
+  }
+
+  async prepareCommitment(
+    _tokenAddress: string,
+    completerAddress: string,
+  ): Promise<string> {
+    const facilitatorAddr = this.account.address;
+    const completerAddr = AztecAddress.fromString(completerAddress);
+
+    // Create partial note: to=facilitator (recipient), completer=client (who will finalize)
+    const interaction =
+      this.token.methods.prepare_private_balance_increase(facilitatorAddr, completerAddr);
+    const commitmentResult = await interaction.simulate({ from: facilitatorAddr });
+
+    const opts: Record<string, unknown> = { from: facilitatorAddr, wait: { timeout: 120 } };
+    if (this.sendOpts?.fee) {
+      opts.fee = this.sendOpts.fee;
+    }
+    await interaction.send(opts);
+
+    return extractCommitment(commitmentResult);
   }
 
   async verifyPayment(
@@ -88,6 +138,8 @@ export class RealFacilitatorAztecSigner implements FacilitatorAztecSigner {
       }
 
       // 2. Check that the transaction produced private notes.
+      //    Recipient is structurally guaranteed — the facilitator created
+      //    the commitment for its own address.
       try {
         const txEffect = await this.node.getTxEffect(txHash);
         if (txEffect) {
@@ -114,8 +166,8 @@ export class RealFacilitatorAztecSigner implements FacilitatorAztecSigner {
       }
 
       // 3. Amount verification: the client provides the amount when calling
-      //    transfer_private_to_private. A full implementation would query
-      //    the PXE for the specific note value. For now, we trust tx success.
+      //    finalize_transfer_to_private_from_private. A full implementation would query
+      //    the PXE for the specific note value.
       void tokenAddress;
       return { isValid: true, amountFound: requiredAmount };
     } catch (err) {

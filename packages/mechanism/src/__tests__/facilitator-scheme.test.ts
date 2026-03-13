@@ -10,12 +10,14 @@ const SERVER_ADDRESS = "0x" + "bb".repeat(32);
 const SENDER_ADDRESS = "0x" + "aa".repeat(32);
 const TOKEN_ADDRESS = "0x" + "dd".repeat(32);
 const TX_HASH = "0x" + "cc".repeat(32);
+const MOCK_COMMITMENT = "0x" + "ff".repeat(32);
 
 function createMockSigner(
   overrides?: Partial<FacilitatorAztecSigner>,
 ): FacilitatorAztecSigner {
   return {
     getAddresses: jest.fn().mockResolvedValue([SERVER_ADDRESS]),
+    prepareCommitment: jest.fn().mockResolvedValue(MOCK_COMMITMENT),
     verifyPayment: jest.fn().mockResolvedValue({ isValid: true, amountFound: 100_000n }),
     ...overrides,
   };
@@ -31,7 +33,7 @@ function createRequirements(
     amount: "100000",
     payTo: SERVER_ADDRESS,
     maxTimeoutSeconds: 120,
-    extra: {},
+    extra: { commitment: MOCK_COMMITMENT },
     ...overrides,
   };
 }
@@ -80,19 +82,35 @@ describe("ExactAztecFacilitatorScheme", () => {
   });
 
   describe("getExtra", () => {
-    it("returns undefined (no commitment needed)", () => {
+    it("returns undefined (commitment generation is async via preparePayment)", () => {
       expect(scheme.getExtra("aztec:sandbox")).toBeUndefined();
     });
   });
 
   describe("preparePayment", () => {
-    it("returns empty object (no commitment needed for direct transfer)", async () => {
-      const extra = await scheme.preparePayment(TOKEN_ADDRESS);
-      expect(extra).toEqual({});
+    it("generates a commitment and returns it as extra data", async () => {
+      const extra = await scheme.preparePayment(TOKEN_ADDRESS, SENDER_ADDRESS);
+
+      expect(extra).toEqual({ commitment: MOCK_COMMITMENT });
+      expect(signer.prepareCommitment).toHaveBeenCalledWith(TOKEN_ADDRESS, SENDER_ADDRESS);
+    });
+
+    it("tracks pending commitments for anti-replay", async () => {
+      const extra = await scheme.preparePayment(TOKEN_ADDRESS, SENDER_ADDRESS);
+      const requirements = createRequirements({ extra: { ...extra, nonce: "test" } });
+      const payload = createPayload({ accepted: requirements });
+
+      const result = await scheme.verify(payload, requirements);
+      expect(result.isValid).toBe(true);
     });
   });
 
   describe("verify", () => {
+    // Set up a pending commitment before each verify test
+    beforeEach(async () => {
+      await scheme.preparePayment(TOKEN_ADDRESS, SENDER_ADDRESS);
+    });
+
     it("rejects payload with missing sender address", async () => {
       const payload = createPayload({
         payload: {
@@ -154,7 +172,7 @@ describe("ExactAztecFacilitatorScheme", () => {
       expect(result.invalidReason).toContain("address");
     });
 
-    it("verifies payment using direct transfer verification", async () => {
+    it("verifies payment using commitment pattern", async () => {
       const result = await scheme.verify(createPayload(), createRequirements());
 
       expect(signer.verifyPayment).toHaveBeenCalledWith(
@@ -164,6 +182,25 @@ describe("ExactAztecFacilitatorScheme", () => {
       );
       expect(result.isValid).toBe(true);
       expect(result.payer).toBe(SENDER_ADDRESS);
+    });
+
+    it("rejects when commitment is missing from requirements", async () => {
+      const requirements = createRequirements({ extra: {} });
+      const result = await scheme.verify(createPayload(), requirements);
+
+      expect(result.isValid).toBe(false);
+      expect(result.invalidReason).toContain("commitment");
+    });
+
+    it("rejects when commitment was not issued by this facilitator", async () => {
+      const unknownCommitment = "0x" + "11".repeat(32);
+      const requirements = createRequirements({
+        extra: { commitment: unknownCommitment },
+      });
+      const result = await scheme.verify(createPayload(), requirements);
+
+      expect(result.isValid).toBe(false);
+      expect(result.invalidReason).toContain("commitment");
     });
 
     it("rejects when payment verification fails", async () => {
@@ -240,6 +277,22 @@ describe("ExactAztecFacilitatorScheme", () => {
       const replay = await scheme.verify(payload, requirements);
       expect(replay.isValid).toBe(false);
       expect(replay.invalidReason).toContain("payment already used");
+    });
+
+    it("consumes commitment after settlement", async () => {
+      const payload = createPayload();
+      const requirements = createRequirements();
+
+      await scheme.verify(payload, requirements);
+      await scheme.settle(payload, requirements);
+
+      // New payment with same commitment is rejected (commitment consumed)
+      const result = await scheme.verify(
+        createPayload({ payload: { ...createPayload().payload, txHash: "0x" + "ee".repeat(32) } }),
+        requirements,
+      );
+      expect(result.isValid).toBe(false);
+      expect(result.invalidReason).toContain("commitment");
     });
   });
 

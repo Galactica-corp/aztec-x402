@@ -12,22 +12,25 @@ import type {
 /**
  * Creates x402 payment middleware for Aztec.
  *
- * Flow:
- * 1. Check if the request path matches a payment-gated route
- * 2. If no PAYMENT-SIGNATURE header → return 402 with PAYMENT-REQUIRED
- *    (includes nonce for anti-replay)
- * 3. If PAYMENT-SIGNATURE present → validate nonce, verify, settle, pass through
+ * 3-phase flow:
+ * 1. No payment headers → return 402 with nonce (client learns requirements)
+ * 2. X-402-PREPARE header with {nonce, senderAddress} → server creates
+ *    commitment via prepare_private_balance_increase, returns 402 with
+ *    nonce + commitment
+ * 3. PAYMENT-SIGNATURE header → validate nonce + commitment, verify, settle,
+ *    pass through
  *
- * The middleware owns a pendingPayments map for anti-replay protection.
- * Each 402 response includes a unique nonce in `extra`. The client echoes
- * it back via `accepted.extra`. The nonce is consumed on use and expires
- * after `maxTimeoutSeconds`.
+ * The server creates the commitment for its own address with the client as
+ * completer, providing structural recipient verification.
  */
 export function createPaymentMiddleware(
   routes: RoutesConfig,
   config: MiddlewareConfig,
 ) {
-  const pendingPayments = new Map<string, { createdAt: number; timeoutMs: number }>();
+  const pendingPayments = new Map<
+    string,
+    { createdAt: number; timeoutMs: number; commitment?: string }
+  >();
   const paidResources = new Set<string>();
 
   return async (
@@ -64,99 +67,143 @@ export function createPaymentMiddleware(
       extra: {},
     };
 
-    // Check for payment header
-    const paymentHeader = getHeader(req, "payment-signature");
-    if (!paymentHeader) {
-      // Generate nonce
-      const nonce = uuidv7();
-      pendingPayments.set(nonce, { createdAt: Date.now(), timeoutMs });
-      requirements.extra = { nonce };
+    // Phase 2: Prepare — client sends its address, server creates commitment
+    const prepareHeader = getHeader(req, "x-402-prepare");
+    if (prepareHeader) {
+      let prepareData: { nonce?: string; senderAddress?: string };
+      try {
+        prepareData = JSON.parse(
+          Buffer.from(prepareHeader, "base64").toString(),
+        );
+      } catch {
+        return send402(res, requirements, routeConfig.description, "Invalid prepare payload encoding");
+      }
 
-      // Generate commitment if facilitator supports it
+      const nonce = prepareData.nonce;
+      const senderAddress = prepareData.senderAddress;
+      if (!nonce || !senderAddress) {
+        return send402(res, requirements, routeConfig.description, "missing nonce or senderAddress in prepare");
+      }
+
+      const paymentEntry = pendingPayments.get(nonce);
+      if (!paymentEntry) {
+        return send402(res, requirements, routeConfig.description, "invalid or expired payment nonce");
+      }
+
+      if (Date.now() - paymentEntry.createdAt > paymentEntry.timeoutMs) {
+        pendingPayments.delete(nonce);
+        return send402(res, requirements, routeConfig.description, "invalid or expired payment nonce");
+      }
+
+      // Create commitment if facilitator supports it
       if (config.facilitator.preparePayment) {
         const extra = await config.facilitator.preparePayment(
           routeConfig.asset,
+          senderAddress,
         );
-        Object.assign(requirements.extra, extra);
+        // Store commitment in pending entry for validation in phase 3
+        paymentEntry.commitment = extra.commitment as string;
+        requirements.extra = { nonce, ...extra };
+      } else {
+        requirements.extra = { nonce };
       }
-
-      // Lazy-sweep expired entries
-      sweepExpiredPayments(pendingPayments);
 
       return send402(res, requirements, routeConfig.description);
     }
 
-    // Decode payment payload
-    let paymentPayload: PaymentPayload;
-    try {
-      const decoded = Buffer.from(paymentHeader, "base64").toString();
-      paymentPayload = JSON.parse(decoded);
-    } catch {
-      return send402(res, requirements, routeConfig.description, "Invalid payment payload encoding");
-    }
+    // Phase 3: Payment — client sends payment proof
+    const paymentHeader = getHeader(req, "payment-signature");
+    if (paymentHeader) {
+      let paymentPayload: PaymentPayload;
+      try {
+        const decoded = Buffer.from(paymentHeader, "base64").toString();
+        paymentPayload = JSON.parse(decoded);
+      } catch {
+        return send402(res, requirements, routeConfig.description, "Invalid payment payload encoding");
+      }
 
-    // Validate nonce
-    const accepted = paymentPayload.accepted as PaymentRequirements;
-    const nonce = accepted?.extra?.nonce as string | undefined;
-    if (!nonce) {
-      return send402(res, requirements, routeConfig.description, "missing payment nonce");
-    }
+      // Validate nonce
+      const accepted = paymentPayload.accepted as PaymentRequirements;
+      const nonce = accepted?.extra?.nonce as string | undefined;
+      if (!nonce) {
+        return send402(res, requirements, routeConfig.description, "missing payment nonce");
+      }
 
-    const paymentEntry = pendingPayments.get(nonce);
-    if (!paymentEntry) {
-      return send402(res, requirements, routeConfig.description, "invalid or expired payment nonce");
-    }
+      const paymentEntry = pendingPayments.get(nonce);
+      if (!paymentEntry) {
+        return send402(res, requirements, routeConfig.description, "invalid or expired payment nonce");
+      }
 
-    // Check if nonce has expired
-    if (Date.now() - paymentEntry.createdAt > paymentEntry.timeoutMs) {
+      if (Date.now() - paymentEntry.createdAt > paymentEntry.timeoutMs) {
+        pendingPayments.delete(nonce);
+        return send402(res, requirements, routeConfig.description, "invalid or expired payment nonce");
+      }
+
+      // Consume nonce (one-shot)
       pendingPayments.delete(nonce);
-      return send402(res, requirements, routeConfig.description, "invalid or expired payment nonce");
-    }
 
-    // Consume nonce (one-shot)
-    pendingPayments.delete(nonce);
+      // Carry commitment from the prepare phase into verify requirements
+      if (paymentEntry.commitment) {
+        requirements.extra = {
+          ...requirements.extra,
+          nonce,
+          commitment: paymentEntry.commitment,
+        };
+      }
 
-    // Verify payment
-    const verifyResult = await config.facilitator.verify(
-      paymentPayload,
-      requirements,
-    );
-
-    if (!verifyResult.isValid) {
-      return send402(
-        res,
+      // Verify payment
+      const verifyResult = await config.facilitator.verify(
+        paymentPayload,
         requirements,
-        routeConfig.description,
-        verifyResult.invalidMessage || verifyResult.invalidReason,
       );
-    }
 
-    // Settle payment
-    const settleResult = await config.facilitator.settle(
-      paymentPayload,
-      requirements,
-    );
+      if (!verifyResult.isValid) {
+        return send402(
+          res,
+          requirements,
+          routeConfig.description,
+          verifyResult.invalidMessage || verifyResult.invalidReason,
+        );
+      }
 
-    if (!settleResult.success) {
-      res.status(500).json({
-        error: "Payment settlement failed",
-        reason: settleResult.errorReason,
-        message: settleResult.errorMessage,
-      });
+      // Settle payment
+      const settleResult = await config.facilitator.settle(
+        paymentPayload,
+        requirements,
+      );
+
+      if (!settleResult.success) {
+        res.status(500).json({
+          error: "Payment settlement failed",
+          reason: settleResult.errorReason,
+          message: settleResult.errorMessage,
+        });
+        return;
+      }
+
+      // Set PAYMENT-RESPONSE header
+      const responsePayload = Buffer.from(
+        JSON.stringify(settleResult),
+      ).toString("base64");
+      res.setHeader("PAYMENT-RESPONSE", responsePayload);
+
+      // Mark this resource as paid
+      paidResources.add(req.path);
+
+      // Pass through to the actual route handler
+      next();
       return;
     }
 
-    // Set PAYMENT-RESPONSE header
-    const responsePayload = Buffer.from(
-      JSON.stringify(settleResult),
-    ).toString("base64");
-    res.setHeader("PAYMENT-RESPONSE", responsePayload);
+    // Phase 1: Initial request — generate nonce, return 402
+    const nonce = uuidv7();
+    pendingPayments.set(nonce, { createdAt: Date.now(), timeoutMs });
+    requirements.extra = { nonce };
 
-    // Mark this resource as paid
-    paidResources.add(req.path);
+    // Lazy-sweep expired entries
+    sweepExpiredPayments(pendingPayments);
 
-    // Pass through to the actual route handler
-    next();
+    return send402(res, requirements, routeConfig.description);
   };
 }
 

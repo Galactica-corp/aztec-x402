@@ -32,9 +32,16 @@ import type {
 /**
  * Facilitator-side x402 scheme for Aztec.
  *
- * Uses direct transfer verification:
- * 1. Client transfers tokens to facilitator's payTo address
- * 2. verify: checks tx status + confirms payment via tx effects
+ * The server creates commitments for its own address using the Aztec
+ * token contract's prepare_private_balance_increase(serverAddr).
+ * This provides structural recipient verification — the partial note is
+ * bound to the server's address, so the client can only transfer TO the server.
+ *
+ * Flow:
+ * 1. Client announces its address (prepare phase)
+ * 2. Server creates commitment via preparePayment → returns commitment
+ * 3. Client calls finalize_transfer_to_private_from_private with the commitment
+ * 4. Server verifies tx status + note creation
  *
  * Settlement:
  * For Aztec private transfers, settlement happens at transfer time.
@@ -46,6 +53,7 @@ export class ExactAztecFacilitatorScheme implements SchemeNetworkFacilitator {
 
   private cachedAddresses: string[] = [];
   private consumedTxHashes = new Set<string>();
+  private pendingCommitments = new Set<string>();
 
   constructor(
     private readonly signer: FacilitatorAztecSigner,
@@ -69,12 +77,26 @@ export class ExactAztecFacilitatorScheme implements SchemeNetworkFacilitator {
   }
 
   /**
-   * Prepare payment — no commitment needed for direct transfers.
+   * Prepare a commitment for a pending payment.
+   *
+   * Called by the middleware during the prepare phase when the client
+   * sends its address. Creates a commitment bound to the facilitator's
+   * address with the client as the authorized completer.
+   *
+   * @param tokenAddress - The token contract address
+   * @param completerAddress - The client's Aztec address
+   * @returns Extra data containing the commitment
    */
   async preparePayment(
-    _tokenAddress: string,
+    tokenAddress: string,
+    completerAddress: string,
   ): Promise<Record<string, unknown>> {
-    return {};
+    const commitment = await this.signer.prepareCommitment(
+      tokenAddress,
+      completerAddress,
+    );
+    this.pendingCommitments.add(commitment);
+    return { commitment };
   }
 
   async verify(
@@ -104,8 +126,19 @@ export class ExactAztecFacilitatorScheme implements SchemeNetworkFacilitator {
       };
     }
 
+    // 3. Validate that the commitment was issued by this facilitator
+    const commitment = requirements.extra?.commitment as string | undefined;
+    if (!commitment || !this.pendingCommitments.has(commitment)) {
+      return {
+        isValid: false,
+        invalidReason: "invalid or missing commitment",
+        invalidMessage: "Payment commitment was not issued by this facilitator.",
+        payer: aztecPayload.senderAddress,
+      };
+    }
+
     try {
-      // 3. Verify the transfer via the facilitator's node
+      // 4. Verify the finalized transfer via the facilitator's node
       const verification = await this.signer.verifyPayment(
         aztecPayload.txHash,
         requirements.asset,
@@ -142,6 +175,11 @@ export class ExactAztecFacilitatorScheme implements SchemeNetworkFacilitator {
   ): Promise<SettleResponse> {
     const aztecPayload = parseAztecPayload(payload.payload);
 
+    // Consume the commitment and txHash
+    const commitment = requirements.extra?.commitment as string | undefined;
+    if (commitment) {
+      this.pendingCommitments.delete(commitment);
+    }
     if (aztecPayload.txHash) {
       this.consumedTxHashes.add(aztecPayload.txHash);
     }

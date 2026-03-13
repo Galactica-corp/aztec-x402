@@ -1,10 +1,12 @@
 /**
- * Real ClientAztecSigner — wraps an Aztec AccountManager and TokenContract
- * to execute direct private token transfers on the Aztec network.
+ * Real ClientAztecSigner — wraps an Aztec AccountManager and the
+ * official Aztec Token contract to complete commitment-based private transfers.
+ *
+ * The server creates the commitment via prepare_private_balance_increase.
+ * The client only calls finalize_transfer_to_private_from_private to fund it.
  */
 import type { ClientAztecSigner } from "@aztec-x402/core";
 import { AztecAddress } from "@aztec/aztec.js/addresses";
-import { Fr } from "@aztec/aztec.js/fields";
 
 interface AztecAccount {
   address: AztecAddress;
@@ -12,11 +14,11 @@ interface AztecAccount {
 
 interface TokenContract {
   methods: {
-    transfer_private_to_private(
+    finalize_transfer_to_private_from_private(
       from: AztecAddress,
-      to: AztecAddress,
+      partial_note: { commitment: unknown },
       amount: bigint,
-      nonce: Fr,
+      authwit_nonce: unknown,
     ): {
       simulate(opts: { from: AztecAddress }): Promise<unknown>;
       send(opts: Record<string, unknown>): Promise<{ txHash: { toString(): string } }>;
@@ -37,23 +39,23 @@ export class RealClientAztecSigner implements ClientAztecSigner {
 
   async finalizePayment(
     _tokenAddress: string,
-    payTo: string,
+    commitment: string,
     amount: bigint,
   ): Promise<string> {
     const from = this.account.address;
-    const to = AztecAddress.fromString(payTo);
-    const method = this.token.methods.transfer_private_to_private(
-      from,
-      to,
-      amount,
-      Fr.ZERO,
-    );
-    await method.simulate({ from });
+
+    // Complete the transfer using the server-provided commitment.
+    // The server already called prepare_private_balance_increase(serverAddr),
+    // so this commitment is bound to the server's address as recipient.
+    const interaction =
+      this.token.methods.finalize_transfer_to_private_from_private(from, { commitment }, amount, 0);
+    await interaction.simulate({ from });
+
     const opts: Record<string, unknown> = { from, wait: { timeout: 120 } };
     if (this.sendOpts?.fee) {
       opts.fee = this.sendOpts.fee;
     }
-    const receipt = await method.send(opts);
+    const receipt = await interaction.send(opts);
     return receipt.txHash.toString();
   }
 }
