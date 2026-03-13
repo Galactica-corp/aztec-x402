@@ -14,15 +14,14 @@ import type {
  *
  * Flow:
  * 1. Check if the request path matches a payment-gated route
- * 2. If no PAYMENT-SIGNATURE header → call facilitator.preparePayment to
- *    generate a commitment, return 402 with PAYMENT-REQUIRED (includes
- *    nonce + commitment)
+ * 2. If no PAYMENT-SIGNATURE header → return 402 with PAYMENT-REQUIRED
+ *    (includes nonce for anti-replay)
  * 3. If PAYMENT-SIGNATURE present → validate nonce, verify, settle, pass through
  *
  * The middleware owns a pendingPayments map for anti-replay protection.
- * Each 402 response includes a unique nonce and commitment in `extra`.
- * The client echoes them back via `accepted.extra`. The nonce is consumed
- * on use and expires after `maxTimeoutSeconds`.
+ * Each 402 response includes a unique nonce in `extra`. The client echoes
+ * it back via `accepted.extra`. The nonce is consumed on use and expires
+ * after `maxTimeoutSeconds`.
  */
 export function createPaymentMiddleware(
   routes: RoutesConfig,
@@ -116,11 +115,6 @@ export function createPaymentMiddleware(
 
     // Consume nonce (one-shot)
     pendingPayments.delete(nonce);
-
-    // Carry commitment from accepted requirements into verify requirements
-    if (accepted?.extra?.commitment) {
-      requirements.extra = { ...requirements.extra, commitment: accepted.extra.commitment };
-    }
 
     // Verify payment
     const verifyResult = await config.facilitator.verify(

@@ -3,9 +3,7 @@
  *
  * These tests verify that the x402 payment flow correctly REJECTS payments
  * when the facilitator's verifyPayment reports issues (wrong amount, failed tx,
- * etc.). With the commitment-based approach, recipient verification is inherent
- * (the facilitator created the partial note for its own address), so wrong-address
- * scenarios are structurally prevented.
+ * etc.).
  *
  * Each describe block spins up its own Bun.serve on port 0 (OS-assigned) because
  * the facilitator is configured per-scenario (different mock verification behavior).
@@ -34,8 +32,6 @@ const SERVER_ADDRESS = "0x" + "bb".repeat(32);
 const SENDER_ADDRESS = "0x" + "aa".repeat(32);
 const TOKEN_ADDRESS = "0x" + "dd".repeat(32);
 const AMOUNT = "100000";
-const MOCK_COMMITMENT = "0x" + "ff".repeat(32);
-
 const WRONG_AMOUNT = "50000";
 
 // ---------------------------------------------------------------------------
@@ -44,7 +40,7 @@ const WRONG_AMOUNT = "50000";
 
 /**
  * Creates a facilitator signer that validates payment parameters.
- * Uses the commitment-based pattern (prepareCommitment + verifyPayment).
+ * Uses direct transfer verification (verifyPayment only).
  */
 function createValidatingFacilitator(opts?: {
   /** Simulate: client sent a different amount */
@@ -55,9 +51,6 @@ function createValidatingFacilitator(opts?: {
   const signer: FacilitatorAztecSigner = {
     async getAddresses() {
       return [SERVER_ADDRESS];
-    },
-    async prepareCommitment(_tokenAddress: string): Promise<string> {
-      return MOCK_COMMITMENT;
     },
     async verifyPayment(
       _txHash: string,
@@ -181,7 +174,7 @@ function createServer(facilitator: ExactAztecFacilitatorScheme) {
 // Tests
 // ---------------------------------------------------------------------------
 
-describe("payment failure scenarios (commitment-based)", () => {
+describe("payment failure scenarios", () => {
   describe("correct payment is accepted", () => {
     let server: ReturnType<typeof Bun.serve>;
 
@@ -254,10 +247,4 @@ describe("payment failure scenarios (commitment-based)", () => {
     });
   });
 
-  /**
-   * Wrong-address scenario is now structurally prevented by the commitment
-   * pattern. The facilitator creates the partial note for its own address,
-   * so the completed note can only go to the facilitator. No test needed
-   * for "wrong recipient" — it's impossible by construction.
-   */
 });

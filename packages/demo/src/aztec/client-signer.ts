@@ -1,6 +1,6 @@
 /**
  * Real ClientAztecSigner — wraps an Aztec AccountManager and TokenContract
- * to finalize commitment-based private token transfers on the Aztec network.
+ * to execute direct private token transfers on the Aztec network.
  */
 import type { ClientAztecSigner } from "@aztec-x402/core";
 import { AztecAddress } from "@aztec/aztec.js/addresses";
@@ -12,11 +12,11 @@ interface AztecAccount {
 
 interface TokenContract {
   methods: {
-    finalize_transfer_to_private_from_private(
+    transfer_private_to_private(
       from: AztecAddress,
-      partial_note: { commitment: Fr },
+      to: AztecAddress,
       amount: bigint,
-      authwit_nonce: Fr,
+      nonce: Fr,
     ): {
       simulate(opts: { from: AztecAddress }): Promise<unknown>;
       send(opts: Record<string, unknown>): Promise<{ txHash: { toString(): string } }>;
@@ -37,14 +37,14 @@ export class RealClientAztecSigner implements ClientAztecSigner {
 
   async finalizePayment(
     _tokenAddress: string,
-    commitment: string,
+    payTo: string,
     amount: bigint,
   ): Promise<string> {
     const from = this.account.address;
-    const commitmentField = Fr.fromString(commitment);
-    const method = this.token.methods.finalize_transfer_to_private_from_private(
+    const to = AztecAddress.fromString(payTo);
+    const method = this.token.methods.transfer_private_to_private(
       from,
-      { commitment: commitmentField },
+      to,
       amount,
       Fr.ZERO,
     );

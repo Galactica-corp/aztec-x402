@@ -1,14 +1,9 @@
 /**
  * Unit tests for RealFacilitatorAztecSigner.
  *
- * These tests verify the commitment-based payment verification used in the
- * demo server. They use mock node/token objects to test without a running
+ * These tests verify the direct transfer payment verification used in the
+ * demo server. They use mock node objects to test without a running
  * Aztec sandbox.
- *
- * Key improvements over the old transfer_private_to_private approach:
- * - Recipient verification is guaranteed by the commitment pattern
- *   (facilitator creates partial note for its own address)
- * - Remaining gap: amount verification requires PXE note queries
  *
  * NOTE: We avoid importing AztecAddress directly because @aztec/foundation
  * validates field elements at module load time and our synthetic test addresses
@@ -24,8 +19,6 @@ const TOKEN_ADDRESS_STR =
   "0x0abcdef1234567890abcdef1234567890abcdef1234567890abcdef1234567890";
 const TX_HASH =
   "0x0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef";
-const MOCK_COMMITMENT =
-  "0x0aaabbbcccdddeee0aaabbbcccdddeee0aaabbbcccdddeee0aaabbbcccdddeee";
 const REQUIRED_AMOUNT = 100_000n;
 
 /**
@@ -65,18 +58,6 @@ function createMockNode(opts?: string | MockNodeOptions) {
   };
 }
 
-function createMockToken(commitmentResult: unknown = { commitment: MOCK_COMMITMENT }) {
-  const mockInteraction = {
-    simulate: jest.fn().mockResolvedValue(commitmentResult),
-    send: jest.fn().mockResolvedValue({ txHash: { toString: () => TX_HASH } }),
-  };
-  return {
-    methods: {
-      prepare_private_balance_increase: jest.fn().mockReturnValue(mockInteraction),
-    },
-  };
-}
-
 function createMockAccount(addr = SERVER_ADDRESS_STR) {
   return { address: mockAztecAddress(addr) };
 }
@@ -85,7 +66,6 @@ function createSigner(opts?: string | MockNodeOptions) {
   return new RealFacilitatorAztecSigner(
     createMockAccount(),
     createMockNode(opts),
-    createMockToken(),
   );
 }
 
@@ -94,81 +74,6 @@ describe("RealFacilitatorAztecSigner", () => {
     it("returns the account address", async () => {
       const addresses = await createSigner().getAddresses();
       expect(addresses).toEqual([SERVER_ADDRESS_STR]);
-    });
-  });
-
-  describe("prepareCommitment", () => {
-    it("calls prepare_private_balance_increase on the token contract", async () => {
-      const token = createMockToken();
-      const account = createMockAccount();
-      const signer = new RealFacilitatorAztecSigner(
-        account,
-        createMockNode(),
-        token,
-      );
-
-      await signer.prepareCommitment(TOKEN_ADDRESS_STR);
-
-      expect(token.methods.prepare_private_balance_increase).toHaveBeenCalledWith(
-        account.address,
-      );
-    });
-
-    it("simulates and sends the partial note transaction", async () => {
-      const token = createMockToken();
-      const account = createMockAccount();
-      const signer = new RealFacilitatorAztecSigner(
-        account,
-        createMockNode(),
-        token,
-      );
-
-      await signer.prepareCommitment(TOKEN_ADDRESS_STR);
-
-      const interaction = token.methods.prepare_private_balance_increase.mock.results[0].value;
-      expect(interaction.simulate).toHaveBeenCalledWith({ from: account.address });
-      expect(interaction.send).toHaveBeenCalled();
-    });
-
-    it("returns the commitment from simulate result (object shape)", async () => {
-      const token = createMockToken({ commitment: MOCK_COMMITMENT });
-      const signer = new RealFacilitatorAztecSigner(
-        createMockAccount(),
-        createMockNode(),
-        token,
-      );
-
-      const result = await signer.prepareCommitment(TOKEN_ADDRESS_STR);
-      expect(result).toBe(MOCK_COMMITMENT);
-    });
-
-    it("returns the commitment from simulate result (raw value shape)", async () => {
-      const token = createMockToken(MOCK_COMMITMENT);
-      const signer = new RealFacilitatorAztecSigner(
-        createMockAccount(),
-        createMockNode(),
-        token,
-      );
-
-      const result = await signer.prepareCommitment(TOKEN_ADDRESS_STR);
-      expect(result).toBe(MOCK_COMMITMENT);
-    });
-
-    it("passes fee options when configured", async () => {
-      const token = createMockToken();
-      const mockFee = { paymentMethod: "sponsored" };
-      const signer = new RealFacilitatorAztecSigner(
-        createMockAccount(),
-        createMockNode(),
-        token,
-        { fee: mockFee },
-      );
-
-      await signer.prepareCommitment(TOKEN_ADDRESS_STR);
-
-      const interaction = token.methods.prepare_private_balance_increase.mock.results[0].value;
-      const sendCall = interaction.send.mock.calls[0][0];
-      expect(sendCall.fee).toBe(mockFee);
     });
   });
 
@@ -246,7 +151,6 @@ describe("RealFacilitatorAztecSigner", () => {
       const signer = new RealFacilitatorAztecSigner(
         createMockAccount(),
         node,
-        createMockToken(),
       );
 
       const result = await signer.verifyPayment(
@@ -355,20 +259,8 @@ describe("RealFacilitatorAztecSigner", () => {
     });
   });
 
-  /**
-   * COMMITMENT PATTERN — RECIPIENT VERIFICATION IS NOW CLOSED
-   *
-   * With the commitment pattern, the facilitator creates the partial note
-   * for its own address. This means recipient verification is inherent:
-   * the note can ONLY go to the facilitator's address.
-   *
-   * Remaining gap: amount verification requires PXE note queries.
-   */
   describe("remaining verification gap — amount", () => {
     it("KNOWN GAP: reports required amount without verifying actual amount", async () => {
-      // The client chooses the amount when calling
-      // finalize_transfer_to_private_from_private. A full implementation
-      // would query the PXE for the specific note value.
       const result = await createSigner("success").verifyPayment(
         TX_HASH,
         TOKEN_ADDRESS_STR,

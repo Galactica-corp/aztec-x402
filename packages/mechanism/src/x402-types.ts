@@ -109,7 +109,7 @@ export interface SchemeNetworkFacilitator {
   /**
    * Prepare async payment data for a 402 response.
    *
-   * For Aztec: generates a commitment via prepare_private_balance_increase.
+   * For Aztec: returns any extra data needed for the 402 response.
    * The returned record is merged into PaymentRequirements.extra.
    *
    * Optional — if not implemented, only getExtra is used.

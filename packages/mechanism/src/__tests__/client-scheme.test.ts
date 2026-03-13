@@ -3,7 +3,7 @@ import { ExactAztecClientScheme } from "../exact/client/scheme.js";
 import type { ClientAztecSigner } from "@aztec-x402/core";
 import type { PaymentRequirements } from "../x402-types.js";
 
-const MOCK_COMMITMENT = "0x" + "ff".repeat(32);
+const MOCK_PAY_TO = "0x" + "bb".repeat(32);
 
 function createMockSigner(overrides?: Partial<ClientAztecSigner>): ClientAztecSigner {
   return {
@@ -21,9 +21,9 @@ function createPaymentRequirements(
     network: "aztec:sandbox",
     asset: "0x" + "dd".repeat(32),
     amount: "100000",
-    payTo: "0x" + "bb".repeat(32),
+    payTo: MOCK_PAY_TO,
     maxTimeoutSeconds: 120,
-    extra: { commitment: MOCK_COMMITMENT },
+    extra: {},
     ...overrides,
   };
 }
@@ -41,14 +41,14 @@ describe("ExactAztecClientScheme", () => {
     expect(scheme.scheme).toBe("exact");
   });
 
-  it("calls finalizePayment with commitment from requirements", async () => {
+  it("calls finalizePayment with payTo from requirements", async () => {
     const requirements = createPaymentRequirements();
 
     await scheme.createPaymentPayload(2, requirements);
 
     expect(signer.finalizePayment).toHaveBeenCalledWith(
       requirements.asset,
-      MOCK_COMMITMENT,
+      MOCK_PAY_TO,
       BigInt(requirements.amount),
     );
   });
@@ -81,14 +81,6 @@ describe("ExactAztecClientScheme", () => {
 
     const ts = String(result.payload.timestamp);
     expect(new Date(ts).toISOString()).toBe(ts);
-  });
-
-  it("throws when commitment is missing from requirements", async () => {
-    const requirements = createPaymentRequirements({ extra: {} });
-
-    await expect(
-      scheme.createPaymentPayload(2, requirements),
-    ).rejects.toThrow("missing commitment");
   });
 
   it("propagates signer errors", async () => {

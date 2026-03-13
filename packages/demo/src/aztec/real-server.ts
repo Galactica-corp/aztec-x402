@@ -16,11 +16,13 @@ Sentry.init({
 
 import { createAztecNodeClient } from "@aztec/aztec.js/node";
 import { AztecAddress } from "@aztec/aztec.js/addresses";
-import { TokenContract } from "@aztec/noir-contracts.js/Token";
+import { TokenContract } from "@defi-wonderland/aztec-standards/dist/src/artifacts/Token";
 import { EmbeddedWallet } from "@aztec/wallets/embedded";
 import { readFileSync } from "fs";
 import { join, dirname } from "path";
-import { loadKeys, loadAccount } from "./wallet-manager.js";
+import { loadKeys, loadAccount, setupSponsoredPayment } from "./wallet-manager.js";
+
+const USE_SPONSORED_FPC = process.env.USE_SPONSORED_FPC === "true";
 
 import type { AztecNetwork } from "@aztec-x402/core";
 import { ExactAztecFacilitatorScheme } from "@aztec-x402/mechanism/exact/facilitator";
@@ -70,16 +72,19 @@ const bobAccount = await loadAccount(wallet, keys, "bob");
 const bob = bobAccount.address;
 console.log(`Server address: ${bob}`);
 
-// Load the token contract for the facilitator (needed for commitment generation)
+// Register the token contract with the wallet
 const tokenAddress = AztecAddress.fromString(TOKEN_ADDRESS);
 const tokenInstance = await node.getContract(tokenAddress);
 if (tokenInstance) {
   await wallet.registerContract(tokenInstance, TokenContract.artifact);
 }
-const token = await TokenContract.at(tokenAddress, wallet);
+
+// Set up fee payment (Sponsored FPC on devnet/v4 sandbox, none otherwise)
+const paymentMethod = USE_SPONSORED_FPC ? await setupSponsoredPayment(wallet) : undefined;
+const sendOpts = paymentMethod ? { fee: { paymentMethod } } : undefined;
 
 // Create real facilitator signer
-const facilitatorSigner = new RealFacilitatorAztecSigner(bobAccount, node, token);
+const facilitatorSigner = new RealFacilitatorAztecSigner(bobAccount, node, sendOpts);
 const facilitator = new ExactAztecFacilitatorScheme(facilitatorSigner, [NETWORK]);
 await facilitator.initialize();
 

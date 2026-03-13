@@ -8,7 +8,7 @@
  */
 import { createAztecNodeClient } from "@aztec/aztec.js/node";
 import { AztecAddress } from "@aztec/aztec.js/addresses";
-import { TokenContract } from "@aztec/noir-contracts.js/Token";
+import { TokenContract } from "@defi-wonderland/aztec-standards/dist/src/artifacts/Token";
 import { EmbeddedWallet } from "@aztec/wallets/embedded";
 import { readFileSync } from "fs";
 import { join, dirname } from "path";
@@ -36,7 +36,8 @@ try {
 
 const NODE_URL = config.nodeUrl;
 const NETWORK = config.network;
-const isDevnet = NETWORK !== "aztec:sandbox";
+const USE_SPONSORED_FPC = process.env.USE_SPONSORED_FPC === "true";
+const isDevnet = USE_SPONSORED_FPC || NETWORK !== "aztec:sandbox";
 
 // Connect to Aztec
 console.log(`Connecting to Aztec node at ${NODE_URL}...`);
@@ -59,6 +60,10 @@ if (tokenInstance) {
   await wallet.registerContract(tokenInstance, TokenContract.artifact);
 }
 const token = await TokenContract.at(tokenAddress, wallet);
+
+// Register Bob as sender so we can discover notes from him
+const bob = AztecAddress.fromString(config.bobAddress);
+await wallet.registerSender(bob, "bob");
 
 // Check balance before
 const balanceBefore = await token.methods
