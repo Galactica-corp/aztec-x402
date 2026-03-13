@@ -20,14 +20,17 @@ const SERVER_ADDRESS = "0x" + "bb".repeat(32);
 const SENDER_ADDRESS = "0x" + "aa".repeat(32);
 const TOKEN_ADDRESS = "0x" + "dd".repeat(32);
 const AMOUNT = "100000";
+const MOCK_COMMITMENT = "0x" + "ff".repeat(32);
 
 function createMockFacilitator() {
   const signer: FacilitatorAztecSigner = {
     async getAddresses() {
       return [SERVER_ADDRESS];
     },
-    async registerSender() {},
-    async verifyPaymentNotes() {
+    async prepareCommitment() {
+      return MOCK_COMMITMENT;
+    },
+    async verifyPayment() {
       return { isValid: true, amountFound: BigInt(AMOUNT) };
     },
   };
@@ -40,8 +43,8 @@ function createMockClient() {
     async getAddress() {
       return SENDER_ADDRESS;
     },
-    async transferPrivateToPrivate() {
-      return "0x" + "ff".repeat(32);
+    async finalizePayment() {
+      return "0x" + "cc".repeat(32);
     },
   };
 

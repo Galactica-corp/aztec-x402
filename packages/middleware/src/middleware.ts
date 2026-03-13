@@ -14,19 +14,21 @@ import type {
  *
  * Flow:
  * 1. Check if the request path matches a payment-gated route
- * 2. If no PAYMENT-SIGNATURE header → return 402 with PAYMENT-REQUIRED (includes nonce)
+ * 2. If no PAYMENT-SIGNATURE header → call facilitator.preparePayment to
+ *    generate a commitment, return 402 with PAYMENT-REQUIRED (includes
+ *    nonce + commitment)
  * 3. If PAYMENT-SIGNATURE present → validate nonce, verify, settle, pass through
  *
- * The middleware owns a pendingNonces map for anti-replay protection.
- * Each 402 response includes a unique nonce in `extra.nonce`. The client
- * echoes it back automatically via `accepted.extra.nonce`. The nonce is
- * consumed on use and expires after `maxTimeoutSeconds`.
+ * The middleware owns a pendingPayments map for anti-replay protection.
+ * Each 402 response includes a unique nonce and commitment in `extra`.
+ * The client echoes them back via `accepted.extra`. The nonce is consumed
+ * on use and expires after `maxTimeoutSeconds`.
  */
 export function createPaymentMiddleware(
   routes: RoutesConfig,
   config: MiddlewareConfig,
 ) {
-  const pendingNonces = new Map<string, { createdAt: number; timeoutMs: number }>();
+  const pendingPayments = new Map<string, { createdAt: number; timeoutMs: number }>();
   const paidResources = new Set<string>();
 
   return async (
@@ -66,13 +68,21 @@ export function createPaymentMiddleware(
     // Check for payment header
     const paymentHeader = getHeader(req, "payment-signature");
     if (!paymentHeader) {
-      // Generate nonce and inject into requirements
+      // Generate nonce
       const nonce = uuidv7();
-      pendingNonces.set(nonce, { createdAt: Date.now(), timeoutMs });
+      pendingPayments.set(nonce, { createdAt: Date.now(), timeoutMs });
       requirements.extra = { nonce };
 
-      // Lazy-sweep expired nonces
-      sweepExpiredNonces(pendingNonces);
+      // Generate commitment if facilitator supports it
+      if (config.facilitator.preparePayment) {
+        const extra = await config.facilitator.preparePayment(
+          routeConfig.asset,
+        );
+        Object.assign(requirements.extra, extra);
+      }
+
+      // Lazy-sweep expired entries
+      sweepExpiredPayments(pendingPayments);
 
       return send402(res, requirements, routeConfig.description);
     }
@@ -87,24 +97,30 @@ export function createPaymentMiddleware(
     }
 
     // Validate nonce
-    const nonce = (paymentPayload.accepted as PaymentRequirements)?.extra?.nonce as string | undefined;
+    const accepted = paymentPayload.accepted as PaymentRequirements;
+    const nonce = accepted?.extra?.nonce as string | undefined;
     if (!nonce) {
       return send402(res, requirements, routeConfig.description, "missing payment nonce");
     }
 
-    const nonceEntry = pendingNonces.get(nonce);
-    if (!nonceEntry) {
+    const paymentEntry = pendingPayments.get(nonce);
+    if (!paymentEntry) {
       return send402(res, requirements, routeConfig.description, "invalid or expired payment nonce");
     }
 
     // Check if nonce has expired
-    if (Date.now() - nonceEntry.createdAt > nonceEntry.timeoutMs) {
-      pendingNonces.delete(nonce);
+    if (Date.now() - paymentEntry.createdAt > paymentEntry.timeoutMs) {
+      pendingPayments.delete(nonce);
       return send402(res, requirements, routeConfig.description, "invalid or expired payment nonce");
     }
 
     // Consume nonce (one-shot)
-    pendingNonces.delete(nonce);
+    pendingPayments.delete(nonce);
+
+    // Carry commitment from accepted requirements into verify requirements
+    if (accepted?.extra?.commitment) {
+      requirements.extra = { ...requirements.extra, commitment: accepted.extra.commitment };
+    }
 
     // Verify payment
     const verifyResult = await config.facilitator.verify(
@@ -170,13 +186,13 @@ function matchRoute(path: string, routes: RoutesConfig): { config: RouteConfig; 
   return null;
 }
 
-function sweepExpiredNonces(
-  nonces: Map<string, { createdAt: number; timeoutMs: number }>,
+function sweepExpiredPayments(
+  payments: Map<string, { createdAt: number; timeoutMs: number }>,
 ): void {
   const now = Date.now();
-  for (const [key, entry] of nonces) {
+  for (const [key, entry] of payments) {
     if (now - entry.createdAt > entry.timeoutMs) {
-      nonces.delete(key);
+      payments.delete(key);
     }
   }
 }

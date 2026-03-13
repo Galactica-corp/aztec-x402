@@ -106,6 +106,19 @@ export interface SchemeNetworkFacilitator {
   getExtra(network: Network): Record<string, unknown> | undefined;
   getSigners(network: string): string[];
 
+  /**
+   * Prepare async payment data for a 402 response.
+   *
+   * For Aztec: generates a commitment via prepare_private_balance_increase.
+   * The returned record is merged into PaymentRequirements.extra.
+   *
+   * Optional — if not implemented, only getExtra is used.
+   *
+   * @param tokenAddress - The token contract address for the payment
+   * @returns Extra data to merge into requirements.extra
+   */
+  preparePayment?(tokenAddress: string): Promise<Record<string, unknown>>;
+
   verify(
     payload: PaymentPayload,
     requirements: PaymentRequirements,

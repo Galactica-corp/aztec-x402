@@ -32,17 +32,15 @@ import type {
 /**
  * Facilitator-side x402 scheme for Aztec.
  *
- * Verification flow:
- * 1. Validate the payload structure (sender address, correlation ID, txHash)
- * 2. Check txHash against consumed set (anti-replay)
- * 3. Register the sender in PXE so we can discover their notes
- * 4. Use verifyPaymentNotes to confirm the specific tx created payment notes
- *    for the facilitator with at least the required amount
+ * Uses commitment-based verification:
+ * 1. preparePayment: generates a commitment via prepare_private_balance_increase
+ * 2. Commitment is included in 402 response (PaymentRequirements.extra)
+ * 3. Client finalizes transfer using commitment
+ * 4. verify: checks tx status + confirms payment via facilitator's PXE
  *
  * Settlement:
- * For Aztec private transfers, settlement happens at transfer time
- * (the client already submitted the on-chain transaction). The settle
- * method simply acknowledges the payment.
+ * For Aztec private transfers, settlement happens at transfer time.
+ * The settle method acknowledges the payment and tracks consumed txHashes.
  */
 export class ExactAztecFacilitatorScheme implements SchemeNetworkFacilitator {
   readonly scheme = SCHEME;
@@ -50,6 +48,7 @@ export class ExactAztecFacilitatorScheme implements SchemeNetworkFacilitator {
 
   private cachedAddresses: string[] = [];
   private consumedTxHashes = new Set<string>();
+  private pendingCommitments = new Set<string>();
 
   constructor(
     private readonly signer: FacilitatorAztecSigner,
@@ -57,7 +56,7 @@ export class ExactAztecFacilitatorScheme implements SchemeNetworkFacilitator {
   ) {}
 
   getExtra(_network: Network): Record<string, unknown> | undefined {
-    // No extra data needed for Aztec — unlike SVM which needs feePayer
+    // Commitment generation is async — handled by preparePayment instead
     return undefined;
   }
 
@@ -71,6 +70,24 @@ export class ExactAztecFacilitatorScheme implements SchemeNetworkFacilitator {
    */
   async initialize(): Promise<void> {
     this.cachedAddresses = await this.signer.getAddresses();
+  }
+
+  /**
+   * Prepare a commitment for a pending payment.
+   *
+   * Called by the middleware when generating a 402 response. The returned
+   * commitment is included in PaymentRequirements.extra.commitment so the
+   * client can use it to finalize the transfer.
+   *
+   * @param tokenAddress - The token contract address
+   * @returns Extra data to merge into PaymentRequirements.extra
+   */
+  async preparePayment(
+    tokenAddress: string,
+  ): Promise<Record<string, unknown>> {
+    const commitment = await this.signer.prepareCommitment(tokenAddress);
+    this.pendingCommitments.add(commitment);
+    return { commitment };
   }
 
   async verify(
@@ -100,15 +117,22 @@ export class ExactAztecFacilitatorScheme implements SchemeNetworkFacilitator {
       };
     }
 
-    try {
-      // 3. Register sender so PXE discovers their notes
-      await this.signer.registerSender(aztecPayload.senderAddress);
+    // 3. Validate that the commitment was issued by this facilitator
+    const commitment = requirements.extra?.commitment as string | undefined;
+    if (!commitment || !this.pendingCommitments.has(commitment)) {
+      return {
+        isValid: false,
+        invalidReason: "invalid or missing commitment",
+        invalidMessage: "Payment commitment was not issued by this facilitator.",
+        payer: aztecPayload.senderAddress,
+      };
+    }
 
-      // 4. Verify this specific transaction created payment notes for the facilitator
-      const verification = await this.signer.verifyPaymentNotes(
+    try {
+      // 4. Verify the finalized transfer via the facilitator's PXE
+      const verification = await this.signer.verifyPayment(
         aztecPayload.txHash,
         requirements.asset,
-        requirements.payTo,
         BigInt(requirements.amount),
       );
 
@@ -142,8 +166,11 @@ export class ExactAztecFacilitatorScheme implements SchemeNetworkFacilitator {
   ): Promise<SettleResponse> {
     const aztecPayload = parseAztecPayload(payload.payload);
 
-    // For Aztec, the client has already submitted the private transfer.
-    // Settlement is just acknowledgment — the funds are already in our notes.
+    // Consume the commitment and txHash
+    const commitment = requirements.extra?.commitment as string | undefined;
+    if (commitment) {
+      this.pendingCommitments.delete(commitment);
+    }
     if (aztecPayload.txHash) {
       this.consumedTxHashes.add(aztecPayload.txHash);
     }

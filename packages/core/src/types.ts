@@ -2,9 +2,13 @@
  * x402 on Aztec — Core Types
  *
  * These types define the Aztec-specific payload and signer abstractions
- * used by the x402 mechanism plugin. The payment flow uses
- * transfer_private_to_private with sender address + correlation ID
- * for verification (since private tx hashes are opaque).
+ * used by the x402 mechanism plugin. The payment flow uses a commitment-based
+ * pattern for verifiable private payments:
+ *
+ * 1. Facilitator calls prepare_private_balance_increase → gets commitment
+ * 2. Commitment is sent to client in 402 response
+ * 3. Client calls finalize_transfer_to_private_from_private(commitment)
+ * 4. Facilitator verifies payment via its own PXE (note was created for it)
  */
 
 // ---------------------------------------------------------------------------
@@ -35,13 +39,10 @@ export const CAIP_FAMILY = "aztec:*" as const;
 /**
  * The Aztec-specific payload carried inside PaymentPayload.payload.
  *
- * Unlike EVM (which sends a signed authorization) or Solana (which sends a
- * partially-signed transaction), Aztec private transfers are opaque — the
- * server cannot inspect the transaction contents. Instead:
- *
- * 1. Client executes transfer_private_to_private on-chain
- * 2. Client sends sender address + correlation ID to the server
- * 3. Server's PXE discovers the incoming note and verifies the amount
+ * The commitment-based flow:
+ * 1. Facilitator prepares a commitment via prepare_private_balance_increase
+ * 2. Client finalizes the transfer using that commitment
+ * 3. Facilitator verifies the completed note in its PXE
  */
 export interface ExactAztecPayload {
   /** The sender's Aztec address (hex string) */
@@ -51,9 +52,8 @@ export interface ExactAztecPayload {
   correlationId: string;
 
   /**
-   * The transaction hash of the private transfer.
-   * Used by the facilitator to look up payment notes via `getNotes({ txHash })`
-   * and verify that this specific transaction created the expected payment.
+   * The transaction hash of the finalized private transfer.
+   * Used by the facilitator to check tx status and verify payment completion.
    */
   txHash: string;
 
@@ -69,24 +69,28 @@ export interface ExactAztecPayload {
  * Client-side signer — represents the payer's wallet capabilities.
  *
  * The client signer needs to:
- * 1. Provide its Aztec address (for the server to register as sender)
- * 2. Execute a private transfer on the token contract
+ * 1. Provide its Aztec address
+ * 2. Finalize a payment using a commitment from the facilitator
  */
 export interface ClientAztecSigner {
   /** The payer's Aztec address */
   getAddress(): Promise<string>;
 
   /**
-   * Execute a private-to-private token transfer.
+   * Finalize a private payment using a commitment from the facilitator.
+   *
+   * Calls `finalize_transfer_to_private_from_private` on the token contract
+   * with the commitment that the facilitator prepared via
+   * `prepare_private_balance_increase`.
    *
    * @param tokenAddress - The token contract address
-   * @param to - Recipient Aztec address
+   * @param commitment - Hex-encoded commitment Field from the 402 response
    * @param amount - Amount in smallest token units
-   * @returns Transaction hash (for record-keeping only)
+   * @returns Transaction hash
    */
-  transferPrivateToPrivate(
+  finalizePayment(
     tokenAddress: string,
-    to: string,
+    commitment: string,
     amount: bigint,
   ): Promise<string>;
 }
@@ -95,37 +99,39 @@ export interface ClientAztecSigner {
  * Facilitator/server-side signer — represents the payment receiver's
  * capabilities for verifying and acknowledging payments.
  *
- * The facilitator signer needs to:
- * 1. Provide its addresses (for PaymentRequirements)
- * 2. Register senders so PXE can discover their notes
- * 3. Verify that a specific transaction created the expected payment notes
+ * Uses the commitment-based pattern:
+ * 1. prepareCommitment: creates a partial note for the facilitator's address
+ * 2. verifyPayment: checks that the finalized transfer completed correctly
  */
 export interface FacilitatorAztecSigner {
   /** Get all facilitator addresses for supported networks */
   getAddresses(): Promise<string[]>;
 
   /**
-   * Register a sender address so the PXE can discover notes from them.
-   * Must be called before attempting to verify payment from a new sender.
+   * Prepare a commitment for receiving a private payment.
    *
-   * @param senderAddress - The sender's Aztec address
+   * Calls `prepare_private_balance_increase(facilitatorAddress)` on the token
+   * contract, which creates a partial note and returns a commitment Field.
+   * This commitment is sent to the client in the 402 response.
+   *
+   * @param tokenAddress - The token contract address
+   * @returns Hex-encoded commitment Field
    */
-  registerSender(senderAddress: string): Promise<void>;
+  prepareCommitment(tokenAddress: string): Promise<string>;
 
   /**
-   * Verify that a specific transaction created payment notes for the recipient
-   * with at least the required amount. Uses PXE's getNotes + getTxReceipt
-   * to prove the exact transfer happened.
+   * Verify that a finalized transfer completed the commitment correctly.
+   *
+   * Checks tx status and verifies that the facilitator's PXE received
+   * the expected payment note with at least the required amount.
    *
    * @param txHash - The transaction hash to verify
    * @param tokenAddress - The token contract address
-   * @param recipientAddress - The expected recipient's Aztec address
-   * @param requiredAmount - Minimum amount expected in the payment notes
+   * @param requiredAmount - Minimum amount expected
    */
-  verifyPaymentNotes(
+  verifyPayment(
     txHash: string,
     tokenAddress: string,
-    recipientAddress: string,
     requiredAmount: bigint,
   ): Promise<PaymentNoteVerification>;
 }

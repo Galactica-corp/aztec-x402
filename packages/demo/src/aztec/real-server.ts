@@ -15,6 +15,8 @@ Sentry.init({
 });
 
 import { createAztecNodeClient } from "@aztec/aztec.js/node";
+import { AztecAddress } from "@aztec/aztec.js/addresses";
+import { TokenContract } from "@aztec/noir-contracts.js/Token";
 import { EmbeddedWallet } from "@aztec/wallets/embedded";
 import { readFileSync } from "fs";
 import { join, dirname } from "path";
@@ -68,8 +70,16 @@ const bobAccount = await loadAccount(wallet, keys, "bob");
 const bob = bobAccount.address;
 console.log(`Server address: ${bob}`);
 
+// Load the token contract for the facilitator (needed for commitment generation)
+const tokenAddress = AztecAddress.fromString(TOKEN_ADDRESS);
+const tokenInstance = await node.getContract(tokenAddress);
+if (tokenInstance) {
+  await wallet.registerContract(tokenInstance, TokenContract.artifact);
+}
+const token = await TokenContract.at(tokenAddress, wallet);
+
 // Create real facilitator signer
-const facilitatorSigner = new RealFacilitatorAztecSigner(bobAccount, wallet, node);
+const facilitatorSigner = new RealFacilitatorAztecSigner(bobAccount, node, token);
 const facilitator = new ExactAztecFacilitatorScheme(facilitatorSigner, [NETWORK]);
 await facilitator.initialize();
 

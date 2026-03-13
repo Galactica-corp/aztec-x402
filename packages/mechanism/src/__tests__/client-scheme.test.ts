@@ -3,10 +3,12 @@ import { ExactAztecClientScheme } from "../exact/client/scheme.js";
 import type { ClientAztecSigner } from "@aztec-x402/core";
 import type { PaymentRequirements } from "../x402-types.js";
 
+const MOCK_COMMITMENT = "0x" + "ff".repeat(32);
+
 function createMockSigner(overrides?: Partial<ClientAztecSigner>): ClientAztecSigner {
   return {
     getAddress: jest.fn().mockResolvedValue("0x" + "aa".repeat(32)),
-    transferPrivateToPrivate: jest.fn().mockResolvedValue("0x" + "cc".repeat(32)),
+    finalizePayment: jest.fn().mockResolvedValue("0x" + "cc".repeat(32)),
     ...overrides,
   };
 }
@@ -21,7 +23,7 @@ function createPaymentRequirements(
     amount: "100000",
     payTo: "0x" + "bb".repeat(32),
     maxTimeoutSeconds: 120,
-    extra: {},
+    extra: { commitment: MOCK_COMMITMENT },
     ...overrides,
   };
 }
@@ -39,14 +41,14 @@ describe("ExactAztecClientScheme", () => {
     expect(scheme.scheme).toBe("exact");
   });
 
-  it("calls transferPrivateToPrivate with correct args", async () => {
+  it("calls finalizePayment with commitment from requirements", async () => {
     const requirements = createPaymentRequirements();
 
     await scheme.createPaymentPayload(2, requirements);
 
-    expect(signer.transferPrivateToPrivate).toHaveBeenCalledWith(
+    expect(signer.finalizePayment).toHaveBeenCalledWith(
       requirements.asset,
-      requirements.payTo,
+      MOCK_COMMITMENT,
       BigInt(requirements.amount),
     );
   });
@@ -81,9 +83,17 @@ describe("ExactAztecClientScheme", () => {
     expect(new Date(ts).toISOString()).toBe(ts);
   });
 
+  it("throws when commitment is missing from requirements", async () => {
+    const requirements = createPaymentRequirements({ extra: {} });
+
+    await expect(
+      scheme.createPaymentPayload(2, requirements),
+    ).rejects.toThrow("missing commitment");
+  });
+
   it("propagates signer errors", async () => {
     const failingSigner = createMockSigner({
-      transferPrivateToPrivate: jest.fn().mockRejectedValue(new Error("tx failed")),
+      finalizePayment: jest.fn().mockRejectedValue(new Error("tx failed")),
     });
     const failingScheme = new ExactAztecClientScheme(failingSigner);
     const requirements = createPaymentRequirements();

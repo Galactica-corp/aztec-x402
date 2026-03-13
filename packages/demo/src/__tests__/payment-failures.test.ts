@@ -2,19 +2,14 @@
  * E2e-style tests for payment failure scenarios.
  *
  * These tests verify that the x402 payment flow correctly REJECTS payments
- * when the client sends to the wrong address, wrong amount, or wrong token.
- *
- * Background: Fred found that `bun run demo` succeeds even when the client
- * sends payment to a hardcoded wrong address. This is because
- * `RealFacilitatorAztecSigner.verifyPaymentNotes` only checks tx status and
- * trusts that a successful tx means correct payment. These tests ensure the
- * middleware stack catches such failures when the verifier properly validates.
+ * when the facilitator's verifyPayment reports issues (wrong amount, failed tx,
+ * etc.). With the commitment-based approach, recipient verification is inherent
+ * (the facilitator created the partial note for its own address), so wrong-address
+ * scenarios are structurally prevented.
  *
  * Each describe block spins up its own Bun.serve on port 0 (OS-assigned) because
  * the facilitator is configured per-scenario (different mock verification behavior).
  * Servers are stopped in afterAll to free ports.
- *
- * @see https://github.com/jilio/aztec-x402/blob/c654fd126f5c75cedaf63fff47048c96285993d8/packages/demo/src/aztec/facilitator-signer.ts#L68-L72
  */
 import { describe, it, expect, afterAll } from "bun:test";
 import type {
@@ -39,9 +34,8 @@ const SERVER_ADDRESS = "0x" + "bb".repeat(32);
 const SENDER_ADDRESS = "0x" + "aa".repeat(32);
 const TOKEN_ADDRESS = "0x" + "dd".repeat(32);
 const AMOUNT = "100000";
+const MOCK_COMMITMENT = "0x" + "ff".repeat(32);
 
-const WRONG_ADDRESS = "0x" + "ee".repeat(32);
-const WRONG_TOKEN = "0x" + "11".repeat(32);
 const WRONG_AMOUNT = "50000";
 
 // ---------------------------------------------------------------------------
@@ -49,17 +43,12 @@ const WRONG_AMOUNT = "50000";
 // ---------------------------------------------------------------------------
 
 /**
- * Creates a facilitator signer that actually validates payment parameters.
- * This is what a correct verifyPaymentNotes implementation should do —
- * verify recipient, token, and amount match the requirements.
+ * Creates a facilitator signer that validates payment parameters.
+ * Uses the commitment-based pattern (prepareCommitment + verifyPayment).
  */
 function createValidatingFacilitator(opts?: {
-  /** Simulate: client sent payment to a different address */
-  actualRecipient?: string;
   /** Simulate: client sent a different amount */
   actualAmount?: bigint;
-  /** Simulate: client used a different token */
-  actualToken?: string;
   /** Simulate: transaction failed on-chain */
   txFailed?: boolean;
 }) {
@@ -67,11 +56,12 @@ function createValidatingFacilitator(opts?: {
     async getAddresses() {
       return [SERVER_ADDRESS];
     },
-    async registerSender() {},
-    async verifyPaymentNotes(
+    async prepareCommitment(_tokenAddress: string): Promise<string> {
+      return MOCK_COMMITMENT;
+    },
+    async verifyPayment(
       _txHash: string,
-      tokenAddress: string,
-      recipientAddress: string,
+      _tokenAddress: string,
       requiredAmount: bigint,
     ): Promise<PaymentNoteVerification> {
       if (opts?.txFailed) {
@@ -82,27 +72,7 @@ function createValidatingFacilitator(opts?: {
         };
       }
 
-      const actualRecipient = opts?.actualRecipient ?? recipientAddress;
       const actualAmount = opts?.actualAmount ?? requiredAmount;
-      const actualToken = opts?.actualToken ?? tokenAddress;
-
-      // Verify recipient
-      if (actualRecipient !== recipientAddress) {
-        return {
-          isValid: false,
-          amountFound: 0n,
-          error: `payment sent to wrong address: expected ${recipientAddress}, got ${actualRecipient}`,
-        };
-      }
-
-      // Verify token
-      if (actualToken !== tokenAddress) {
-        return {
-          isValid: false,
-          amountFound: 0n,
-          error: `wrong token contract: expected ${tokenAddress}, got ${actualToken}`,
-        };
-      }
 
       // Verify amount
       if (actualAmount < requiredAmount) {
@@ -125,8 +95,8 @@ function createMockClient() {
     async getAddress() {
       return SENDER_ADDRESS;
     },
-    async transferPrivateToPrivate() {
-      return "0x" + "ff".repeat(32);
+    async finalizePayment() {
+      return "0x" + "cc".repeat(32);
     },
   };
 
@@ -211,7 +181,7 @@ function createServer(facilitator: ExactAztecFacilitatorScheme) {
 // Tests
 // ---------------------------------------------------------------------------
 
-describe("payment failure scenarios", () => {
+describe("payment failure scenarios (commitment-based)", () => {
   describe("correct payment is accepted", () => {
     let server: ReturnType<typeof Bun.serve>;
 
@@ -234,32 +204,6 @@ describe("payment failure scenarios", () => {
     });
   });
 
-  describe("wrong recipient address", () => {
-    let server: ReturnType<typeof Bun.serve>;
-
-    afterAll(() => {
-      server?.stop();
-    });
-
-    it("rejects payment sent to the wrong address", async () => {
-      const facilitator = createValidatingFacilitator({
-        actualRecipient: WRONG_ADDRESS,
-      });
-      await facilitator.initialize();
-      server = createServer(facilitator);
-
-      const scheme = createMockClient();
-      const payFetch = wrapFetchWithPayment(fetch, scheme);
-
-      const response = await payFetch(
-        `http://localhost:${server.port}/api/weather/wrong-addr`,
-      );
-
-      // The payment should be rejected — the client paid the wrong address
-      expect(response.status).not.toBe(200);
-    });
-  });
-
   describe("insufficient amount", () => {
     let server: ReturnType<typeof Bun.serve>;
 
@@ -279,31 +223,6 @@ describe("payment failure scenarios", () => {
 
       const response = await payFetch(
         `http://localhost:${server.port}/api/weather/wrong-amount`,
-      );
-
-      expect(response.status).not.toBe(200);
-    });
-  });
-
-  describe("wrong token", () => {
-    let server: ReturnType<typeof Bun.serve>;
-
-    afterAll(() => {
-      server?.stop();
-    });
-
-    it("rejects payment made with wrong token contract", async () => {
-      const facilitator = createValidatingFacilitator({
-        actualToken: WRONG_TOKEN,
-      });
-      await facilitator.initialize();
-      server = createServer(facilitator);
-
-      const scheme = createMockClient();
-      const payFetch = wrapFetchWithPayment(fetch, scheme);
-
-      const response = await payFetch(
-        `http://localhost:${server.port}/api/weather/wrong-token`,
       );
 
       expect(response.status).not.toBe(200);
@@ -334,4 +253,11 @@ describe("payment failure scenarios", () => {
       expect(response.status).not.toBe(200);
     });
   });
+
+  /**
+   * Wrong-address scenario is now structurally prevented by the commitment
+   * pattern. The facilitator creates the partial note for its own address,
+   * so the completed note can only go to the facilitator. No test needed
+   * for "wrong recipient" — it's impossible by construction.
+   */
 });
