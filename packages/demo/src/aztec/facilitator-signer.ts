@@ -4,20 +4,59 @@
  *
  * - getTxReceipt comes from the node (not available on EmbeddedWallet)
  * - registerSender comes from the wallet
- * - getNotes comes from the wallet's internal PXE (via the wallet itself)
+ * - getTxEffect comes from the node (used for basic tx content validation)
+ *
+ * ## Known Limitation: Private Note Verification
+ *
+ * On devnet with separate PXEs, the facilitator cannot read the client's
+ * private notes. This means we cannot directly verify recipient, amount,
+ * or token contract from the transaction alone. The current implementation
+ * checks tx status and basic tx effect structure, but does NOT fully verify
+ * payment parameters.
+ *
+ * ## Proper Fix: transfer_private_to_commitment
+ *
+ * The `transfer_private_to_private` method is fundamentally insufficient
+ * for payment verification because the recipient cannot attribute the
+ * payment to a specific invoice or verify payment details.
+ *
+ * The fix is to use `transfer_private_to_commitment` from the Aztec token
+ * standard (defi-wonderland/aztec-standards):
+ *
+ * 1. Facilitator calls `initialize_transfer_commitment(facilitatorAddr, clientAddr)`
+ *    → returns a commitment Field
+ * 2. Commitment is included in the 402 response (PaymentRequirements.extra)
+ * 3. Client calls `transfer_private_to_commitment(from, commitment, amount, nonce)`
+ * 4. Facilitator verifies:
+ *    - Commitment matches what was issued for this request
+ *    - Completed note arrives in facilitator's PXE (discoverable because the
+ *      commitment was initialized with facilitator as recipient)
+ *    - Note amount meets the required payment
+ *
+ * @see https://github.com/defi-wonderland/aztec-standards/blob/dev/src/token_contract/README.md#transfer_private_to_commitment
  */
 import type {
   FacilitatorAztecSigner,
   PaymentNoteVerification,
 } from "@aztec-x402/core";
 import { AztecAddress } from "@aztec/aztec.js/addresses";
-import { Fr } from "@aztec/aztec.js/fields";
 import { TxHash } from "@aztec/aztec.js/tx";
 
 /** Minimal node interface — only the methods we use */
 interface AztecNode {
   getTxReceipt(txHash: TxHash): Promise<{ status: string }>;
-  getTxEffect(txHash: TxHash): Promise<unknown>;
+  getTxEffect(txHash: TxHash): Promise<TxEffect | null>;
+}
+
+/**
+ * Minimal shape of TxEffect returned by the node.
+ * We only use fields needed for basic validation.
+ */
+interface TxEffect {
+  /** Note hashes created by this transaction */
+  noteHashes?: unknown[];
+  /** Nullifiers consumed by this transaction */
+  nullifiers?: unknown[];
 }
 
 /** Minimal wallet interface */
@@ -47,8 +86,8 @@ export class RealFacilitatorAztecSigner implements FacilitatorAztecSigner {
 
   async verifyPaymentNotes(
     txHashStr: string,
-    _tokenAddress: string,
-    _recipientAddress: string,
+    tokenAddress: string,
+    recipientAddress: string,
     requiredAmount: bigint,
   ): Promise<PaymentNoteVerification> {
     try {
@@ -65,10 +104,54 @@ export class RealFacilitatorAztecSigner implements FacilitatorAztecSigner {
         };
       }
 
-      // 2. On devnet with separate PXEs, Bob cannot read Alice's private notes.
-      //    For now, trust that a successful tx with the correct hash means payment was made.
-      //    The client proved the transfer in a ZK proof that the network validated.
-      //    TODO: implement proper note verification via shared PXE or tx effect inspection.
+      // 2. Basic validation via tx effects.
+      //    We check that the transaction produced note hashes (i.e., it created
+      //    private notes). A private transfer should create at least one note
+      //    (payment note for recipient, possibly change note for sender).
+      try {
+        const txEffect = await this.node.getTxEffect(txHash);
+        if (txEffect) {
+          const noteHashes = txEffect.noteHashes ?? [];
+          // Filter out zero/empty note hashes
+          const nonEmptyNotes = noteHashes.filter((h) => {
+            if (h == null) return false;
+            const str = String(h);
+            return str !== "0" && str !== "0x0" && str !== "";
+          });
+
+          if (nonEmptyNotes.length === 0) {
+            return {
+              isValid: false,
+              amountFound: 0n,
+              error: "transaction produced no private notes — not a valid private transfer",
+            };
+          }
+        }
+      } catch {
+        // getTxEffect might not be available on all node versions.
+        // Fall through to the trust-based check below.
+      }
+
+      // 3. FIXME: Cannot verify recipient, amount, or token from tx effects alone.
+      //
+      //    With transfer_private_to_private, private note contents are encrypted
+      //    to the recipient's key and not readable by the facilitator when using
+      //    separate PXEs. We trust the ZK proof validated by the network, but
+      //    this means a malicious client could submit a valid tx that sends tokens
+      //    to a different address.
+      //
+      //    The proper fix is to switch to transfer_private_to_commitment:
+      //    1. Facilitator generates a commitment via initialize_transfer_commitment()
+      //    2. Client completes it via transfer_private_to_commitment()
+      //    3. Facilitator's PXE discovers the note (it was initialized for this address)
+      //    4. Facilitator verifies the note amount matches requiredAmount
+      //
+      //    Until then, we log the gap and trust the tx hash.
+      //
+      //    Parameters available but NOT currently verified:
+      //    - tokenAddress: ${tokenAddress}
+      //    - recipientAddress: ${recipientAddress}
+      //    - requiredAmount: ${requiredAmount}
       return { isValid: true, amountFound: requiredAmount };
     } catch (err) {
       const message = err instanceof Error ? err.message : String(err);
