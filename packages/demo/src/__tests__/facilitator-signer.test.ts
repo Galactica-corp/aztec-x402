@@ -45,7 +45,12 @@ function mockAztecAddress(addrStr: string) {
 
 interface MockNodeOptions {
   status?: string;
-  txEffect?: { noteHashes?: unknown[]; nullifiers?: unknown[] } | null;
+  txEffect?: {
+    noteHashes?: unknown[];
+    nullifiers?: unknown[];
+    /** Wrapped SDK shape — real IndexedTxEffect nests data inside { data: ... } */
+    data?: { noteHashes?: unknown[]; nullifiers?: unknown[] };
+  } | null;
   txEffectError?: boolean;
 }
 
@@ -284,10 +289,27 @@ describe("RealFacilitatorAztecSigner", () => {
       expect(result.error).toContain("no private notes");
     });
 
-    it("rejects transaction where all note hashes are zero", async () => {
+    it("rejects transaction where all note hashes are zero (short form)", async () => {
       const result = await createSigner({
         status: "success",
         txEffect: { noteHashes: ["0", "0x0", "0"], nullifiers: [] },
+      }).verifyPaymentNotes(
+        TX_HASH,
+        TOKEN_ADDRESS_STR,
+        SERVER_ADDRESS_STR,
+        REQUIRED_AMOUNT,
+      );
+
+      expect(result.isValid).toBe(false);
+      expect(result.error).toContain("no private notes");
+    });
+
+    it("rejects transaction where all note hashes are Fr.ZERO (full 66-char hex)", async () => {
+      // Fr.ZERO.toString() produces the full 66-char padded hex, not just "0"
+      const FR_ZERO = "0x" + "0".repeat(64);
+      const result = await createSigner({
+        status: "success",
+        txEffect: { noteHashes: [FR_ZERO, FR_ZERO], nullifiers: [] },
       }).verifyPaymentNotes(
         TX_HASH,
         TOKEN_ADDRESS_STR,
@@ -319,6 +341,48 @@ describe("RealFacilitatorAztecSigner", () => {
       );
 
       expect(result.isValid).toBe(true);
+    });
+
+    it("handles wrapped SDK shape (IndexedTxEffect with data property)", async () => {
+      // Real Aztec SDK returns { data: { noteHashes, nullifiers, ... } }
+      const result = await createSigner({
+        status: "success",
+        txEffect: {
+          data: {
+            noteHashes: [
+              "0x0abababababababababababababababababababababababababababababababab",
+            ],
+            nullifiers: [],
+          },
+        },
+      }).verifyPaymentNotes(
+        TX_HASH,
+        TOKEN_ADDRESS_STR,
+        SERVER_ADDRESS_STR,
+        REQUIRED_AMOUNT,
+      );
+
+      expect(result.isValid).toBe(true);
+    });
+
+    it("rejects wrapped SDK shape with no notes", async () => {
+      const result = await createSigner({
+        status: "success",
+        txEffect: {
+          data: {
+            noteHashes: [],
+            nullifiers: [],
+          },
+        },
+      }).verifyPaymentNotes(
+        TX_HASH,
+        TOKEN_ADDRESS_STR,
+        SERVER_ADDRESS_STR,
+        REQUIRED_AMOUNT,
+      );
+
+      expect(result.isValid).toBe(false);
+      expect(result.error).toContain("no private notes");
     });
 
     it("still accepts when getTxEffect is not available (graceful fallback)", async () => {

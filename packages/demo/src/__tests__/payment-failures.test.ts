@@ -10,6 +10,10 @@
  * trusts that a successful tx means correct payment. These tests ensure the
  * middleware stack catches such failures when the verifier properly validates.
  *
+ * Each describe block spins up its own Bun.serve on port 0 (OS-assigned) because
+ * the facilitator is configured per-scenario (different mock verification behavior).
+ * Servers are stopped in afterAll to free ports.
+ *
  * @see https://github.com/jilio/aztec-x402/blob/c654fd126f5c75cedaf63fff47048c96285993d8/packages/demo/src/aztec/facilitator-signer.ts#L68-L72
  */
 import { describe, it, expect, afterAll } from "bun:test";

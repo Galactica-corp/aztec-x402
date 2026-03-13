@@ -50,13 +50,21 @@ interface AztecNode {
 
 /**
  * Minimal shape of TxEffect returned by the node.
- * We only use fields needed for basic validation.
+ *
+ * The real Aztec SDK returns IndexedTxEffect which wraps TxEffect inside
+ * a `data` property. We handle both shapes: direct `{ noteHashes }` and
+ * wrapped `{ data: { noteHashes } }`.
  */
 interface TxEffect {
-  /** Note hashes created by this transaction */
+  /** Note hashes (direct shape) */
   noteHashes?: unknown[];
-  /** Nullifiers consumed by this transaction */
+  /** Nullifiers (direct shape) */
   nullifiers?: unknown[];
+  /** Wrapped shape — real SDK returns { data: TxEffect } */
+  data?: {
+    noteHashes?: unknown[];
+    nullifiers?: unknown[];
+  };
 }
 
 /** Minimal wallet interface */
@@ -111,12 +119,14 @@ export class RealFacilitatorAztecSigner implements FacilitatorAztecSigner {
       try {
         const txEffect = await this.node.getTxEffect(txHash);
         if (txEffect) {
-          const noteHashes = txEffect.noteHashes ?? [];
-          // Filter out zero/empty note hashes
+          // Handle both direct shape { noteHashes } and wrapped SDK shape { data: { noteHashes } }
+          const noteHashes = txEffect.data?.noteHashes ?? txEffect.noteHashes ?? [];
           const nonEmptyNotes = noteHashes.filter((h) => {
             if (h == null) return false;
             const str = String(h);
-            return str !== "0" && str !== "0x0" && str !== "";
+            // Fr.ZERO stringifies as "0x0000...0000" (66 chars) — catch all zero representations
+            if (str === "" || str === "0") return false;
+            return !/^0x0+$/.test(str);
           });
 
           if (nonEmptyNotes.length === 0) {
@@ -133,6 +143,8 @@ export class RealFacilitatorAztecSigner implements FacilitatorAztecSigner {
       }
 
       // 3. FIXME: Cannot verify recipient, amount, or token from tx effects alone.
+      //    tokenAddress, recipientAddress, and requiredAmount are accepted but
+      //    NOT currently verified against the transaction contents.
       //
       //    With transfer_private_to_private, private note contents are encrypted
       //    to the recipient's key and not readable by the facilitator when using
@@ -145,13 +157,8 @@ export class RealFacilitatorAztecSigner implements FacilitatorAztecSigner {
       //    2. Client completes it via transfer_private_to_commitment()
       //    3. Facilitator's PXE discovers the note (it was initialized for this address)
       //    4. Facilitator verifies the note amount matches requiredAmount
-      //
-      //    Until then, we log the gap and trust the tx hash.
-      //
-      //    Parameters available but NOT currently verified:
-      //    - tokenAddress: ${tokenAddress}
-      //    - recipientAddress: ${recipientAddress}
-      //    - requiredAmount: ${requiredAmount}
+      void tokenAddress;
+      void recipientAddress;
       return { isValid: true, amountFound: requiredAmount };
     } catch (err) {
       const message = err instanceof Error ? err.message : String(err);
