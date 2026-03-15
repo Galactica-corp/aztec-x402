@@ -7,6 +7,7 @@ export {
   type AztecFacilitatorConfig,
   type AztecServerConfig,
   type PaymentNoteVerification,
+  type PrepareCommitmentResult,
   AZTEC_NETWORKS,
   SCHEME,
   CAIP_FAMILY,

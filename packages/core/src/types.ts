@@ -75,11 +75,29 @@ export interface ExactAztecPayload {
  *
  * The client signer:
  * 1. Provides its Aztec address
- * 2. Completes a transfer to a server-provided commitment
+ * 2. Optionally processes offchain messages (v4.1.0+ offchain delivery)
+ * 3. Completes a transfer to a server-provided commitment
  */
 export interface ClientAztecSigner {
   /** The payer's Aztec address */
   getAddress(): Promise<string>;
+
+  /**
+   * Process an offchain message before finalizing the transfer.
+   *
+   * In v4.1.0+, the server may send an offchain message containing the
+   * partial note data. The client must call `offchain_receive()` on the
+   * token contract to register the note in its PXE before finalizing.
+   *
+   * @param tokenAddress - The token contract address
+   * @param offchainMessage - Serialized offchain message from the server
+   * @param prepareTxHash - The tx hash from the prepare step
+   */
+  processOffchainMessage?(
+    tokenAddress: string,
+    offchainMessage: string,
+    prepareTxHash: string,
+  ): Promise<void>;
 
   /**
    * Complete a private payment using a server-provided commitment.
@@ -100,6 +118,16 @@ export interface ClientAztecSigner {
   ): Promise<string>;
 }
 
+/** Result of preparing a commitment, including optional offchain message (v4.1.0+) */
+export interface PrepareCommitmentResult {
+  /** The commitment Field value as a string */
+  commitment: string;
+  /** Serialized offchain message for partial note delivery (v4.1.0+, undefined on v4.0.x) */
+  offchainMessage?: string;
+  /** The tx hash from the prepare transaction */
+  prepareTxHash?: string;
+}
+
 /**
  * Facilitator/server-side signer — represents the payment receiver's
  * capabilities for creating commitments and verifying payments.
@@ -114,19 +142,18 @@ export interface FacilitatorAztecSigner {
   /**
    * Create a commitment (partial note) for the facilitator's address.
    *
-   * Calls `prepare_private_balance_increase(facilitatorAddr, completerAddr)` on the
-   * forked x402 token contract. The resulting commitment binds the partial note to
-   * the facilitator's address (recipient) and the client's address (completer) —
-   * only the specified client can finalize the transfer TO the facilitator.
+   * On v4.1.0+, uses `send()` which returns `{ receipt, offchainMessages }`.
+   * The commitment is extracted from offchainMessages (proven tx data),
+   * fixing the simulate/send randomness mismatch from v4.0.x.
    *
    * @param tokenAddress - The token contract address
    * @param completerAddress - The client's address (will call finalize_transfer_to_private_from_private)
-   * @returns The commitment Field value as a string
+   * @returns Commitment string (v4.0.x) or PrepareCommitmentResult (v4.1.0+)
    */
   prepareCommitment(
     tokenAddress: string,
     completerAddress: string,
-  ): Promise<string>;
+  ): Promise<string | PrepareCommitmentResult>;
 
   /**
    * Verify that a transfer completed correctly.

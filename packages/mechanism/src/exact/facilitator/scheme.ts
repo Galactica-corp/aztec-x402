@@ -2,6 +2,7 @@ import {
   type FacilitatorAztecSigner,
   type AztecNetwork,
   type ExactAztecPayload,
+  type PrepareCommitmentResult,
   SCHEME,
   CAIP_FAMILY,
   isValidAztecAddress,
@@ -83,20 +84,47 @@ export class ExactAztecFacilitatorScheme implements SchemeNetworkFacilitator {
    * sends its address. Creates a commitment bound to the facilitator's
    * address with the client as the authorized completer.
    *
+   * On v4.1.0+, the signer returns a PrepareCommitmentResult with
+   * offchainMessage data. This is passed through to the client so it
+   * can call offchain_receive() before finalizing.
+   *
    * @param tokenAddress - The token contract address
    * @param completerAddress - The client's Aztec address
-   * @returns Extra data containing the commitment
+   * @returns Extra data containing commitment and optional offchainMessage
    */
   async preparePayment(
     tokenAddress: string,
     completerAddress: string,
   ): Promise<Record<string, unknown>> {
-    const commitment = await this.signer.prepareCommitment(
+    const result = await this.signer.prepareCommitment(
       tokenAddress,
       completerAddress,
     );
+
+    // Handle both v4.0.x (string) and v4.1.0+ (PrepareCommitmentResult) return types
+    let commitment: string;
+    let offchainMessage: string | undefined;
+    let prepareTxHash: string | undefined;
+
+    if (typeof result === "string") {
+      commitment = result;
+    } else {
+      const prepResult = result as PrepareCommitmentResult;
+      commitment = prepResult.commitment;
+      offchainMessage = prepResult.offchainMessage;
+      prepareTxHash = prepResult.prepareTxHash;
+    }
+
     this.pendingCommitments.add(commitment);
-    return { commitment };
+
+    const extra: Record<string, unknown> = { commitment };
+    if (offchainMessage) {
+      extra.offchainMessage = offchainMessage;
+    }
+    if (prepareTxHash) {
+      extra.prepareTxHash = prepareTxHash;
+    }
+    return extra;
   }
 
   async verify(

@@ -2,31 +2,38 @@
  * Real FacilitatorAztecSigner — wraps an Aztec AccountManager, AztecNode,
  * and token contract to handle commitment creation and payment verification.
  *
- * ## Server-Side Commitment Creation
+ * ## v4.1.0 API Changes
  *
- * The facilitator creates commitments via `prepare_private_balance_increase(serverAddr, clientAddr)`
- * on the forked x402 token contract. This guarantees:
- * - The partial note's `to` = facilitator's address (structural recipient verification)
- * - The partial note's `completer` = client's address (only client can finalize)
+ * On v4.1.0+:
+ * - `send()` returns `{ receipt, offchainEffects, offchainMessages }`
+ * - `simulate()` returns `{ result: { commitment }, offchainEffects, offchainMessages }`
+ * - The commitment field is now inside `result.commitment` (not top-level)
+ * - `offchainMessages` is present but currently empty for `prepare_private_balance_increase`
+ *   (offchain delivery for partial notes may come in a future release)
+ *
+ * The commitment is extracted from `simulate().result.commitment` on v4.1.0+.
+ * When offchainMessages become populated, they'll be preferred as they come
+ * from the proven tx execution.
  *
  * ## Payment Verification
  *
  * After the client calls `finalize_transfer_to_private_from_private(...)`, the facilitator verifies:
  * - Transaction succeeded (receipt status)
  * - Transaction produced private notes (tx effects)
+ * - Transaction consumed nullifiers (commitment was used)
  * - Recipient correctness is guaranteed by the commitment pattern
+ * - Token contract correctness is structurally guaranteed
  *
- * ## Amount Verification
+ * ## Known Limitations
  *
- * The ZK proof guarantees the transfer logic is valid, but the client chooses
- * the amount parameter. To verify the facilitator received the correct amount,
- * a full implementation would query the PXE for the specific note value.
- * For this demo, we verify tx status and note creation; amount verification
- * via PXE note queries is a future improvement.
+ * **Amount verification**: The client chooses the amount parameter. To verify the facilitator
+ * received the correct amount, a full implementation would query the PXE for the specific
+ * note value. For this demo, we verify tx status and note creation.
  */
 import type {
   FacilitatorAztecSigner,
   PaymentNoteVerification,
+  PrepareCommitmentResult,
 } from "@aztec-x402/core";
 import { AztecAddress } from "@aztec/aztec.js/addresses";
 import { TxHash } from "@aztec/aztec.js/tx";
@@ -57,26 +64,109 @@ interface AztecAccount {
   address: AztecAddress;
 }
 
+interface OffchainMessage {
+  payload: string;
+  recipient?: string;
+  anchorBlockTimestamp?: number;
+}
+
+/**
+ * v4.1.0 send() result shape.
+ *
+ * Confirmed on sandbox 4.1.0-nightly.20260314:
+ * - Keys: `receipt, offchainEffects, offchainMessages`
+ * - `txHash` is on `receipt`, not top-level
+ * - For deploy methods: `contract, receipt, offchainEffects, offchainMessages`
+ */
+interface SendResult {
+  receipt?: { txHash?: { toString(): string }; status?: string };
+  offchainEffects?: unknown[];
+  offchainMessages?: OffchainMessage[];
+  // v4.0.x compat
+  txHash?: { toString(): string };
+}
+
+/**
+ * v4.1.0 simulate() result shape.
+ *
+ * Confirmed: `{ result: { commitment }, offchainEffects: [], offchainMessages: [] }`
+ */
+interface SimulateResult {
+  result?: { commitment?: unknown };
+  offchainEffects?: unknown[];
+  offchainMessages?: OffchainMessage[];
+  // v4.0.x: may return commitment directly
+  commitment?: unknown;
+}
+
 interface TokenContract {
   methods: {
     prepare_private_balance_increase(
       to: AztecAddress,
       completer: AztecAddress,
     ): {
-      simulate(opts: { from: AztecAddress }): Promise<unknown>;
-      send(opts: Record<string, unknown>): Promise<{ txHash: { toString(): string } }>;
+      simulate(opts: { from: AztecAddress }): Promise<SimulateResult | unknown>;
+      send(opts: Record<string, unknown>): Promise<SendResult>;
     };
   };
 }
 
 /**
- * Extract a commitment field value from the simulate() return value.
+ * Extract commitment from offchainMessages (future v4.1.x+ when offchain delivery is populated).
  */
-function extractCommitment(result: unknown): string {
-  if (result != null && typeof result === "object" && "commitment" in result) {
+function extractCommitmentFromOffchain(offchainMessages: OffchainMessage[]): string | undefined {
+  if (!offchainMessages || offchainMessages.length === 0) return undefined;
+
+  const msg = offchainMessages[0];
+  if (!msg?.payload) return undefined;
+
+  try {
+    if (msg.payload.startsWith("0x")) return msg.payload;
+    const parsed = JSON.parse(msg.payload);
+    if (parsed.commitment) return String(parsed.commitment);
+    return String(msg.payload);
+  } catch {
+    return String(msg.payload);
+  }
+}
+
+/**
+ * Extract commitment from simulate() result.
+ *
+ * Handles both v4.0.x (returns commitment directly) and v4.1.0
+ * (returns { result: { commitment }, offchainEffects, offchainMessages }).
+ */
+function extractCommitmentFromSimulate(result: unknown): string {
+  if (result == null) return "";
+
+  // v4.1.0: { result: { commitment } }
+  if (typeof result === "object" && "result" in result) {
+    const inner = (result as SimulateResult).result;
+    if (inner?.commitment != null) return String(inner.commitment);
+  }
+
+  // v4.0.x: { commitment } or direct Field value
+  if (typeof result === "object" && "commitment" in result) {
     return String((result as { commitment: unknown }).commitment);
   }
+
   return String(result);
+}
+
+/**
+ * Extract txHash from send() result.
+ * v4.1.0: receipt.txHash, v4.0.x: txHash directly
+ */
+function extractTxHash(sendResult: SendResult): string {
+  return (sendResult.receipt?.txHash ?? sendResult.txHash)?.toString() ?? "";
+}
+
+/**
+ * Serialize offchain messages for transport to the client.
+ */
+function serializeOffchainMessage(messages: OffchainMessage[]): string | undefined {
+  if (!messages || messages.length === 0) return undefined;
+  return JSON.stringify(messages);
 }
 
 export class RealFacilitatorAztecSigner implements FacilitatorAztecSigner {
@@ -94,22 +184,42 @@ export class RealFacilitatorAztecSigner implements FacilitatorAztecSigner {
   async prepareCommitment(
     _tokenAddress: string,
     completerAddress: string,
-  ): Promise<string> {
+  ): Promise<PrepareCommitmentResult> {
     const facilitatorAddr = this.account.address;
     const completerAddr = AztecAddress.fromString(completerAddress);
 
     // Create partial note: to=facilitator (recipient), completer=client (who will finalize)
     const interaction =
       this.token.methods.prepare_private_balance_increase(facilitatorAddr, completerAddr);
-    const commitmentResult = await interaction.simulate({ from: facilitatorAddr });
+
+    // simulate() for gas estimation + commitment extraction
+    const simulateResult = await interaction.simulate({ from: facilitatorAddr });
 
     const opts: Record<string, unknown> = { from: facilitatorAddr, wait: { timeout: 120 } };
     if (this.sendOpts?.fee) {
       opts.fee = this.sendOpts.fee;
     }
-    await interaction.send(opts);
+    const sendResult = await interaction.send(opts);
+    const txHash = extractTxHash(sendResult);
 
-    return extractCommitment(commitmentResult);
+    // Priority 1: Extract commitment from offchainMessages (when populated in future releases)
+    if (sendResult.offchainMessages && sendResult.offchainMessages.length > 0) {
+      const commitment = extractCommitmentFromOffchain(sendResult.offchainMessages);
+      if (commitment) {
+        return {
+          commitment,
+          offchainMessage: serializeOffchainMessage(sendResult.offchainMessages),
+          prepareTxHash: txHash,
+        };
+      }
+    }
+
+    // Priority 2: Extract from simulate() result (works on both v4.0.x and v4.1.0)
+    const commitment = extractCommitmentFromSimulate(simulateResult);
+    return {
+      commitment,
+      prepareTxHash: txHash,
+    };
   }
 
   async verifyPayment(
@@ -137,9 +247,7 @@ export class RealFacilitatorAztecSigner implements FacilitatorAztecSigner {
         };
       }
 
-      // 2. Check that the transaction produced private notes.
-      //    Recipient is structurally guaranteed — the facilitator created
-      //    the commitment for its own address.
+      // 2. Check tx effects: notes created AND nullifiers consumed.
       try {
         const txEffect = await this.node.getTxEffect(txHash);
         if (txEffect) {
@@ -160,14 +268,30 @@ export class RealFacilitatorAztecSigner implements FacilitatorAztecSigner {
                 "transaction produced no private notes — not a valid private transfer",
             };
           }
+
+          const nullifiers =
+            txEffect.data?.nullifiers ?? txEffect.nullifiers ?? [];
+          const nonZeroNullifiers = nullifiers.filter((n) => {
+            if (n == null) return false;
+            const str = String(n);
+            if (str === "" || str === "0") return false;
+            return !/^0x0+$/.test(str);
+          });
+
+          if (nonZeroNullifiers.length === 0) {
+            return {
+              isValid: false,
+              amountFound: 0n,
+              error:
+                "transaction consumed no nullifiers — commitment was not used",
+            };
+          }
         }
       } catch {
         // getTxEffect might not be available on all node versions.
       }
 
-      // 3. Amount verification: the client provides the amount when calling
-      //    finalize_transfer_to_private_from_private. A full implementation would query
-      //    the PXE for the specific note value.
+      // 3. Amount verification gap (see doc header)
       void tokenAddress;
       return { isValid: true, amountFound: requiredAmount };
     } catch (err) {

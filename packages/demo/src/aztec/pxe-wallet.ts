@@ -4,14 +4,13 @@
  * ## Why not EmbeddedWallet directly?
  *
  * EmbeddedWallet overrides `simulateViaEntrypoint` to use STUB account contracts.
- * This causes two critical bugs in the commitment-based payment flow:
+ * This causes two problems in the commitment-based payment flow:
  *
- * 1. **Commitment mismatch**: `simulate()` runs through a stub account (producing
- *    randomness A via `unsafe { random() }`), while `send()` internally re-simulates
- *    through the real account (producing randomness B). The commitment returned by
- *    `simulate()` doesn't match what goes on-chain, causing "Nullifier witness not
- *    found" errors when `finalize_transfer_to_private_from_private` tries to verify
- *    the commitment.
+ * 1. **Account entrypoint mismatch**: `simulate()` runs through a stub account,
+ *    while `send()` internally re-simulates through the real account. This produces
+ *    different execution contexts (and potentially different randomness from
+ *    `unsafe { random() }`), causing the commitment returned by `simulate()` to
+ *    not match what goes on-chain.
  *
  * 2. **PXE sync bugs**: Several upstream issues affect EmbeddedWallet's PXE sync
  *    timing during multi-step commitment flows:
@@ -27,6 +26,17 @@
  *
  * This is equivalent to what Aztec's own `TestWallet` does in their e2e tests
  * (see yarn-project/end-to-end/src/test-wallet/test_wallet.ts).
+ *
+ * ## v4.1.0: simulate/send mismatch resolved
+ *
+ * On v4.1.0+, `send()` returns `{ receipt, offchainMessages }` where
+ * offchainMessages are extracted from the **proven tx**. The commitment
+ * now comes from the same execution that went on-chain, fixing the
+ * simulate/send randomness mismatch.
+ *
+ * PXEWallet is still useful for ensuring consistent simulation behavior
+ * (real account entrypoint instead of stubs), but the commitment extraction
+ * no longer depends on simulate() matching send().
  *
  * @see https://github.com/AztecProtocol/aztec-packages/pull/15642
  * @see https://github.com/AztecProtocol/aztec-packages/pull/10613

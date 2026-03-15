@@ -9,6 +9,6 @@
     "./artifacts/token_contract-Token.json": "./token/target/token_contract-Token.json"
   },
   "dependencies": {
-    "@aztec/aztec.js": "4.0.4"
+    "@aztec/aztec.js": "4.1.0-nightly.20260314"
   }
 }

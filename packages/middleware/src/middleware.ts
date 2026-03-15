@@ -29,7 +29,7 @@ export function createPaymentMiddleware(
 ) {
   const pendingPayments = new Map<
     string,
-    { createdAt: number; timeoutMs: number; commitment?: string }
+    { createdAt: number; timeoutMs: number; commitment?: string; offchainMessage?: string; prepareTxHash?: string }
   >();
   const paidResources = new Set<string>();
 
@@ -101,8 +101,10 @@ export function createPaymentMiddleware(
           routeConfig.asset,
           senderAddress,
         );
-        // Store commitment in pending entry for validation in phase 3
+        // Store commitment + offchain data in pending entry for validation in phase 3
         paymentEntry.commitment = extra.commitment as string;
+        paymentEntry.offchainMessage = extra.offchainMessage as string | undefined;
+        paymentEntry.prepareTxHash = extra.prepareTxHash as string | undefined;
         requirements.extra = { nonce, ...extra };
       } else {
         requirements.extra = { nonce };
@@ -142,13 +144,19 @@ export function createPaymentMiddleware(
       // Consume nonce (one-shot)
       pendingPayments.delete(nonce);
 
-      // Carry commitment from the prepare phase into verify requirements
+      // Carry commitment + offchain data from the prepare phase into verify requirements
       if (paymentEntry.commitment) {
         requirements.extra = {
           ...requirements.extra,
           nonce,
           commitment: paymentEntry.commitment,
         };
+        if (paymentEntry.offchainMessage) {
+          requirements.extra.offchainMessage = paymentEntry.offchainMessage;
+        }
+        if (paymentEntry.prepareTxHash) {
+          requirements.extra.prepareTxHash = paymentEntry.prepareTxHash;
+        }
       }
 
       // Verify payment

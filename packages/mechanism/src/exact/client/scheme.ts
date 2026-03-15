@@ -15,8 +15,9 @@ import type {
  *
  * When the client receives a 402 response with a commitment:
  * 1. Reads the commitment from PaymentRequirements.extra.commitment
- * 2. Calls finalizePayment to complete the transfer using that commitment
- * 3. Returns the sender address + txHash as the payload
+ * 2. If offchainMessage is present (v4.1.0+), calls processOffchainMessage first
+ * 3. Calls finalizePayment to complete the transfer using that commitment
+ * 4. Returns the sender address + txHash as the payload
  *
  * The commitment was created by the server via
  * prepare_private_balance_increase(serverAddr), so the transfer
@@ -42,6 +43,17 @@ export class ExactAztecClientScheme implements SchemeNetworkClient {
     if (!commitment) {
       throw new Error(
         "missing commitment in payment requirements — server must include extra.commitment",
+      );
+    }
+
+    // v4.1.0+: Process offchain message if present (registers partial note in PXE)
+    const offchainMessage = paymentRequirements.extra?.offchainMessage as string | undefined;
+    const prepareTxHash = paymentRequirements.extra?.prepareTxHash as string | undefined;
+    if (offchainMessage && prepareTxHash && this.signer.processOffchainMessage) {
+      await this.signer.processOffchainMessage(
+        paymentRequirements.asset,
+        offchainMessage,
+        prepareTxHash,
       );
     }
 

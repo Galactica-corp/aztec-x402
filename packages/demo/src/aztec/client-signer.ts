@@ -1,15 +1,30 @@
 /**
  * Real ClientAztecSigner — wraps an Aztec AccountManager and the
- * official Aztec Token contract to complete commitment-based private transfers.
+ * Aztec Token contract to complete commitment-based private transfers.
  *
- * The server creates the commitment via prepare_private_balance_increase.
- * The client only calls finalize_transfer_to_private_from_private to fund it.
+ * ## v4.1.0 Offchain Delivery
+ *
+ * On v4.1.0+, the server returns an offchainMessage alongside the commitment.
+ * The client must call `processOffchainMessage()` to register the partial note
+ * in its PXE via `offchain_receive()` before finalizing the transfer.
+ *
+ * Flow:
+ * 1. Server returns { commitment, offchainMessage, prepareTxHash }
+ * 2. Client calls processOffchainMessage() → offchain_receive() on token contract
+ * 3. Client calls finalizePayment() → finalize_transfer_to_private_from_private()
  */
 import type { ClientAztecSigner } from "@aztec-x402/core";
 import { AztecAddress } from "@aztec/aztec.js/addresses";
 
 interface AztecAccount {
   address: AztecAddress;
+}
+
+interface OffchainReceiveInput {
+  ciphertext: string;
+  recipient: string;
+  tx_hash: string;
+  anchor_block_timestamp: number;
 }
 
 interface TokenContract {
@@ -23,6 +38,11 @@ interface TokenContract {
       simulate(opts: { from: AztecAddress }): Promise<unknown>;
       send(opts: Record<string, unknown>): Promise<{ txHash: { toString(): string } }>;
     };
+    offchain_receive?(
+      messages: OffchainReceiveInput[],
+    ): {
+      simulate(opts: { from: AztecAddress }): Promise<unknown>;
+    };
   };
 }
 
@@ -35,6 +55,51 @@ export class RealClientAztecSigner implements ClientAztecSigner {
 
   async getAddress(): Promise<string> {
     return this.account.address.toString();
+  }
+
+  /**
+   * Process an offchain message from the server (v4.1.0+).
+   *
+   * Calls `offchain_receive()` on the token contract to register the
+   * partial note in the client's PXE. This is required before the client
+   * can see and finalize the partial note.
+   */
+  async processOffchainMessage(
+    _tokenAddress: string,
+    offchainMessage: string,
+    prepareTxHash: string,
+  ): Promise<void> {
+    if (!this.token.methods.offchain_receive) {
+      // v4.0.x token contract — offchain_receive not available, skip
+      return;
+    }
+
+    const clientAddr = this.account.address;
+
+    // Parse the serialized offchain messages from the server
+    let messages: Array<{
+      payload: string;
+      recipient?: string;
+      anchorBlockTimestamp?: number;
+    }>;
+    try {
+      messages = JSON.parse(offchainMessage);
+    } catch {
+      // Not valid JSON — may be a raw payload, wrap it
+      messages = [{ payload: offchainMessage }];
+    }
+
+    // Build offchain_receive input
+    const receiveInputs: OffchainReceiveInput[] = messages.map((msg) => ({
+      ciphertext: msg.payload,
+      recipient: msg.recipient ?? clientAddr.toString(),
+      tx_hash: prepareTxHash,
+      anchor_block_timestamp: msg.anchorBlockTimestamp ?? 0,
+    }));
+
+    await this.token.methods.offchain_receive(receiveInputs).simulate({
+      from: clientAddr,
+    });
   }
 
   async finalizePayment(
