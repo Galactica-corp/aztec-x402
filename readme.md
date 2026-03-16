@@ -213,7 +213,7 @@ bun run demo
 
 ### Payment Attribution
 
-Each 402 challenge includes a server-generated UUID v7 nonce that acts as the invoice/correlation ID. The nonce binds each payment to a specific request and is tracked by the middleware throughout the 3-phase flow. For external invoice correlation, the server can map nonces to its own invoice system in the `extra` field (see [@zwilling](https://github.com/zwilling)'s [review](https://github.com/AztecProtocol/aztec-packages/pull/14379)).
+Each 402 challenge includes a server-generated UUID v7 nonce that acts as the invoice/correlation ID. The nonce binds each payment to a specific request and is tracked by the middleware throughout the 3-phase flow. For external invoice correlation, the server can map nonces to its own invoice system via the `extra` field.
 
 ### Offchain Partial Note Delivery (v4.1.0)
 
