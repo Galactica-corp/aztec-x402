@@ -71,6 +71,10 @@ interface MockTokenOptions {
   simulateResult?: unknown;
   /** What send() returns (v4.1.0 shape) */
   offchainMessages?: Array<{ payload: string; recipient?: string; anchorBlockTimestamp?: number }>;
+  /** balance_of_private return values: [before, after] */
+  balances?: [bigint, bigint];
+  /** If true, balance_of_private throws */
+  balanceError?: boolean;
 }
 
 /**
@@ -88,14 +92,32 @@ function createMockToken(opts?: unknown | MockTokenOptions) {
   };
   let offchainMessages: Array<{ payload: string; recipient?: string; anchorBlockTimestamp?: number }> | undefined;
 
-  if (opts != null && typeof opts === "object" && ("offchainMessages" in opts || "simulateResult" in opts)) {
+  let balances: [bigint, bigint] | undefined;
+  let balanceError = false;
+
+  if (opts != null && typeof opts === "object" && ("offchainMessages" in opts || "simulateResult" in opts || "balances" in opts || "balanceError" in opts)) {
     const typedOpts = opts as MockTokenOptions;
     if (typedOpts.simulateResult !== undefined) simulateResult = typedOpts.simulateResult;
     offchainMessages = typedOpts.offchainMessages;
+    balances = typedOpts.balances;
+    balanceError = typedOpts.balanceError ?? false;
   } else if (opts !== undefined) {
     // Legacy: raw value = simulate result
     simulateResult = opts;
   }
+
+  // balance_of_private mock: returns balances[0] first call, balances[1] second call
+  let balanceCallCount = 0;
+  const balanceOfPrivate = balanceError
+    ? jest.fn().mockReturnValue({
+        simulate: jest.fn().mockRejectedValue(new Error("balance_of_private unavailable")),
+      })
+    : jest.fn().mockReturnValue({
+        simulate: jest.fn().mockImplementation(() => {
+          const idx = Math.min(balanceCallCount++, (balances?.length ?? 1) - 1);
+          return Promise.resolve(balances ? balances[idx] : 0n);
+        }),
+      });
 
   return {
     methods: {
@@ -108,6 +130,7 @@ function createMockToken(opts?: unknown | MockTokenOptions) {
           offchainMessages: offchainMessages ?? [],
         }),
       }),
+      balance_of_private: balanceOfPrivate,
     },
   };
 }
@@ -260,9 +283,49 @@ describe("RealFacilitatorAztecSigner", () => {
     });
   });
 
-  describe("verification analysis", () => {
-    it("KNOWN GAP: reports required amount without verifying actual amount", async () => {
+  describe("verifyPayment — amount verification", () => {
+    it("verifies actual amount via balance difference", async () => {
+      const token = createMockToken({ balances: [500_000n, 600_000n] });
+      const signer = new RealFacilitatorAztecSigner(createMockAccount(), createMockNode("success"), token);
+      // prepareCommitment snapshots balance (500_000)
+      await signer.prepareCommitment(TOKEN_ADDRESS_STR, CLIENT_ADDRESS_STR);
+      // verifyPayment checks balance again (600_000), diff = 100_000
+      const result = await signer.verifyPayment(TX_HASH, TOKEN_ADDRESS_STR, 100_000n);
+      expect(result.isValid).toBe(true);
+      expect(result.amountFound).toBe(100_000n);
+    });
+
+    it("rejects when actual amount is less than required", async () => {
+      const token = createMockToken({ balances: [500_000n, 550_000n] });
+      const signer = new RealFacilitatorAztecSigner(createMockAccount(), createMockNode("success"), token);
+      await signer.prepareCommitment(TOKEN_ADDRESS_STR, CLIENT_ADDRESS_STR);
+      const result = await signer.verifyPayment(TX_HASH, TOKEN_ADDRESS_STR, 100_000n);
+      expect(result.isValid).toBe(false);
+      expect(result.amountFound).toBe(50_000n);
+      expect(result.error).toContain("insufficient payment");
+    });
+
+    it("accepts when actual amount exceeds required", async () => {
+      const token = createMockToken({ balances: [500_000n, 700_000n] });
+      const signer = new RealFacilitatorAztecSigner(createMockAccount(), createMockNode("success"), token);
+      await signer.prepareCommitment(TOKEN_ADDRESS_STR, CLIENT_ADDRESS_STR);
+      const result = await signer.verifyPayment(TX_HASH, TOKEN_ADDRESS_STR, 100_000n);
+      expect(result.isValid).toBe(true);
+      expect(result.amountFound).toBe(200_000n);
+    });
+
+    it("falls back to requiredAmount when balance_of_private is unavailable", async () => {
+      const token = createMockToken({ balanceError: true });
+      const signer = new RealFacilitatorAztecSigner(createMockAccount(), createMockNode("success"), token);
+      await signer.prepareCommitment(TOKEN_ADDRESS_STR, CLIENT_ADDRESS_STR);
+      const result = await signer.verifyPayment(TX_HASH, TOKEN_ADDRESS_STR, 100_000n);
+      expect(result.isValid).toBe(true);
+      expect(result.amountFound).toBe(100_000n);
+    });
+
+    it("falls back to requiredAmount when no prepare was called", async () => {
       const result = await createSigner("success").verifyPayment(TX_HASH, TOKEN_ADDRESS_STR, 100_000n);
+      expect(result.isValid).toBe(true);
       expect(result.amountFound).toBe(100_000n);
     });
 

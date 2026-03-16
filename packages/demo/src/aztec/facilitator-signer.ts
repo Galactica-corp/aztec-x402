@@ -24,11 +24,13 @@
  * - Recipient correctness is guaranteed by the commitment pattern
  * - Token contract correctness is structurally guaranteed
  *
- * ## Known Limitations
+ * ## Amount Verification
  *
- * **Amount verification**: The client chooses the amount parameter. To verify the facilitator
- * received the correct amount, a full implementation would query the PXE for the specific
- * note value. For this demo, we verify tx status and note creation.
+ * The facilitator snapshots its private balance before `prepareCommitment()` and
+ * checks `balance_of_private` again after the client's finalization tx settles.
+ * The difference is the actual amount transferred. If the client underpays,
+ * verification rejects the payment. Falls back to trusting tx effects if
+ * `balance_of_private` is unavailable (e.g. ABI mismatch).
  */
 import type {
   FacilitatorAztecSigner,
@@ -108,6 +110,9 @@ interface TokenContract {
       simulate(opts: { from: AztecAddress }): Promise<SimulateResult | unknown>;
       send(opts: Record<string, unknown>): Promise<SendResult>;
     };
+    balance_of_private(owner: AztecAddress): {
+      simulate(opts: { from: AztecAddress }): Promise<unknown>;
+    };
   };
 }
 
@@ -170,6 +175,9 @@ function serializeOffchainMessage(messages: OffchainMessage[]): string | undefin
 }
 
 export class RealFacilitatorAztecSigner implements FacilitatorAztecSigner {
+  /** Balance snapshot taken before each prepareCommitment, keyed by commitment */
+  private balanceBefore = new Map<string, bigint>();
+
   constructor(
     private readonly account: AztecAccount,
     private readonly node: AztecNode,
@@ -188,6 +196,20 @@ export class RealFacilitatorAztecSigner implements FacilitatorAztecSigner {
     const facilitatorAddr = this.account.address;
     const completerAddr = AztecAddress.fromString(completerAddress);
 
+    // Snapshot balance before preparing, so we can verify the actual amount later
+    let balanceSnapshotted = false;
+    try {
+      const balResult = await this.token.methods
+        .balance_of_private(facilitatorAddr)
+        .simulate({ from: facilitatorAddr });
+      const bal = typeof balResult === "bigint" ? balResult : BigInt(String(balResult));
+      // Store temporarily — will key by commitment once we have it
+      this.balanceBefore.set("_pending", bal);
+      balanceSnapshotted = true;
+    } catch {
+      // balance_of_private may fail (ABI mismatch, etc.) — fall back to no amount verification
+    }
+
     // Create partial note: to=facilitator (recipient), completer=client (who will finalize)
     const interaction =
       this.token.methods.prepare_private_balance_increase(facilitatorAddr, completerAddr);
@@ -203,23 +225,30 @@ export class RealFacilitatorAztecSigner implements FacilitatorAztecSigner {
     const txHash = extractTxHash(sendResult);
 
     // Priority 1: Extract commitment from offchainMessages (when populated in future releases)
+    let finalCommitment: string | undefined;
     if (sendResult.offchainMessages && sendResult.offchainMessages.length > 0) {
-      const commitment = extractCommitmentFromOffchain(sendResult.offchainMessages);
-      if (commitment) {
-        return {
-          commitment,
-          offchainMessage: serializeOffchainMessage(sendResult.offchainMessages),
-          prepareTxHash: txHash,
-        };
-      }
+      finalCommitment = extractCommitmentFromOffchain(sendResult.offchainMessages);
     }
 
     // Priority 2: Extract from simulate() result (works on both v4.0.x and v4.1.0)
-    const commitment = extractCommitmentFromSimulate(simulateResult);
-    return {
-      commitment,
+    if (!finalCommitment) {
+      finalCommitment = extractCommitmentFromSimulate(simulateResult);
+    }
+
+    // Re-key the balance snapshot from _pending to the actual txHash (used during verification)
+    if (balanceSnapshotted && this.balanceBefore.has("_pending")) {
+      this.balanceBefore.set(txHash, this.balanceBefore.get("_pending")!);
+      this.balanceBefore.delete("_pending");
+    }
+
+    const result: PrepareCommitmentResult = {
+      commitment: finalCommitment,
       prepareTxHash: txHash,
     };
+    if (sendResult.offchainMessages && sendResult.offchainMessages.length > 0) {
+      result.offchainMessage = serializeOffchainMessage(sendResult.offchainMessages);
+    }
+    return result;
   }
 
   async verifyPayment(
@@ -291,8 +320,32 @@ export class RealFacilitatorAztecSigner implements FacilitatorAztecSigner {
         // getTxEffect might not be available on all node versions.
       }
 
-      // 3. Amount verification gap (see doc header)
+      // 3. Verify actual amount via balance difference
       void tokenAddress;
+      const beforeBal = this.balanceBefore.get(txHashStr);
+      if (beforeBal !== undefined) {
+        this.balanceBefore.delete(txHashStr);
+        try {
+          const facilitatorAddr = this.account.address;
+          const afterResult = await this.token.methods
+            .balance_of_private(facilitatorAddr)
+            .simulate({ from: facilitatorAddr });
+          const afterBal = typeof afterResult === "bigint"
+            ? afterResult
+            : BigInt(String(afterResult));
+          const actualAmount = afterBal - beforeBal;
+          if (actualAmount < requiredAmount) {
+            return {
+              isValid: false,
+              amountFound: actualAmount,
+              error: `insufficient payment: received ${actualAmount}, required ${requiredAmount}`,
+            };
+          }
+          return { isValid: true, amountFound: actualAmount };
+        } catch {
+          // balance_of_private failed — fall back to trusting tx effects
+        }
+      }
       return { isValid: true, amountFound: requiredAmount };
     } catch (err) {
       const message = err instanceof Error ? err.message : String(err);

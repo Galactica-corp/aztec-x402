@@ -213,7 +213,6 @@ bun run demo
 
 ### Verification Gaps
 
-- **Amount verification**: The facilitator currently echoes back `requiredAmount` without verifying the actual transfer amount. A full implementation would query the PXE for the specific note value. For this demo, we verify tx status and note creation only.
 - **Invoice ID / payment attribution**: No mechanism to correlate a payment to a specific invoice or request beyond the nonce. Frederik Linker suggested adding an invoice ID field.
 
 ### Offchain Partial Note Delivery (v4.1.0)
@@ -235,7 +234,6 @@ The commitment pattern does not work on devnet (`4.0.0-devnet.2-patch.1`) — se
 - [ ] Switch to stable v4.1.0 release when available (currently on nightly)
 - [ ] Consume offchain messages when Aztec wires up partial note delivery
 - [ ] Add `offchain_receive()` client-side call when offchain messages are populated
-- [ ] Amount verification via PXE note queries
 - [ ] Invoice ID for payment attribution
 - [ ] E2e integration test (setup + full payment flow in CI)
 
