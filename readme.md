@@ -211,9 +211,9 @@ bun run demo
 
 ## Known Issues and TODOs
 
-### Verification Gaps
+### Payment Attribution
 
-- **Invoice ID / payment attribution**: No mechanism to correlate a payment to a specific invoice or request beyond the nonce. Frederik Linker suggested adding an invoice ID field.
+Each 402 challenge includes a server-generated UUID v7 nonce that acts as the invoice/correlation ID. The nonce binds each payment to a specific request and is tracked by the middleware throughout the 3-phase flow. For external invoice correlation, the server can map nonces to its own invoice system in the `extra` field (see [@zwilling](https://github.com/zwilling)'s [review](https://github.com/AztecProtocol/aztec-packages/pull/14379)).
 
 ### Offchain Partial Note Delivery (v4.1.0)
 
@@ -234,7 +234,6 @@ The commitment pattern does not work on devnet (`4.0.0-devnet.2-patch.1`) — se
 - [ ] Switch to stable v4.1.0 release when available (currently on nightly)
 - [ ] Consume offchain messages when Aztec wires up partial note delivery
 - [ ] Add `offchain_receive()` client-side call when offchain messages are populated
-- [ ] Invoice ID for payment attribution
 - [ ] E2e integration test (setup + full payment flow in CI)
 
 ## Development
