@@ -9,12 +9,10 @@ const TX_HASH = "0x" + "cc".repeat(32);
 const MOCK_COMMITMENT = "0x" + "ff".repeat(32);
 const MOCK_NONCE = "01234567-0123-0123-0123-012345678901";
 
-function createMockScheme(): SchemeNetworkClient & { signer: { getAddress: ReturnType<typeof jest.fn> } } {
+function createMockScheme(): SchemeNetworkClient {
   return {
     scheme: "exact",
-    signer: {
-      getAddress: jest.fn().mockResolvedValue(SENDER_ADDRESS),
-    },
+    getSenderAddress: jest.fn().mockResolvedValue(SENDER_ADDRESS),
     createPaymentPayload: jest.fn().mockResolvedValue({
       x402Version: 2,
       payload: {

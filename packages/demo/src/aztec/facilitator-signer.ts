@@ -235,9 +235,11 @@ export class RealFacilitatorAztecSigner implements FacilitatorAztecSigner {
       finalCommitment = extractCommitmentFromSimulate(simulateResult);
     }
 
-    // Re-key the balance snapshot from _pending to the actual txHash (used during verification)
-    if (balanceSnapshotted && this.balanceBefore.has("_pending")) {
-      this.balanceBefore.set(txHash, this.balanceBefore.get("_pending")!);
+    // Re-key the balance snapshot from _pending to the commitment (used during verification)
+    if (balanceSnapshotted && finalCommitment && this.balanceBefore.has("_pending")) {
+      this.balanceBefore.set(finalCommitment, this.balanceBefore.get("_pending")!);
+      this.balanceBefore.delete("_pending");
+    } else if (this.balanceBefore.has("_pending")) {
       this.balanceBefore.delete("_pending");
     }
 
@@ -255,6 +257,7 @@ export class RealFacilitatorAztecSigner implements FacilitatorAztecSigner {
     txHashStr: string,
     tokenAddress: string,
     requiredAmount: bigint,
+    commitment?: string,
   ): Promise<PaymentNoteVerification> {
     try {
       const txHash = TxHash.fromString(txHashStr);
@@ -320,11 +323,11 @@ export class RealFacilitatorAztecSigner implements FacilitatorAztecSigner {
         // getTxEffect might not be available on all node versions.
       }
 
-      // 3. Verify actual amount via balance difference
+      // 3. Verify actual amount via balance difference (keyed by commitment)
       void tokenAddress;
-      const beforeBal = this.balanceBefore.get(txHashStr);
-      if (beforeBal !== undefined) {
-        this.balanceBefore.delete(txHashStr);
+      const beforeBal = commitment ? this.balanceBefore.get(commitment) : undefined;
+      if (beforeBal !== undefined && commitment) {
+        this.balanceBefore.delete(commitment);
         try {
           const facilitatorAddr = this.account.address;
           const afterResult = await this.token.methods

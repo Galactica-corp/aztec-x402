@@ -179,6 +179,7 @@ describe("ExactAztecFacilitatorScheme", () => {
         TX_HASH,
         TOKEN_ADDRESS,
         100_000n,
+        MOCK_COMMITMENT,
       );
       expect(result.isValid).toBe(true);
       expect(result.payer).toBe(SENDER_ADDRESS);

@@ -170,6 +170,7 @@ export interface FacilitatorAztecSigner {
     txHash: string,
     tokenAddress: string,
     requiredAmount: bigint,
+    commitment?: string,
   ): Promise<PaymentNoteVerification>;
 }
 

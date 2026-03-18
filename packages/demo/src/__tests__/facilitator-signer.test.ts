@@ -284,13 +284,13 @@ describe("RealFacilitatorAztecSigner", () => {
   });
 
   describe("verifyPayment — amount verification", () => {
-    it("verifies actual amount via balance difference", async () => {
+    it("verifies actual amount via balance difference (keyed by commitment)", async () => {
       const token = createMockToken({ balances: [500_000n, 600_000n] });
       const signer = new RealFacilitatorAztecSigner(createMockAccount(), createMockNode("success"), token);
-      // prepareCommitment snapshots balance (500_000)
-      await signer.prepareCommitment(TOKEN_ADDRESS_STR, CLIENT_ADDRESS_STR);
+      // prepareCommitment snapshots balance (500_000), keyed by commitment
+      const prepared = await signer.prepareCommitment(TOKEN_ADDRESS_STR, CLIENT_ADDRESS_STR);
       // verifyPayment checks balance again (600_000), diff = 100_000
-      const result = await signer.verifyPayment(TX_HASH, TOKEN_ADDRESS_STR, 100_000n);
+      const result = await signer.verifyPayment(TX_HASH, TOKEN_ADDRESS_STR, 100_000n, prepared.commitment);
       expect(result.isValid).toBe(true);
       expect(result.amountFound).toBe(100_000n);
     });
@@ -298,8 +298,8 @@ describe("RealFacilitatorAztecSigner", () => {
     it("rejects when actual amount is less than required", async () => {
       const token = createMockToken({ balances: [500_000n, 550_000n] });
       const signer = new RealFacilitatorAztecSigner(createMockAccount(), createMockNode("success"), token);
-      await signer.prepareCommitment(TOKEN_ADDRESS_STR, CLIENT_ADDRESS_STR);
-      const result = await signer.verifyPayment(TX_HASH, TOKEN_ADDRESS_STR, 100_000n);
+      const prepared = await signer.prepareCommitment(TOKEN_ADDRESS_STR, CLIENT_ADDRESS_STR);
+      const result = await signer.verifyPayment(TX_HASH, TOKEN_ADDRESS_STR, 100_000n, prepared.commitment);
       expect(result.isValid).toBe(false);
       expect(result.amountFound).toBe(50_000n);
       expect(result.error).toContain("insufficient payment");
@@ -308,8 +308,8 @@ describe("RealFacilitatorAztecSigner", () => {
     it("accepts when actual amount exceeds required", async () => {
       const token = createMockToken({ balances: [500_000n, 700_000n] });
       const signer = new RealFacilitatorAztecSigner(createMockAccount(), createMockNode("success"), token);
-      await signer.prepareCommitment(TOKEN_ADDRESS_STR, CLIENT_ADDRESS_STR);
-      const result = await signer.verifyPayment(TX_HASH, TOKEN_ADDRESS_STR, 100_000n);
+      const prepared = await signer.prepareCommitment(TOKEN_ADDRESS_STR, CLIENT_ADDRESS_STR);
+      const result = await signer.verifyPayment(TX_HASH, TOKEN_ADDRESS_STR, 100_000n, prepared.commitment);
       expect(result.isValid).toBe(true);
       expect(result.amountFound).toBe(200_000n);
     });
@@ -317,13 +317,13 @@ describe("RealFacilitatorAztecSigner", () => {
     it("falls back to requiredAmount when balance_of_private is unavailable", async () => {
       const token = createMockToken({ balanceError: true });
       const signer = new RealFacilitatorAztecSigner(createMockAccount(), createMockNode("success"), token);
-      await signer.prepareCommitment(TOKEN_ADDRESS_STR, CLIENT_ADDRESS_STR);
-      const result = await signer.verifyPayment(TX_HASH, TOKEN_ADDRESS_STR, 100_000n);
+      const prepared = await signer.prepareCommitment(TOKEN_ADDRESS_STR, CLIENT_ADDRESS_STR);
+      const result = await signer.verifyPayment(TX_HASH, TOKEN_ADDRESS_STR, 100_000n, prepared.commitment);
       expect(result.isValid).toBe(true);
       expect(result.amountFound).toBe(100_000n);
     });
 
-    it("falls back to requiredAmount when no prepare was called", async () => {
+    it("falls back to requiredAmount when no commitment provided", async () => {
       const result = await createSigner("success").verifyPayment(TX_HASH, TOKEN_ADDRESS_STR, 100_000n);
       expect(result.isValid).toBe(true);
       expect(result.amountFound).toBe(100_000n);

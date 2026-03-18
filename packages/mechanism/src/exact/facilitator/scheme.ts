@@ -171,6 +171,7 @@ export class ExactAztecFacilitatorScheme implements SchemeNetworkFacilitator {
         aztecPayload.txHash,
         requirements.asset,
         BigInt(requirements.amount),
+        commitment,
       );
 
       if (!verification.isValid) {

@@ -28,6 +28,10 @@ export class ExactAztecClientScheme implements SchemeNetworkClient {
 
   constructor(private readonly signer: ClientAztecSigner) {}
 
+  async getSenderAddress(): Promise<string> {
+    return this.signer.getAddress();
+  }
+
   async createPaymentPayload(
     x402Version: number,
     paymentRequirements: PaymentRequirements,

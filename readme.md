@@ -211,19 +211,35 @@ bun run demo
 
 ## Known Issues and TODOs
 
+### Simulate/Send Commitment Mismatch
+
+**Status: Known limitation — waiting on Aztec offchain delivery for partial notes.**
+
+`simulate()` and `send()` are independent executions with potentially different randomness. The commitment extracted from `simulate()` may not match the one that goes on-chain via `send()`. The `send()` result (`{ receipt, offchainEffects, offchainMessages }`) does not expose the commitment — `offchainMessages` is empty (`[]`) for `prepare_private_balance_increase` on v4.1.0.
+
+**Mitigations in place:**
+- `PXEWallet` uses real account entrypoints for simulation, which aligns randomness with what `send()` does internally — this works in practice on the sandbox but is not a guaranteed fix
+- Code is ready to prefer `offchainMessages` when Aztec wires up offchain delivery for partial notes (PR [#20893](https://github.com/AztecProtocol/aztec-packages/pull/20893) added the infrastructure)
+
+**Question for Aztec:** What's the intended pattern for extracting the commitment from a `prepare_private_balance_increase` call? When will `offchainMessages` be populated for partial notes?
+
+### Custom Token Contract Requirement
+
+The official Aztec `TokenContract` hardcodes `completer = msg_sender()` in `prepare_private_balance_increase`, meaning whoever calls prepare must also call finalize. Our flow requires the server to prepare and the client to finalize, so we maintain a [minimal fork](#custom-token-contract) that adds a `completer` parameter.
+
+**This is the primary adoption blocker** — every deployment needs the custom contract. Would the Aztec team accept a PR adding `completer` as a parameter to the official `prepare_private_balance_increase`?
+
+### Amount Verification via balance_of_private
+
+The facilitator snapshots its private balance before `prepareCommitment()` and checks again after finalization. The difference is the actual amount transferred. This works but has limitations:
+- Depends on `balance_of_private` being available (falls back to trusting tx effects if not)
+- Concurrent payments could produce incorrect diffs (demo-only concern — production would need per-commitment accounting)
+
+**Question for Aztec:** Is there a way to verify the transfer amount from tx effects in private transfers?
+
 ### Payment Attribution
 
 Each 402 challenge includes a server-generated UUID v7 nonce that acts as the invoice/correlation ID. The nonce binds each payment to a specific request and is tracked by the middleware throughout the 3-phase flow. For external invoice correlation, the server can map nonces to its own invoice system via the `extra` field.
-
-### Offchain Partial Note Delivery (v4.1.0)
-
-PR [#20893](https://github.com/AztecProtocol/aztec-packages/pull/20893) added `MessageDelivery.OFFCHAIN` to Aztec. On v4.1.0, `send()` returns `offchainMessages` extracted from the proven tx, which would fix the simulate/send commitment mismatch bug (commitment comes from the same execution that went on-chain).
-
-**Current status**: The infrastructure exists but `offchainMessages` is empty (`[]`) for `prepare_private_balance_increase`. The code is ready to consume offchain messages when they become populated — `facilitator-signer.ts` prefers `offchainMessages` when available and falls back to `simulate()`.
-
-### Simulate/Send Commitment Mismatch (v4.0.x)
-
-On v4.0.x, `simulate()` and `send()` run independently, potentially generating different randomness for the commitment. `PXEWallet` mitigates this by using real account entrypoints (matching what `send()` does internally), but it's not a guaranteed fix. This is fully resolved when offchain delivery is wired up for partial notes.
 
 ### Devnet Compatibility
 
@@ -234,6 +250,7 @@ The commitment pattern does not work on devnet (`4.0.0-devnet.2-patch.1`) — se
 - [ ] Switch to stable v4.1.0 release when available (currently on nightly)
 - [ ] Consume offchain messages when Aztec wires up partial note delivery
 - [ ] Add `offchain_receive()` client-side call when offchain messages are populated
+- [ ] Remove custom token contract if Aztec accepts `completer` param upstream
 - [ ] E2e integration test (setup + full payment flow in CI)
 
 ## Development

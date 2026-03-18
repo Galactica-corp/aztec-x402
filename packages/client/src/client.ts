@@ -71,7 +71,7 @@ export function wrapFetchWithPayment(
     }
 
     // Phase 2: Prepare — send our address to get a commitment
-    const senderAddress = await (scheme as { signer?: { getAddress?: () => Promise<string> } }).signer?.getAddress?.();
+    const senderAddress = await scheme.getSenderAddress?.();
 
     // Merge existing headers
     const existingHeaders = extractHeaders(init);

@@ -91,6 +91,9 @@ export interface SupportedKind {
 export interface SchemeNetworkClient {
   readonly scheme: string;
 
+  /** Get the sender's address (used by the client wrapper for the prepare phase) */
+  getSenderAddress?(): Promise<string>;
+
   createPaymentPayload(
     x402Version: number,
     paymentRequirements: PaymentRequirements,
