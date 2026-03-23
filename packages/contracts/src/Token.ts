@@ -1,10 +1,12 @@
 /**
- * Forked TokenContract wrapper for the x402 custom token contract.
+ * AIP-20 standard token contract wrapper.
  *
- * This is a minimal fork of the official Aztec v4.0.4 TokenContract with one change:
- * `prepare_private_balance_increase(to, completer)` accepts an explicit completer
- * parameter, enabling cross-party commitment flows where the server prepares and
- * the client finalizes.
+ * Uses the unmodified AIP-20 token from @defi-wonderland/aztec-standards,
+ * compiled against Aztec v4.1.0-nightly.20260314 for sandbox compatibility.
+ *
+ * Key methods for x402 commitment flow:
+ * - `initialize_transfer_commitment(to, completer)` — creates partial note
+ * - `transfer_private_to_commitment(from, commitment, amount, nonce)` — completes transfer
  */
 import {
   loadContractArtifact,
@@ -23,7 +25,7 @@ export const TokenContractArtifact = loadContractArtifact(
 );
 
 /**
- * Type-safe interface for the forked Token contract with cross-party commitment support.
+ * Type-safe interface for the AIP-20 standard Token contract.
  */
 export class TokenContract extends ContractBase {
   constructor(address: any, wallet: any) {
@@ -34,12 +36,15 @@ export class TokenContract extends ContractBase {
     return Contract.at(address, TokenContract.artifact, wallet);
   }
 
+  /**
+   * Deploy with constructor_with_minter(name, symbol, decimals, minter).
+   */
   static deploy(
     wallet: any,
-    admin: any,
     name: string,
     symbol: string,
     decimals: number,
+    minter: any,
   ) {
     return new DeployMethod(
       PublicKeys.default(),
@@ -53,10 +58,10 @@ export class TokenContract extends ContractBase {
   static deployWithPublicKeys(
     publicKeys: any,
     wallet: any,
-    admin: any,
     name: string,
     symbol: string,
     decimals: number,
+    minter: any,
   ) {
     return new DeployMethod(
       publicKeys,
@@ -75,16 +80,16 @@ export class TokenContract extends ContractBase {
     return loadContractArtifactForPublic(TokenContractArtifactJson as any);
   }
 
+  /** AIP-20 storage layout (slots match struct field order in main.nr). */
   static get storage() {
     return {
-      admin: { slot: new Fr(1n) },
-      minters: { slot: new Fr(2n) },
-      balances: { slot: new Fr(3n) },
-      total_supply: { slot: new Fr(4n) },
-      public_balances: { slot: new Fr(5n) },
-      symbol: { slot: new Fr(6n) },
-      name: { slot: new Fr(8n) },
-      decimals: { slot: new Fr(10n) },
+      name: { slot: new Fr(1n) },
+      symbol: { slot: new Fr(2n) },
+      decimals: { slot: new Fr(3n) },
+      private_balances: { slot: new Fr(4n) },
+      total_supply: { slot: new Fr(5n) },
+      public_balances: { slot: new Fr(6n) },
+      minter: { slot: new Fr(7n) },
     };
   }
 }

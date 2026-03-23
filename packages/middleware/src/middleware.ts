@@ -15,7 +15,7 @@ import type {
  * 3-phase flow:
  * 1. No payment headers → return 402 with nonce (client learns requirements)
  * 2. X-402-PREPARE header with {nonce, senderAddress} → server creates
- *    commitment via prepare_private_balance_increase, returns 402 with
+ *    commitment via initialize_transfer_commitment, returns 402 with
  *    nonce + commitment
  * 3. PAYMENT-SIGNATURE header → validate nonce + commitment, verify, settle,
  *    pass through

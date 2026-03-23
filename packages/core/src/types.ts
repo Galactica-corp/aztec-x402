@@ -5,9 +5,9 @@
  * used by the x402 mechanism plugin. The payment flow uses the commitment-based
  * pattern from the forked x402 token contract:
  *
- * 1. Server calls prepare_private_balance_increase(serverAddr, clientAddr) — partial note
+ * 1. Server calls initialize_transfer_commitment(serverAddr, clientAddr) — partial note
  * 2. Server returns commitment to client in 402 response
- * 3. Client calls finalize_transfer_to_private_from_private(clientAddr, {commitment}, amount, 0)
+ * 3. Client calls transfer_private_to_commitment(clientAddr, {commitment}, amount, 0)
  * 4. Client sends txHash to server
  * 5. Server verifies tx status + note creation
  *
@@ -45,7 +45,7 @@ export const CAIP_FAMILY = "aztec:*" as const;
  * The Aztec-specific payload carried inside PaymentPayload.payload.
  *
  * The commitment-based flow:
- * 1. Facilitator prepares a commitment via prepare_private_balance_increase
+ * 1. Facilitator prepares a commitment via initialize_transfer_commitment
  * 2. Client finalizes the transfer using that commitment
  * 3. Facilitator verifies the completed note in its PXE
  */
@@ -102,9 +102,9 @@ export interface ClientAztecSigner {
   /**
    * Complete a private payment using a server-provided commitment.
    *
-   * Calls `finalize_transfer_to_private_from_private(clientAddr, {commitment}, amount, 0)`
+   * Calls `transfer_private_to_commitment(clientAddr, {commitment}, amount, 0)`
    * on the Aztec token contract. The commitment was created by the
-   * server via `prepare_private_balance_increase(serverAddr)`.
+   * server via `initialize_transfer_commitment(serverAddr)`.
    *
    * @param tokenAddress - The token contract address
    * @param commitment - The commitment Field from the server's prepare step
@@ -132,7 +132,7 @@ export interface PrepareCommitmentResult {
  * Facilitator/server-side signer — represents the payment receiver's
  * capabilities for creating commitments and verifying payments.
  *
- * The facilitator creates commitments via `prepare_private_balance_increase`
+ * The facilitator creates commitments via `initialize_transfer_commitment`
  * and verifies completed transfers.
  */
 export interface FacilitatorAztecSigner {
@@ -147,7 +147,7 @@ export interface FacilitatorAztecSigner {
    * fixing the simulate/send randomness mismatch from v4.0.x.
    *
    * @param tokenAddress - The token contract address
-   * @param completerAddress - The client's address (will call finalize_transfer_to_private_from_private)
+   * @param completerAddress - The client's address (will call transfer_private_to_commitment)
    * @returns Commitment string (v4.0.x) or PrepareCommitmentResult (v4.1.0+)
    */
   prepareCommitment(

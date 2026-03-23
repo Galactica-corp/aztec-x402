@@ -49,12 +49,12 @@ const paymentMethod = isDevnet ? await setupSponsoredPayment(wallet) : undefined
 const feeOpts = paymentMethod ? { fee: { paymentMethod } } : {};
 
 // Step 1: Do a prepare call to create a nullifier
-console.log("Step 1: Alice calls prepare_private_balance_increase(alice, alice)...");
-const interaction = token.methods.prepare_private_balance_increase(alice, alice);
+console.log("Step 1: Alice calls initialize_transfer_commitment(alice, alice)...");
+const interaction = token.methods.initialize_transfer_commitment(alice, alice);
 const simResult = await interaction.simulate({ from: alice });
 let commitment: unknown;
-if (simResult != null && typeof simResult === "object" && "commitment" in simResult) {
-  commitment = (simResult as { commitment: unknown }).commitment;
+if (simResult != null && typeof simResult === "object" && "result" in simResult) {
+  commitment = (simResult as { result: unknown }).result;
 } else {
   commitment = simResult;
 }

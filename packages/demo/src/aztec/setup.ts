@@ -119,10 +119,10 @@ async function main() {
     console.log(`Deploying ${TOKEN_NAME} (${TOKEN_SYMBOL})...`);
     const tokenDeploy = TokenContract.deploy(
       wallet,
-      alice,
       TOKEN_NAME,
       TOKEN_SYMBOL,
       TOKEN_DECIMALS,
+      alice,
     );
     await tokenDeploy.simulate({ from: alice });
     const deployResult = await tokenDeploy.send(sendOpts(alice));

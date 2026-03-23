@@ -6,7 +6,7 @@
  *
  * Tests:
  * 1. Deploy official token contract + mint tokens
- * 2. Call prepare_private_balance_increase and check if send() returns offchainMessages
+ * 2. Call prepare_private_balance_increase (official token) and check if send() returns offchainMessages
  * 3. Test transfer_to_private as the completion path
  *
  * Usage: NODE_URL=http://localhost:8080 bun run packages/demo/src/aztec/test-offchain-partial.ts
@@ -115,7 +115,7 @@ try {
     console.log("  Transferred to private.");
   } catch (err2) {
     console.log(`  Public mint also failed: ${String(err2).slice(0, 200)}`);
-    console.log("  Continuing without balance — will test prepare_private_balance_increase anyway...");
+    console.log("  Continuing without balance — will test anyway...");
   }
 }
 

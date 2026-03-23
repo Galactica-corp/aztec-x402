@@ -3,7 +3,7 @@
   "version": "0.1.0",
   "private": true,
   "type": "module",
-  "description": "Forked Aztec token contract with cross-party commitment support",
+  "description": "AIP-20 standard token contract compiled for Aztec v4.1.0",
   "exports": {
     "./Token": "./src/Token.ts",
     "./artifacts/token_contract-Token.json": "./token/target/token_contract-Token.json"

@@ -114,7 +114,7 @@ export interface SchemeNetworkFacilitator {
    *
    * Called by the middleware during the prepare phase. The client sends
    * its address, and the facilitator creates a commitment via
-   * `prepare_private_balance_increase(facilitatorAddr)`.
+   * `initialize_transfer_commitment(facilitatorAddr)`.
    *
    * The returned record is merged into PaymentRequirements.extra
    * (includes `commitment`).

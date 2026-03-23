@@ -20,7 +20,7 @@ import type {
  * 4. Returns the sender address + txHash as the payload
  *
  * The commitment was created by the server via
- * prepare_private_balance_increase(serverAddr), so the transfer
+ * initialize_transfer_commitment(serverAddr), so the transfer
  * is structurally bound to the server's address.
  */
 export class ExactAztecClientScheme implements SchemeNetworkClient {

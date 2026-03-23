@@ -7,9 +7,9 @@
  *
  * v4.1.0 API changes (confirmed on sandbox 4.1.0-nightly.20260314):
  * - send() returns { receipt, offchainEffects, offchainMessages }
- * - simulate() returns { result: { commitment }, offchainEffects, offchainMessages }
+ * - simulate() returns { result: Field, offchainEffects, offchainMessages }
  * - txHash is on receipt, not top-level
- * - offchainMessages is present but currently empty [] for prepare_private_balance_increase
+ * - offchainMessages is present but currently empty [] for initialize_transfer_commitment
  *
  * NOTE: We avoid importing AztecAddress directly because @aztec/foundation
  * validates field elements at module load time and our synthetic test addresses
@@ -80,13 +80,14 @@ interface MockTokenOptions {
 /**
  * Create a mock token contract.
  *
- * Default simulate result uses v4.1.0 shape: { result: { commitment }, offchainEffects: [], offchainMessages: [] }
+ * Default simulate result uses v4.1.0 shape: { result: Field, offchainEffects: [], offchainMessages: [] }
+ * AIP-20's initialize_transfer_commitment returns Field directly (not nested { commitment }).
  * Default send result uses v4.1.0 shape: { receipt: { txHash }, offchainEffects: [], offchainMessages: [] }
  */
 function createMockToken(opts?: unknown | MockTokenOptions) {
-  // v4.1.0 default simulate result
+  // v4.1.0 default simulate result — AIP-20 returns Field directly
   let simulateResult: unknown = {
-    result: { commitment: MOCK_COMMITMENT },
+    result: MOCK_COMMITMENT,
     offchainEffects: [],
     offchainMessages: [],
   };
@@ -121,7 +122,7 @@ function createMockToken(opts?: unknown | MockTokenOptions) {
 
   return {
     methods: {
-      prepare_private_balance_increase: jest.fn().mockReturnValue({
+      initialize_transfer_commitment: jest.fn().mockReturnValue({
         simulate: jest.fn().mockResolvedValue(simulateResult),
         send: jest.fn().mockResolvedValue({
           // v4.1.0 shape: txHash on receipt
@@ -342,15 +343,15 @@ describe("RealFacilitatorAztecSigner", () => {
   });
 
   describe("prepareCommitment", () => {
-    it("calls prepare_private_balance_increase with facilitator and completer addresses", async () => {
+    it("calls initialize_transfer_commitment with facilitator and completer addresses", async () => {
       const token = createMockToken();
       const signer = new RealFacilitatorAztecSigner(createMockAccount(), createMockNode("success"), token);
       await signer.prepareCommitment(TOKEN_ADDRESS_STR, CLIENT_ADDRESS_STR);
-      expect(token.methods.prepare_private_balance_increase).toHaveBeenCalled();
+      expect(token.methods.initialize_transfer_commitment).toHaveBeenCalled();
     });
 
     it("extracts commitment from v4.1.0 simulate result shape", async () => {
-      // v4.1.0: simulate() returns { result: { commitment }, offchainEffects, offchainMessages }
+      // v4.1.0: simulate() returns { result: Field, offchainEffects, offchainMessages }
       const signer = createSigner("success");
       const result = await signer.prepareCommitment(TOKEN_ADDRESS_STR, CLIENT_ADDRESS_STR);
       expect(result.commitment).toBe(MOCK_COMMITMENT);
@@ -377,15 +378,7 @@ describe("RealFacilitatorAztecSigner", () => {
       expect(result.offchainMessage).toBeUndefined();
     });
 
-    it("handles v4.0.x simulate result (commitment at top level)", async () => {
-      const signer = createSigner("success", {
-        simulateResult: { commitment: "0xlegacy_commitment" },
-      });
-      const result = await signer.prepareCommitment(TOKEN_ADDRESS_STR, CLIENT_ADDRESS_STR);
-      expect(result.commitment).toBe("0xlegacy_commitment");
-    });
-
-    it("handles v4.0.x simulate result (raw Field value)", async () => {
+    it("handles raw Field simulate result (no wrapper)", async () => {
       const signer = createSigner("success", {
         simulateResult: "0xraw_field_value",
       });

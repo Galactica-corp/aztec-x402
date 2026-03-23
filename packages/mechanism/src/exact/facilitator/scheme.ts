@@ -34,14 +34,14 @@ import type {
  * Facilitator-side x402 scheme for Aztec.
  *
  * The server creates commitments for its own address using the Aztec
- * token contract's prepare_private_balance_increase(serverAddr).
+ * token contract's initialize_transfer_commitment(serverAddr).
  * This provides structural recipient verification — the partial note is
  * bound to the server's address, so the client can only transfer TO the server.
  *
  * Flow:
  * 1. Client announces its address (prepare phase)
  * 2. Server creates commitment via preparePayment → returns commitment
- * 3. Client calls finalize_transfer_to_private_from_private with the commitment
+ * 3. Client calls transfer_private_to_commitment with the commitment
  * 4. Server verifies tx status + note creation
  *
  * Settlement:

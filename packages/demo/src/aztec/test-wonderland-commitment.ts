@@ -1,7 +1,7 @@
 /**
  * Phase 0: Standalone test for commitment pattern on official Aztec TokenContract.
  *
- * Validates that prepare_private_balance_increase + finalize_transfer_to_private_from_private
+ * Validates that initialize_transfer_commitment + transfer_private_to_commitment
  * works on-chain before integrating into the x402 protocol.
  *
  * Usage: bun run packages/demo/src/aztec/test-wonderland-commitment.ts
@@ -36,7 +36,7 @@ const NETWORK = config.network;
 const isDevnet = USE_SPONSORED_FPC || NETWORK !== "aztec:sandbox";
 const TRANSFER_AMOUNT = 10000n;
 
-console.log("=== Phase 0: Commitment Pattern Test (forked x402 TokenContract) ===\n");
+console.log("=== Phase 0: Commitment Pattern Test (AIP-20 TokenContract) ===\n");
 
 // 1. Connect to Aztec node
 console.log(`Connecting to Aztec node at ${NODE_URL}...`);
@@ -84,16 +84,17 @@ if (BigInt(String(balanceBefore)) < TRANSFER_AMOUNT) {
 }
 
 // 5. Test: Same-person flow first (Alice calls both prepare and finalize)
-console.log("\nStep 1: Alice creates commitment (prepare_private_balance_increase with completer=alice)...");
+console.log("\nStep 1: Alice creates commitment (initialize_transfer_commitment with completer=alice)...");
 try {
-  const interaction = token.methods.prepare_private_balance_increase(alice, alice);
+  const interaction = token.methods.initialize_transfer_commitment(alice, alice);
   const commitmentResult = await interaction.simulate({ from: alice });
   console.log(`  simulate() succeeded, result: ${String(commitmentResult)}`);
 
-  // Extract commitment field
+  // Extract commitment field — AIP-20 returns Field directly
+  // v4.1.0 wraps in { result: Field }, otherwise it's the raw Field
   let commitment: unknown;
-  if (commitmentResult != null && typeof commitmentResult === "object" && "commitment" in commitmentResult) {
-    commitment = (commitmentResult as { commitment: unknown }).commitment;
+  if (commitmentResult != null && typeof commitmentResult === "object" && "result" in commitmentResult) {
+    commitment = (commitmentResult as { result: unknown }).result;
   } else {
     commitment = commitmentResult;
   }
@@ -127,10 +128,10 @@ try {
   console.log(`\n  Commitment type: ${typeof commitment}, constructor: ${(commitment as any)?.constructor?.name}`);
   console.log(`  Full commitmentResult: ${JSON.stringify(commitmentResult, (_, v) => typeof v === 'bigint' ? v.toString() : v)}`);
 
-  // 6. Alice calls: finalize_transfer_to_private_from_private(aliceAddr, {commitment}, amount, 0)
-  console.log(`\nStep 2: Alice completes transfer (finalize_transfer_to_private_from_private, amount=${TRANSFER_AMOUNT})...`);
+  // 6. Alice calls: transfer_private_to_commitment(aliceAddr, {commitment}, amount, 0)
+  console.log(`\nStep 2: Alice completes transfer (transfer_private_to_commitment, amount=${TRANSFER_AMOUNT})...`);
   // Try passing commitmentResult directly instead of re-wrapping
-  const transferInteraction = token.methods.finalize_transfer_to_private_from_private(
+  const transferInteraction = token.methods.transfer_private_to_commitment(
     alice,
     commitmentResult,
     TRANSFER_AMOUNT,

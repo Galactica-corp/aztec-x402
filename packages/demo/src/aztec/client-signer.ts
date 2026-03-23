@@ -11,7 +11,7 @@
  * Flow:
  * 1. Server returns { commitment, offchainMessage, prepareTxHash }
  * 2. Client calls processOffchainMessage() → offchain_receive() on token contract
- * 3. Client calls finalizePayment() → finalize_transfer_to_private_from_private()
+ * 3. Client calls finalizePayment() → transfer_private_to_commitment()
  */
 import type { ClientAztecSigner } from "@aztec-x402/core";
 import { AztecAddress } from "@aztec/aztec.js/addresses";
@@ -29,11 +29,11 @@ interface OffchainReceiveInput {
 
 interface TokenContract {
   methods: {
-    finalize_transfer_to_private_from_private(
+    transfer_private_to_commitment(
       from: AztecAddress,
-      partial_note: { commitment: unknown },
+      commitment: unknown,
       amount: bigint,
-      authwit_nonce: unknown,
+      nonce: unknown,
     ): {
       simulate(opts: { from: AztecAddress }): Promise<unknown>;
       send(opts: Record<string, unknown>): Promise<{ txHash: { toString(): string } }>;
@@ -110,10 +110,10 @@ export class RealClientAztecSigner implements ClientAztecSigner {
     const from = this.account.address;
 
     // Complete the transfer using the server-provided commitment.
-    // The server already called prepare_private_balance_increase(serverAddr),
+    // The server already called initialize_transfer_commitment(serverAddr, clientAddr),
     // so this commitment is bound to the server's address as recipient.
     const interaction =
-      this.token.methods.finalize_transfer_to_private_from_private(from, { commitment }, amount, 0);
+      this.token.methods.transfer_private_to_commitment(from, commitment, amount, 0);
     await interaction.simulate({ from });
 
     const opts: Record<string, unknown> = { from, wait: { timeout: 120 } };

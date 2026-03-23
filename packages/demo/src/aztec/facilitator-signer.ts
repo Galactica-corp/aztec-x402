@@ -8,16 +8,16 @@
  * - `send()` returns `{ receipt, offchainEffects, offchainMessages }`
  * - `simulate()` returns `{ result: { commitment }, offchainEffects, offchainMessages }`
  * - The commitment field is now inside `result.commitment` (not top-level)
- * - `offchainMessages` is present but currently empty for `prepare_private_balance_increase`
+ * - `offchainMessages` is present but currently empty for `initialize_transfer_commitment`
  *   (offchain delivery for partial notes may come in a future release)
  *
- * The commitment is extracted from `simulate().result.commitment` on v4.1.0+.
+ * The commitment is extracted from `simulate().result` on v4.1.0+ (returns Field directly).
  * When offchainMessages become populated, they'll be preferred as they come
  * from the proven tx execution.
  *
  * ## Payment Verification
  *
- * After the client calls `finalize_transfer_to_private_from_private(...)`, the facilitator verifies:
+ * After the client calls `transfer_private_to_commitment(...)`, the facilitator verifies:
  * - Transaction succeeded (receipt status)
  * - Transaction produced private notes (tx effects)
  * - Transaction consumed nullifiers (commitment was used)
@@ -89,21 +89,19 @@ interface SendResult {
 }
 
 /**
- * v4.1.0 simulate() result shape.
+ * v4.1.0 simulate() result shape for initialize_transfer_commitment.
  *
- * Confirmed: `{ result: { commitment }, offchainEffects: [], offchainMessages: [] }`
+ * AIP-20 returns Field directly: `{ result: Field, offchainEffects: [], offchainMessages: [] }`
  */
 interface SimulateResult {
-  result?: { commitment?: unknown };
+  result?: unknown;
   offchainEffects?: unknown[];
   offchainMessages?: OffchainMessage[];
-  // v4.0.x: may return commitment directly
-  commitment?: unknown;
 }
 
 interface TokenContract {
   methods: {
-    prepare_private_balance_increase(
+    initialize_transfer_commitment(
       to: AztecAddress,
       completer: AztecAddress,
     ): {
@@ -138,23 +136,19 @@ function extractCommitmentFromOffchain(offchainMessages: OffchainMessage[]): str
 /**
  * Extract commitment from simulate() result.
  *
- * Handles both v4.0.x (returns commitment directly) and v4.1.0
- * (returns { result: { commitment }, offchainEffects, offchainMessages }).
+ * AIP-20's initialize_transfer_commitment returns Field directly.
+ * v4.1.0 wraps it: `{ result: Field, offchainEffects, offchainMessages }`.
  */
 function extractCommitmentFromSimulate(result: unknown): string {
   if (result == null) return "";
 
-  // v4.1.0: { result: { commitment } }
+  // v4.1.0: { result: Field } — AIP-20 returns Field directly (not nested { commitment })
   if (typeof result === "object" && "result" in result) {
     const inner = (result as SimulateResult).result;
-    if (inner?.commitment != null) return String(inner.commitment);
+    if (inner != null) return String(inner);
   }
 
-  // v4.0.x: { commitment } or direct Field value
-  if (typeof result === "object" && "commitment" in result) {
-    return String((result as { commitment: unknown }).commitment);
-  }
-
+  // Direct Field value
   return String(result);
 }
 
@@ -212,7 +206,7 @@ export class RealFacilitatorAztecSigner implements FacilitatorAztecSigner {
 
     // Create partial note: to=facilitator (recipient), completer=client (who will finalize)
     const interaction =
-      this.token.methods.prepare_private_balance_increase(facilitatorAddr, completerAddr);
+      this.token.methods.initialize_transfer_commitment(facilitatorAddr, completerAddr);
 
     // simulate() for gas estimation + commitment extraction
     const simulateResult = await interaction.simulate({ from: facilitatorAddr });

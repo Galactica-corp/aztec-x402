@@ -20,13 +20,13 @@ sequenceDiagram
 
     Client->>Server: GET /api/weather/london<br/>X-402-PREPARE: {nonce, senderAddress}
 
-    Note over Server: prepare_private_balance_increase(bob, alice)
+    Note over Server: initialize_transfer_commitment(bob, alice)
     Server->>Node: Create commitment (partial note)
     Node->>Chain: Submit prepare tx
     Chain-->>Node: Tx settled
     Server-->>Client: 402 + {nonce, commitment}
 
-    Note over Client: finalize_transfer_to_private_from_private<br/>(alice, {commitment}, amount, 0)
+    Note over Client: transfer_private_to_commitment<br/>(alice, commitment, amount, 0)
     Client->>Node: Complete transfer using commitment
     Node->>Chain: Submit finalize tx
     Chain-->>Node: Tx settled
@@ -42,28 +42,18 @@ sequenceDiagram
 
 ### Commitment Pattern — Structural Recipient Verification
 
-The server creates the commitment via `prepare_private_balance_increase(serverAddr, clientAddr)` on a [forked token contract](#custom-token-contract). This provides two guarantees:
+The server creates the commitment via `initialize_transfer_commitment(serverAddr, clientAddr)` on the [AIP-20 standard token contract](https://github.com/defi-wonderland/aztec-standards). This provides two guarantees:
 
 1. **Recipient is bound**: the partial note's `to` = server's address — the client can only complete the transfer TO the server
-2. **Completer is bound**: only the specified client address can call `finalize_transfer_to_private_from_private` for this commitment
+2. **Completer is bound**: only the specified client address can call `transfer_private_to_commitment` for this commitment
 
 This closes the "who did the payment go to?" verification gap that exists with direct `transfer_in_private`.
 
-## Custom Token Contract
+## Token Contract
 
-The official Aztec TokenContract hardcodes `completer = msg_sender()` in `prepare_private_balance_increase`, meaning whoever calls prepare must also call finalize. This blocks our flow where the server prepares and the client finalizes.
+This project uses the **AIP-20 standard token** from [`@defi-wonderland/aztec-standards`](https://github.com/defi-wonderland/aztec-standards). AIP-20 natively supports the `completer` parameter in `initialize_transfer_commitment(to, completer)`, enabling cross-party commitment flows where the server prepares and the client finalizes.
 
-We maintain a minimal fork at `packages/contracts/` that adds one parameter:
-
-```diff
-- fn _prepare_private_balance_increase(to: AztecAddress) -> PartialUintNote {
--     UintNote::partial(to, slot, context, to, self.msg_sender())
-+ fn _prepare_private_balance_increase(to: AztecAddress, completer: AztecAddress) -> PartialUintNote {
-+     UintNote::partial(to, slot, context, to, completer)
-  }
-```
-
-The `completer` parameter only controls who can call finalize for that specific partial note. It cannot steal tokens or change the recipient — both are cryptographically bound. See `packages/contracts/token/src/main.nr` for the full diff.
+The AIP-20 source is compiled locally against `v4.1.0-nightly.20260314` for sandbox compatibility. Once AIP-20 publishes a v4.1.0 npm package, we'll switch to a direct dependency.
 
 ### Compilation
 
@@ -109,15 +99,13 @@ The compiled artifact is checked in at `packages/contracts/token/target/token_co
 The v4.1.0 SDK has significant API shape changes from v4.0.x:
 
 - **`send()`** returns `{ receipt, offchainEffects, offchainMessages }` — txHash is on `receipt.txHash`, not top-level
-- **`simulate()`** returns `{ result: { commitment }, offchainEffects, offchainMessages }` — commitment is nested under `.result`
-- **`offchainMessages`** is present but currently empty (`[]`) for `prepare_private_balance_increase` — the infrastructure for offchain partial note delivery exists (PR [#20893](https://github.com/AztecProtocol/aztec-packages/pull/20893)) but isn't wired up for partial notes yet
+- **`simulate()`** returns `{ result: Field, offchainEffects, offchainMessages }` — the AIP-20 `initialize_transfer_commitment` returns a raw `Field` (commitment)
+- **`offchainMessages`** is present but currently empty (`[]`) for `initialize_transfer_commitment` — the infrastructure for offchain partial note delivery exists (PR [#20893](https://github.com/AztecProtocol/aztec-packages/pull/20893)) but isn't wired up for partial notes yet
 - **Contract artifacts** require transpilation via `bb aztec_process` (v4.0.x artifacts fail with "Contract's public bytecode has not been transpiled")
-
-The codebase handles both v4.0.x and v4.1.0 API shapes with fallback logic in `facilitator-signer.ts`.
 
 ### Devnet Status
 
-The commitment pattern **does not work on devnet** (`4.0.0-devnet.2-patch.1`) due to a known PXE/simulator bug: `finalize_transfer_to_private_from_private` fails with "Nullifier witness not found". This bug was fixed in v4.0.4 (PRs [#14379](https://github.com/AztecProtocol/aztec-packages/pull/14379), [#14432](https://github.com/AztecProtocol/aztec-packages/pull/14432), [#14533](https://github.com/AztecProtocol/aztec-packages/pull/14533)), but the devnet hasn't upgraded yet.
+The commitment pattern **does not work on devnet** (`4.0.0-devnet.2-patch.1`) due to a known PXE/simulator bug: `transfer_private_to_commitment` fails with "Nullifier witness not found". This bug was fixed in v4.0.4 (PRs [#14379](https://github.com/AztecProtocol/aztec-packages/pull/14379), [#14432](https://github.com/AztecProtocol/aztec-packages/pull/14432), [#14533](https://github.com/AztecProtocol/aztec-packages/pull/14533)), but the devnet hasn't upgraded yet.
 
 ### Running the v4.1.0 Sandbox
 
@@ -159,7 +147,7 @@ graph LR
         MF["mechanism/facilitator<br/><i>ExactAztecFacilitatorScheme</i><br/>Commitment + txHash anti-replay"]
     end
 
-    CT["@aztec-x402/contracts<br/><i>Forked TokenContract</i>"]
+    CT["@aztec-x402/contracts<br/><i>AIP-20 TokenContract</i>"]
     CO["@aztec-x402/core<br/><i>Types, signer interfaces</i>"]
 
     CL --> MC
@@ -181,7 +169,7 @@ graph LR
 | Package | Description |
 |---------|-------------|
 | `@aztec-x402/core` | Types, constants, signer abstractions (`ClientAztecSigner`, `FacilitatorAztecSigner`) |
-| `@aztec-x402/contracts` | Forked Aztec token contract with cross-party commitment support |
+| `@aztec-x402/contracts` | AIP-20 standard token contract compiled for Aztec v4.1.0 |
 | `@aztec-x402/mechanism` | x402 mechanism plugin — client scheme (sign + transfer) and facilitator scheme (verify + settle) |
 | `@aztec-x402/middleware` | Express-compatible middleware — 3-phase 402 flow, nonce lifecycle, payment verification |
 | `@aztec-x402/client` | Fetch wrapper — automatic 402 detection, prepare, payment, and retry |
@@ -195,7 +183,7 @@ bun install
 # Run tests
 bun test
 
-# One-time: deploy accounts + custom token on local sandbox
+# One-time: deploy accounts + AIP-20 token on local sandbox
 # Requires: Aztec sandbox running (see "Running the v4.1.0 Sandbox" above)
 USE_SPONSORED_FPC=true bun run setup
 
@@ -205,7 +193,7 @@ bun run demo
 
 ### What happens
 
-1. **`bun run setup`** — generates Schnorr key pairs (`keys.json`), deploys Alice and Bob accounts, deploys the forked x402 token contract (oUSD), mints 1.0 oUSD to Alice, and writes config to `deploy.json`.
+1. **`bun run setup`** — generates Schnorr key pairs (`keys.json`), deploys Alice and Bob accounts, deploys the AIP-20 token contract (oUSD), mints 1.0 oUSD to Alice, and writes config to `deploy.json`.
 
 2. **`bun run demo`** — Alice pays $0.01 oUSD for a weather resource. The 3-phase flow: (1) client gets 402 with nonce, (2) client sends prepare request with sender address, server creates commitment, (3) client finalizes transfer using commitment, sends txHash to server. Server verifies and returns weather data.
 
@@ -215,19 +203,13 @@ bun run demo
 
 **Status: Known limitation — waiting on Aztec offchain delivery for partial notes.**
 
-`simulate()` and `send()` are independent executions with potentially different randomness. The commitment extracted from `simulate()` may not match the one that goes on-chain via `send()`. The `send()` result (`{ receipt, offchainEffects, offchainMessages }`) does not expose the commitment — `offchainMessages` is empty (`[]`) for `prepare_private_balance_increase` on v4.1.0.
+`simulate()` and `send()` are independent executions with potentially different randomness. The commitment extracted from `simulate()` may not match the one that goes on-chain via `send()`. The `send()` result (`{ receipt, offchainEffects, offchainMessages }`) does not expose the commitment — `offchainMessages` is empty (`[]`) for `initialize_transfer_commitment` on v4.1.0.
 
 **Mitigations in place:**
 - `PXEWallet` uses real account entrypoints for simulation, which aligns randomness with what `send()` does internally — this works in practice on the sandbox but is not a guaranteed fix
 - Code is ready to prefer `offchainMessages` when Aztec wires up offchain delivery for partial notes (PR [#20893](https://github.com/AztecProtocol/aztec-packages/pull/20893) added the infrastructure)
 
-**Question for Aztec:** What's the intended pattern for extracting the commitment from a `prepare_private_balance_increase` call? When will `offchainMessages` be populated for partial notes?
-
-### Custom Token Contract Requirement
-
-The official Aztec `TokenContract` hardcodes `completer = msg_sender()` in `prepare_private_balance_increase`, meaning whoever calls prepare must also call finalize. Our flow requires the server to prepare and the client to finalize, so we maintain a [minimal fork](#custom-token-contract) that adds a `completer` parameter.
-
-**This is the primary adoption blocker** — every deployment needs the custom contract. Would the Aztec team accept a PR adding `completer` as a parameter to the official `prepare_private_balance_increase`?
+**Question for Aztec:** What's the intended pattern for extracting the commitment from an `initialize_transfer_commitment` call? When will `offchainMessages` be populated for partial notes?
 
 ### Amount Verification via balance_of_private
 
@@ -250,7 +232,7 @@ The commitment pattern does not work on devnet (`4.0.0-devnet.2-patch.1`) — se
 - [ ] Switch to stable v4.1.0 release when available (currently on nightly)
 - [ ] Consume offchain messages when Aztec wires up partial note delivery
 - [ ] Add `offchain_receive()` client-side call when offchain messages are populated
-- [ ] Remove custom token contract if Aztec accepts `completer` param upstream
+- [ ] Switch to AIP-20 npm package when v4.1.0 is published
 - [ ] E2e integration test (setup + full payment flow in CI)
 
 ## Development
@@ -263,7 +245,7 @@ bun run build   # Build all packages
 
 ### Recompiling the Token Contract
 
-If you modify `packages/contracts/token/src/main.nr`, recompile using the Docker image:
+If you need to recompile the AIP-20 token contract (e.g. for a different Aztec version), use the Docker image:
 
 ```bash
 # Compile + transpile
@@ -299,11 +281,10 @@ fs.writeFileSync('packages/contracts/token/target/token_contract-Token.json', JS
 ## Design Decisions
 
 - **Commitment-based transfers** — server creates commitment (partial note) binding the recipient, client completes the transfer. Provides structural recipient verification.
-- **Custom token contract** — minimal fork of official Aztec TokenContract. One parameter added to allow cross-party commitment flows.
+- **AIP-20 standard token** — uses the [`@defi-wonderland/aztec-standards`](https://github.com/defi-wonderland/aztec-standards) token which natively supports the `completer` parameter for cross-party commitment flows.
 - **3-phase HTTP flow** — initial 402 → prepare (server creates commitment) → payment (client finalizes + proves)
 - **Tx receipt + tx effect verification** — server verifies the payment transaction settled and produced private notes
 - **Server = facilitator** — no separate facilitator service; the server verifies and settles payments directly
 - **Nonce in `extra` field** — flows through the protocol without any client-side code changes
 - **UUID v7 nonces** — time-ordered for debuggability, expire after `maxTimeoutSeconds`
 - **PXEWallet over EmbeddedWallet** — uses real account entrypoints for simulation, avoiding the stub-account mismatch that causes different commitments between simulate and send
-- **v4.0.x / v4.1.0 dual compatibility** — API shape detection with fallback logic; ready for offchain delivery when available
