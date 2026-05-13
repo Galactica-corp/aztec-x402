@@ -17,6 +17,7 @@ import { ExactAztecClientScheme } from "@aztec-x402/mechanism/exact/client";
 import { wrapFetchWithPayment } from "@aztec-x402/client";
 import { RealClientAztecSigner } from "./client-signer.js";
 import { loadKeys, loadAccount, setupSponsoredPayment } from "./wallet-manager.js";
+import { unwrapAztecSdkResult } from "@aztec-x402/core";
 
 const SERVER_URL = process.env.SERVER_URL ?? "https://aztec-x402.unfazed.engineering";
 
@@ -38,6 +39,15 @@ const NODE_URL = config.nodeUrl;
 const NETWORK = config.network;
 const USE_SPONSORED_FPC = process.env.USE_SPONSORED_FPC === "true";
 const isDevnet = USE_SPONSORED_FPC || NETWORK !== "aztec:sandbox";
+
+function extractSimulateValue(result: unknown): unknown {
+  return unwrapAztecSdkResult(result);
+}
+
+function bigintFromSimulate(result: unknown): bigint {
+  const value = extractSimulateValue(result);
+  return typeof value === "bigint" ? value : BigInt(String(value));
+}
 
 // Connect to Aztec
 console.log(`Connecting to Aztec node at ${NODE_URL}...`);
@@ -69,7 +79,7 @@ await wallet.registerSender(bob, "bob");
 const balanceBefore = await token.methods
   .balance_of_private(alice)
   .simulate({ from: alice });
-console.log(`Balance before: ${balanceBefore}\n`);
+console.log(`Balance before: ${extractSimulateValue(balanceBefore)}\n`);
 
 // Set up fee payment (Sponsored FPC on devnet, none on sandbox)
 const paymentMethod = isDevnet ? await setupSponsoredPayment(wallet) : undefined;
@@ -96,6 +106,6 @@ console.log(JSON.stringify(data, null, 2));
 const balanceAfter = await token.methods
   .balance_of_private(alice)
   .simulate({ from: alice });
-console.log(`\nBalance after: ${balanceAfter}`);
-console.log(`Spent: ${Number(balanceBefore) - Number(balanceAfter)}`);
+console.log(`\nBalance after: ${extractSimulateValue(balanceAfter)}`);
+console.log(`Spent: ${bigintFromSimulate(balanceBefore) - bigintFromSimulate(balanceAfter)}`);
 process.exit(0);

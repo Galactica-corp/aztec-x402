@@ -3,12 +3,12 @@
   "version": "0.1.0",
   "private": true,
   "type": "module",
-  "description": "AIP-20 standard token contract compiled for Aztec v4.1.0",
+  "description": "AIP-20 standard token contract wrapper for Aztec v4.2.x",
   "exports": {
-    "./Token": "./src/Token.ts",
-    "./artifacts/token_contract-Token.json": "./token/target/token_contract-Token.json"
+    "./Token": "./src/Token.ts"
   },
   "dependencies": {
-    "@aztec/aztec.js": "4.1.0-nightly.20260314"
+    "@aztec/aztec.js": "4.2.0",
+    "@defi-wonderland/aztec-standards": "4.2.0"
   }
 }

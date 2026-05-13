@@ -1,5 +1,11 @@
 import { v7 as uuidv7 } from "uuid";
 import type { PaymentPayload, PaymentRequirements } from "@aztec-x402/mechanism";
+import { PaymentPayloadSchema } from "@aztec-x402/mechanism";
+import {
+  AztecPrepareRequestSchema,
+  parseAztecPaymentExtra,
+  type AztecPrepareRequest,
+} from "@aztec-x402/core";
 import type {
   RouteConfig,
   RoutesConfig,
@@ -70,10 +76,10 @@ export function createPaymentMiddleware(
     // Phase 2: Prepare — client sends its address, server creates commitment
     const prepareHeader = getHeader(req, "x-402-prepare");
     if (prepareHeader) {
-      let prepareData: { nonce?: string; senderAddress?: string };
+      let prepareData: AztecPrepareRequest;
       try {
-        prepareData = JSON.parse(
-          Buffer.from(prepareHeader, "base64").toString(),
+        prepareData = AztecPrepareRequestSchema.parse(
+          JSON.parse(Buffer.from(prepareHeader, "base64").toString()),
         );
       } catch {
         return send402(res, requirements, routeConfig.description, "Invalid prepare payload encoding");
@@ -101,10 +107,11 @@ export function createPaymentMiddleware(
           routeConfig.asset,
           senderAddress,
         );
+        const parsedExtra = parseAztecPaymentExtra(extra);
         // Store commitment + offchain data in pending entry for validation in phase 3
-        paymentEntry.commitment = extra.commitment as string;
-        paymentEntry.offchainMessage = extra.offchainMessage as string | undefined;
-        paymentEntry.prepareTxHash = extra.prepareTxHash as string | undefined;
+        paymentEntry.commitment = parsedExtra.commitment;
+        paymentEntry.offchainMessage = parsedExtra.offchainMessage;
+        paymentEntry.prepareTxHash = parsedExtra.prepareTxHash;
         requirements.extra = { nonce, ...extra };
       } else {
         requirements.extra = { nonce };
@@ -119,14 +126,14 @@ export function createPaymentMiddleware(
       let paymentPayload: PaymentPayload;
       try {
         const decoded = Buffer.from(paymentHeader, "base64").toString();
-        paymentPayload = JSON.parse(decoded);
+        paymentPayload = PaymentPayloadSchema.parse(JSON.parse(decoded));
       } catch {
         return send402(res, requirements, routeConfig.description, "Invalid payment payload encoding");
       }
 
       // Validate nonce
-      const accepted = paymentPayload.accepted as PaymentRequirements;
-      const nonce = accepted?.extra?.nonce as string | undefined;
+      const accepted = paymentPayload.accepted;
+      const nonce = parseAztecPaymentExtra(accepted.extra).nonce;
       if (!nonce) {
         return send402(res, requirements, routeConfig.description, "missing payment nonce");
       }

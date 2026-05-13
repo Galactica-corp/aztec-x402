@@ -18,6 +18,10 @@ describe("constants", () => {
     expect(AZTEC_NETWORKS.SANDBOX).toBe("aztec:sandbox");
   });
 
+  it("has testnet network", () => {
+    expect(AZTEC_NETWORKS.TESTNET).toBe("aztec:testnet");
+  });
+
   it("has devnet network", () => {
     expect(AZTEC_NETWORKS.DEVNET).toBe("aztec:devnet");
   });

@@ -19,11 +19,13 @@
     "@aztec-x402/mechanism": "workspace:*",
     "@aztec-x402/middleware": "workspace:*",
     "@aztec-x402/contracts": "workspace:*",
-    "@aztec/accounts": "4.1.0-nightly.20260314",
-    "@aztec/aztec.js": "4.1.0-nightly.20260314",
-    "@aztec/constants": "4.1.0-nightly.20260314",
-    "@aztec/noir-contracts.js": "4.1.0-nightly.20260314",
-    "@aztec/wallets": "4.1.0-nightly.20260314",
-    "@sentry/bun": "^10.43.0"
+    "@aztec/accounts": "4.2.0",
+    "@aztec/aztec.js": "4.2.0",
+    "@aztec/constants": "4.2.0",
+    "@aztec/noir-contracts.js": "4.2.0",
+    "@aztec/stdlib": "4.2.0",
+    "@aztec/wallets": "4.2.0",
+    "@sentry/bun": "^10.43.0",
+    "zod": "^4.4.3"
   }
 }

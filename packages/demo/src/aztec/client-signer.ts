@@ -15,16 +15,22 @@
  */
 import type { ClientAztecSigner } from "@aztec-x402/core";
 import { AztecAddress } from "@aztec/aztec.js/addresses";
+import { TxHash, TxStatus } from "@aztec/aztec.js/tx";
 
 interface AztecAccount {
   address: AztecAddress;
 }
 
 interface OffchainReceiveInput {
-  ciphertext: string;
+  ciphertext: unknown[];
   recipient: string;
-  tx_hash: string;
+  tx_hash: unknown;
   anchor_block_timestamp: number;
+}
+
+interface SendResult {
+  receipt?: { txHash?: { toString(): string } };
+  txHash?: { toString(): string };
 }
 
 interface TokenContract {
@@ -36,7 +42,7 @@ interface TokenContract {
       nonce: unknown,
     ): {
       simulate(opts: { from: AztecAddress }): Promise<unknown>;
-      send(opts: Record<string, unknown>): Promise<{ txHash: { toString(): string } }>;
+      send(opts: Record<string, unknown>): Promise<SendResult>;
     };
     offchain_receive?(
       messages: OffchainReceiveInput[],
@@ -44,6 +50,33 @@ interface TokenContract {
       simulate(opts: { from: AztecAddress }): Promise<unknown>;
     };
   };
+}
+
+function toFieldLike(value: unknown): unknown {
+  if (typeof value === "bigint" || typeof value === "number" || Buffer.isBuffer(value)) {
+    return value;
+  }
+  if (value != null && typeof value === "object" && "toField" in value) {
+    return value;
+  }
+  return String(value);
+}
+
+function normalizeCiphertext(payload: unknown): unknown[] {
+  if (Array.isArray(payload)) return payload.map(toFieldLike);
+  if (typeof payload === "string") {
+    if (payload.includes(",")) return payload.split(",").map((field) => field.trim()).filter(Boolean);
+    return payload ? [payload] : [];
+  }
+  return payload == null ? [] : [toFieldLike(payload)];
+}
+
+function extractTxHash(sendResult: SendResult): string {
+  const txHash = sendResult.receipt?.txHash ?? sendResult.txHash;
+  if (!txHash) {
+    throw new Error("send() result did not include a transaction hash");
+  }
+  return txHash.toString();
 }
 
 export class RealClientAztecSigner implements ClientAztecSigner {
@@ -78,7 +111,8 @@ export class RealClientAztecSigner implements ClientAztecSigner {
 
     // Parse the serialized offchain messages from the server
     let messages: Array<{
-      payload: string;
+      payload?: unknown;
+      ciphertext?: unknown;
       recipient?: string;
       anchorBlockTimestamp?: number;
     }>;
@@ -91,9 +125,9 @@ export class RealClientAztecSigner implements ClientAztecSigner {
 
     // Build offchain_receive input
     const receiveInputs: OffchainReceiveInput[] = messages.map((msg) => ({
-      ciphertext: msg.payload,
+      ciphertext: normalizeCiphertext(msg.payload ?? msg.ciphertext),
       recipient: msg.recipient ?? clientAddr.toString(),
-      tx_hash: prepareTxHash,
+      tx_hash: TxHash.fromString(prepareTxHash).hash,
       anchor_block_timestamp: msg.anchorBlockTimestamp ?? 0,
     }));
 
@@ -116,11 +150,14 @@ export class RealClientAztecSigner implements ClientAztecSigner {
       this.token.methods.transfer_private_to_commitment(from, commitment, amount, 0);
     await interaction.simulate({ from });
 
-    const opts: Record<string, unknown> = { from, wait: { timeout: 120 } };
+    const opts: Record<string, unknown> = {
+      from,
+      wait: { timeout: 240, waitForStatus: TxStatus.CHECKPOINTED },
+    };
     if (this.sendOpts?.fee) {
       opts.fee = this.sendOpts.fee;
     }
     const receipt = await interaction.send(opts);
-    return receipt.txHash.toString();
+    return extractTxHash(receipt);
   }
 }

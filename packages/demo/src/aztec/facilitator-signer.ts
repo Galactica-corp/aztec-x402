@@ -8,12 +8,10 @@
  * - `send()` returns `{ receipt, offchainEffects, offchainMessages }`
  * - `simulate()` returns `{ result: { commitment }, offchainEffects, offchainMessages }`
  * - The commitment field is now inside `result.commitment` (not top-level)
- * - `offchainMessages` is present but currently empty for `initialize_transfer_commitment`
- *   (offchain delivery for partial notes may come in a future release)
+ * - `offchainMessages` may contain encrypted note-delivery payloads
  *
  * The commitment is extracted from `simulate().result` on v4.1.0+ (returns Field directly).
- * When offchainMessages become populated, they'll be preferred as they come
- * from the proven tx execution.
+ * Offchain messages are forwarded separately to the client for PXE note processing.
  *
  * ## Payment Verification
  *
@@ -37,8 +35,15 @@ import type {
   PaymentNoteVerification,
   PrepareCommitmentResult,
 } from "@aztec-x402/core";
+import {
+  AztecOffchainMessagesSchema,
+  getAztecTxEffectArray,
+  unwrapAztecSdkResult,
+} from "@aztec-x402/core";
 import { AztecAddress } from "@aztec/aztec.js/addresses";
-import { TxHash } from "@aztec/aztec.js/tx";
+import { toSendOptions } from "@aztec/aztec.js/contracts";
+import type { InteractionFeeOptions, SendInteractionOptions } from "@aztec/aztec.js/contracts";
+import { TxHash, TxStatus } from "@aztec/aztec.js/tx";
 
 /** Minimal node interface — only the methods we use */
 interface AztecNode {
@@ -67,8 +72,8 @@ interface AztecAccount {
 }
 
 interface OffchainMessage {
-  payload: string;
-  recipient?: string;
+  payload: unknown;
+  recipient?: unknown;
   anchorBlockTimestamp?: number;
 }
 
@@ -84,6 +89,7 @@ interface SendResult {
   receipt?: { txHash?: { toString(): string }; status?: string };
   offchainEffects?: unknown[];
   offchainMessages?: OffchainMessage[];
+  appReturnValues?: unknown[];
   // v4.0.x compat
   txHash?: { toString(): string };
 }
@@ -106,7 +112,14 @@ interface TokenContract {
       completer: AztecAddress,
     ): {
       simulate(opts: { from: AztecAddress }): Promise<SimulateResult | unknown>;
+      request?(opts: Record<string, unknown>): Promise<unknown>;
       send(opts: Record<string, unknown>): Promise<SendResult>;
+      wallet?: {
+        sendTxWithAppReturnValues?(
+          executionPayload: unknown,
+          opts: unknown,
+        ): Promise<SendResult>;
+      };
     };
     balance_of_private(owner: AztecAddress): {
       simulate(opts: { from: AztecAddress }): Promise<unknown>;
@@ -117,22 +130,6 @@ interface TokenContract {
 /**
  * Extract commitment from offchainMessages (future v4.1.x+ when offchain delivery is populated).
  */
-function extractCommitmentFromOffchain(offchainMessages: OffchainMessage[]): string | undefined {
-  if (!offchainMessages || offchainMessages.length === 0) return undefined;
-
-  const msg = offchainMessages[0];
-  if (!msg?.payload) return undefined;
-
-  try {
-    if (msg.payload.startsWith("0x")) return msg.payload;
-    const parsed = JSON.parse(msg.payload);
-    if (parsed.commitment) return String(parsed.commitment);
-    return String(msg.payload);
-  } catch {
-    return String(msg.payload);
-  }
-}
-
 /**
  * Extract commitment from simulate() result.
  *
@@ -140,16 +137,22 @@ function extractCommitmentFromOffchain(offchainMessages: OffchainMessage[]): str
  * v4.1.0 wraps it: `{ result: Field, offchainEffects, offchainMessages }`.
  */
 function extractCommitmentFromSimulate(result: unknown): string {
-  if (result == null) return "";
+  const value = unwrapAztecSdkResult(result);
+  return value == null ? "" : String(value);
+}
 
-  // v4.1.0: { result: Field } — AIP-20 returns Field directly (not nested { commitment })
-  if (typeof result === "object" && "result" in result) {
-    const inner = (result as SimulateResult).result;
-    if (inner != null) return String(inner);
-  }
+function extractCommitmentFromSendResult(sendResult: SendResult): string | undefined {
+  const value = sendResult.appReturnValues?.[0];
+  return value == null ? undefined : String(value);
+}
 
-  // Direct Field value
-  return String(result);
+function extractSimulateValue(result: unknown): unknown {
+  return unwrapAztecSdkResult(result);
+}
+
+function bigintFromSimulate(result: unknown): bigint {
+  const value = extractSimulateValue(result);
+  return typeof value === "bigint" ? value : BigInt(String(value));
 }
 
 /**
@@ -165,7 +168,15 @@ function extractTxHash(sendResult: SendResult): string {
  */
 function serializeOffchainMessage(messages: OffchainMessage[]): string | undefined {
   if (!messages || messages.length === 0) return undefined;
-  return JSON.stringify(messages);
+  const parsedMessages = AztecOffchainMessagesSchema.parse(messages);
+  return JSON.stringify(parsedMessages, (_key, value) => {
+    if (typeof value === "bigint") return value.toString();
+    if (value && typeof value === "object" && !Array.isArray(value)) {
+      const ctor = value.constructor?.name;
+      if (ctor && ctor !== "Object") return String(value);
+    }
+    return value;
+  });
 }
 
 export class RealFacilitatorAztecSigner implements FacilitatorAztecSigner {
@@ -176,7 +187,7 @@ export class RealFacilitatorAztecSigner implements FacilitatorAztecSigner {
     private readonly account: AztecAccount,
     private readonly node: AztecNode,
     private readonly token: TokenContract,
-    private readonly sendOpts?: { fee?: unknown },
+    private readonly sendOpts?: { fee?: InteractionFeeOptions },
   ) {}
 
   async getAddresses(): Promise<string[]> {
@@ -196,7 +207,7 @@ export class RealFacilitatorAztecSigner implements FacilitatorAztecSigner {
       const balResult = await this.token.methods
         .balance_of_private(facilitatorAddr)
         .simulate({ from: facilitatorAddr });
-      const bal = typeof balResult === "bigint" ? balResult : BigInt(String(balResult));
+      const bal = bigintFromSimulate(balResult);
       // Store temporarily — will key by commitment once we have it
       this.balanceBefore.set("_pending", bal);
       balanceSnapshotted = true;
@@ -208,30 +219,38 @@ export class RealFacilitatorAztecSigner implements FacilitatorAztecSigner {
     const interaction =
       this.token.methods.initialize_transfer_commitment(facilitatorAddr, completerAddr);
 
-    // simulate() for gas estimation + commitment extraction
-    const simulateResult = await interaction.simulate({ from: facilitatorAddr });
-
-    const opts: Record<string, unknown> = { from: facilitatorAddr, wait: { timeout: 120 } };
+    const opts: SendInteractionOptions = {
+      from: facilitatorAddr,
+      wait: { timeout: 240, waitForStatus: TxStatus.CHECKPOINTED },
+    };
     if (this.sendOpts?.fee) {
       opts.fee = this.sendOpts.fee;
     }
-    const sendResult = await interaction.send(opts);
+    let simulateResult: unknown;
+    let sendResult: SendResult;
+    const walletSend = interaction.wallet?.sendTxWithAppReturnValues;
+    if (interaction.request && walletSend) {
+      const executionPayload = await interaction.request(opts);
+      sendResult = await walletSend.call(
+        interaction.wallet,
+        executionPayload,
+        toSendOptions(opts),
+      );
+    } else {
+      // Fallback for older wallet implementations.
+      simulateResult = await interaction.simulate({ from: facilitatorAddr });
+      sendResult = await interaction.send(opts);
+    }
     const txHash = extractTxHash(sendResult);
 
-    // Priority 1: Extract commitment from offchainMessages (when populated in future releases)
-    let finalCommitment: string | undefined;
-    if (sendResult.offchainMessages && sendResult.offchainMessages.length > 0) {
-      finalCommitment = extractCommitmentFromOffchain(sendResult.offchainMessages);
-    }
-
-    // Priority 2: Extract from simulate() result (works on both v4.0.x and v4.1.0)
-    if (!finalCommitment) {
-      finalCommitment = extractCommitmentFromSimulate(simulateResult);
-    }
+    const finalCommitment =
+      extractCommitmentFromSendResult(sendResult) ??
+      extractCommitmentFromSimulate(simulateResult);
 
     // Re-key the balance snapshot from _pending to the commitment (used during verification)
-    if (balanceSnapshotted && finalCommitment && this.balanceBefore.has("_pending")) {
-      this.balanceBefore.set(finalCommitment, this.balanceBefore.get("_pending")!);
+    const pendingBalance = this.balanceBefore.get("_pending");
+    if (balanceSnapshotted && finalCommitment && pendingBalance !== undefined) {
+      this.balanceBefore.set(finalCommitment, pendingBalance);
       this.balanceBefore.delete("_pending");
     } else if (this.balanceBefore.has("_pending")) {
       this.balanceBefore.delete("_pending");
@@ -277,8 +296,7 @@ export class RealFacilitatorAztecSigner implements FacilitatorAztecSigner {
       try {
         const txEffect = await this.node.getTxEffect(txHash);
         if (txEffect) {
-          const noteHashes =
-            txEffect.data?.noteHashes ?? txEffect.noteHashes ?? [];
+          const noteHashes = getAztecTxEffectArray(txEffect, "noteHashes");
           const nonEmptyNotes = noteHashes.filter((h) => {
             if (h == null) return false;
             const str = String(h);
@@ -295,8 +313,7 @@ export class RealFacilitatorAztecSigner implements FacilitatorAztecSigner {
             };
           }
 
-          const nullifiers =
-            txEffect.data?.nullifiers ?? txEffect.nullifiers ?? [];
+          const nullifiers = getAztecTxEffectArray(txEffect, "nullifiers");
           const nonZeroNullifiers = nullifiers.filter((n) => {
             if (n == null) return false;
             const str = String(n);
@@ -327,9 +344,7 @@ export class RealFacilitatorAztecSigner implements FacilitatorAztecSigner {
           const afterResult = await this.token.methods
             .balance_of_private(facilitatorAddr)
             .simulate({ from: facilitatorAddr });
-          const afterBal = typeof afterResult === "bigint"
-            ? afterResult
-            : BigInt(String(afterResult));
+          const afterBal = bigintFromSimulate(afterResult);
           const actualAmount = afterBal - beforeBal;
           if (actualAmount < requiredAmount) {
             return {

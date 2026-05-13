@@ -1,6 +1,9 @@
 import { describe, it, expect, jest, beforeEach } from "bun:test";
 import { createPaymentMiddleware } from "../middleware.js";
 import type { MiddlewareConfig, MiddlewareResponse, RouteConfig } from "../types.js";
+import { PaymentRequirementsSchema } from "@aztec-x402/mechanism";
+import { parseAztecPaymentExtra } from "@aztec-x402/core";
+import { z } from "zod";
 
 const TOKEN_ADDRESS = "0x" + "dd".repeat(32);
 const SERVER_ADDRESS = "0x" + "bb".repeat(32);
@@ -8,9 +11,34 @@ const SENDER_ADDRESS = "0x" + "aa".repeat(32);
 const TX_HASH = "0x" + "cc".repeat(32);
 const MOCK_COMMITMENT = "0x" + "ff".repeat(32);
 
+type MockFn = ReturnType<typeof jest.fn>;
+type MiddlewareFacilitator = MiddlewareConfig["facilitator"];
+
+interface MockFacilitator extends MiddlewareFacilitator {
+  getExtra: MockFn;
+  getSigners: MockFn;
+  preparePayment: MockFn;
+  verify: MockFn;
+  settle: MockFn;
+}
+
+interface MockMiddlewareConfig extends MiddlewareConfig {
+  facilitator: MockFacilitator;
+}
+
+const ErrorBodySchema = z
+  .object({
+    error: z.string().optional(),
+  })
+  .passthrough();
+
+function parseError(body: unknown): string | undefined {
+  return ErrorBodySchema.parse(body).error;
+}
+
 function createMockConfig(
-  overrides?: Partial<MiddlewareConfig>,
-): MiddlewareConfig {
+  overrides?: Partial<MockMiddlewareConfig>,
+): MockMiddlewareConfig {
   return {
     facilitator: {
       scheme: "exact",
@@ -145,7 +173,7 @@ function encodePayload(payload: object): string {
 }
 
 describe("createPaymentMiddleware", () => {
-  let config: MiddlewareConfig;
+  let config: MockMiddlewareConfig;
 
   beforeEach(() => {
     config = createMockConfig();
@@ -299,8 +327,7 @@ describe("createPaymentMiddleware", () => {
 
     expect(res.statusCode).toBe(402);
     expect(next).not.toHaveBeenCalled();
-    const body = res.body as { error?: string };
-    expect(body.error).toBe("missing payment nonce");
+    expect(parseError(res.body)).toBe("missing payment nonce");
   });
 
   it("rejects payment with fabricated nonce", async () => {
@@ -317,8 +344,7 @@ describe("createPaymentMiddleware", () => {
 
     expect(res.statusCode).toBe(402);
     expect(next).not.toHaveBeenCalled();
-    const body = res.body as { error?: string };
-    expect(body.error).toBe("invalid or expired payment nonce");
+    expect(parseError(res.body)).toBe("invalid or expired payment nonce");
   });
 
   it("rejects replay of consumed nonce", async () => {
@@ -349,8 +375,7 @@ describe("createPaymentMiddleware", () => {
 
     expect(res2.statusCode).toBe(402);
     expect(next2).not.toHaveBeenCalled();
-    const body = res2.body as { error?: string };
-    expect(body.error).toBe("invalid or expired payment nonce");
+    expect(parseError(res2.body)).toBe("invalid or expired payment nonce");
   });
 
   it("rejects expired nonce", async () => {
@@ -375,8 +400,7 @@ describe("createPaymentMiddleware", () => {
 
     expect(res.statusCode).toBe(402);
     expect(next).not.toHaveBeenCalled();
-    const body = res.body as { error?: string };
-    expect(body.error).toBe("invalid or expired payment nonce");
+    expect(parseError(res.body)).toBe("invalid or expired payment nonce");
   });
 
   it("generates unique nonces per 402 response", async () => {
@@ -459,8 +483,8 @@ describe("createPaymentMiddleware", () => {
 
     expect(next).toHaveBeenCalled();
     // Verify that the facilitator.verify was called with requirements containing commitment
-    const verifyCall = (config.facilitator.verify as ReturnType<typeof jest.fn>).mock.calls[0];
-    const verifyRequirements = verifyCall[1] as { extra?: { commitment?: string } };
-    expect(verifyRequirements.extra?.commitment).toBe(MOCK_COMMITMENT);
+    const verifyCall = config.facilitator.verify.mock.calls[0];
+    const verifyRequirements = PaymentRequirementsSchema.parse(verifyCall[1]);
+    expect(parseAztecPaymentExtra(verifyRequirements.extra).commitment).toBe(MOCK_COMMITMENT);
   });
 });

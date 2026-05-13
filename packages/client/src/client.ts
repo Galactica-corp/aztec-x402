@@ -1,15 +1,12 @@
 import type {
   SchemeNetworkClient,
   PaymentPayload,
-  PaymentRequirements,
+  ParsedPaymentRequired,
 } from "@aztec-x402/mechanism";
+import { PaymentRequiredSchema } from "@aztec-x402/mechanism";
+import { parseAztecPaymentExtra } from "@aztec-x402/core";
 
 type FetchFunction = typeof fetch;
-
-interface PaymentRequired {
-  x402Version: number;
-  accepts: PaymentRequirements[];
-}
 
 /**
  * Wraps a fetch function with automatic x402 payment handling.
@@ -47,10 +44,10 @@ export function wrapFetchWithPayment(
     }
 
     // Decode payment requirements
-    let paymentRequired: PaymentRequired;
+    let paymentRequired: ParsedPaymentRequired;
     try {
-      paymentRequired = JSON.parse(
-        Buffer.from(paymentRequiredHeader, "base64").toString(),
+      paymentRequired = PaymentRequiredSchema.parse(
+        JSON.parse(Buffer.from(paymentRequiredHeader, "base64").toString()),
       );
     } catch {
       return response;
@@ -65,7 +62,7 @@ export function wrapFetchWithPayment(
     }
 
     // Get nonce from the initial 402 response
-    const nonce = matching.extra?.nonce as string | undefined;
+    const nonce = parseAztecPaymentExtra(matching.extra).nonce;
     if (!nonce) {
       return response;
     }
@@ -95,13 +92,13 @@ export function wrapFetchWithPayment(
         const prepareHeader = prepareResponse.headers.get("PAYMENT-REQUIRED");
         if (prepareHeader) {
           try {
-            const prepared: PaymentRequired = JSON.parse(
-              Buffer.from(prepareHeader, "base64").toString(),
+            const prepared = PaymentRequiredSchema.parse(
+              JSON.parse(Buffer.from(prepareHeader, "base64").toString()),
             );
             const preparedMatch = prepared.accepts.find(
               (a) => a.scheme === scheme.scheme,
             );
-            if (preparedMatch?.extra?.commitment) {
+            if (preparedMatch && parseAztecPaymentExtra(preparedMatch.extra).commitment) {
               preparedRequirements = preparedMatch;
             }
           } catch {

@@ -8,7 +8,9 @@
  */
 import { createAztecNodeClient } from "@aztec/aztec.js/node";
 import { AztecAddress } from "@aztec/aztec.js/addresses";
+import { Fr } from "@aztec/aztec.js/fields";
 import { TokenContract } from "@aztec-x402/contracts/Token";
+import { getAztecTxEffectArray, unwrapAztecSdkResult } from "@aztec-x402/core";
 import { createPXEWallet } from "./pxe-wallet.js";
 import { readFileSync } from "fs";
 import { join, dirname } from "path";
@@ -23,6 +25,10 @@ const config = JSON.parse(readFileSync(CONFIG_PATH, "utf-8"));
 const NODE_URL = config.nodeUrl;
 const NETWORK = config.network;
 const isDevnet = process.env.USE_SPONSORED_FPC === "true" || NETWORK !== "aztec:sandbox";
+
+function toFr(value: unknown): Fr {
+  return value instanceof Fr ? value : new Fr(BigInt(String(value)));
+}
 
 console.log("=== Nullifier Witness Test ===\n");
 
@@ -52,12 +58,7 @@ const feeOpts = paymentMethod ? { fee: { paymentMethod } } : {};
 console.log("Step 1: Alice calls initialize_transfer_commitment(alice, alice)...");
 const interaction = token.methods.initialize_transfer_commitment(alice, alice);
 const simResult = await interaction.simulate({ from: alice });
-let commitment: unknown;
-if (simResult != null && typeof simResult === "object" && "result" in simResult) {
-  commitment = (simResult as { result: unknown }).result;
-} else {
-  commitment = simResult;
-}
+const commitment = unwrapAztecSdkResult(simResult);
 console.log(`  Commitment: ${String(commitment)}`);
 
 const receipt = await interaction.send({ from: alice, wait: { timeout: 120 }, ...feeOpts });
@@ -70,8 +71,7 @@ if (!txEffect) {
   process.exit(1);
 }
 
-const nullifiers = (txEffect as { data?: { nullifiers?: unknown[] } }).data?.nullifiers ??
-  (txEffect as { nullifiers?: unknown[] }).nullifiers ?? [];
+const nullifiers = getAztecTxEffectArray(txEffect, "nullifiers");
 const nonZero = nullifiers.filter((n: unknown) => {
   const s = String(n);
   return s !== "0" && s !== "0x0" && !/^0x0+$/.test(s);
@@ -102,7 +102,7 @@ console.log(`  Block hash: ${blockHash}`);
 
 for (const n of nonZero) {
   try {
-    const witness = await node.getNullifierMembershipWitness(blockHash, n as any);
+    const witness = await node.getNullifierMembershipWitness(blockHash, toFr(n));
     if (witness) {
       console.log(`  Nullifier ${String(n).substring(0, 20)}...: FOUND ✓`);
       console.log(`    Leaf preimage nullifier: ${witness.leafPreimage?.nullifier}`);
@@ -122,13 +122,13 @@ if (blockNumber > 1) {
     console.log(`\n  Previous block (${blockNumber - 1}) hash: ${prevHash}`);
     for (const n of nonZero) {
       try {
-        const witness = await node.getNullifierMembershipWitness(prevHash, n as any);
+        const witness = await node.getNullifierMembershipWitness(prevHash, toFr(n));
         if (witness) {
           console.log(`  Nullifier ${String(n).substring(0, 20)}...: FOUND at prev block ✓`);
         } else {
           console.log(`  Nullifier ${String(n).substring(0, 20)}...: NOT FOUND at prev block (expected)`);
         }
-      } catch (err) {
+      } catch {
         console.log(`  Nullifier ${String(n).substring(0, 20)}...: ERROR at prev block`);
       }
     }

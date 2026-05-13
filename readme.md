@@ -53,17 +53,17 @@ This closes the "who did the payment go to?" verification gap that exists with d
 
 This project uses the **AIP-20 standard token** from [`@defi-wonderland/aztec-standards`](https://github.com/defi-wonderland/aztec-standards). AIP-20 natively supports the `completer` parameter in `initialize_transfer_commitment(to, completer)`, enabling cross-party commitment flows where the server prepares and the client finalizes.
 
-The AIP-20 source is compiled locally against `v4.1.0-nightly.20260314` for sandbox compatibility. Once AIP-20 publishes a v4.1.0 npm package, we'll switch to a direct dependency.
+The demo now consumes the published `@defi-wonderland/aztec-standards@4.2.0` token wrapper and artifact through `@aztec-x402/contracts`. The local Noir source under `packages/contracts/token` is kept as a reference copy for contract experiments, not as the default demo artifact.
 
 ### Compilation
 
-The contract is compiled using `nargo` + `bb aztec_process` from the Aztec Docker image. The two-step process: (1) nargo compiles Noir to ACIR bytecode, (2) bb transpiles public functions to AVM bytecode and generates verification keys.
+Normal demo usage does not require local token compilation. If you edit the reference contract, compile it with matching Aztec 4.2.x tooling:
 
 ```bash
 docker run --rm \
   -v ./packages/contracts/token:/contract \
   --entrypoint sh \
-  aztecprotocol/aztec:4.1.0-nightly.20260314 \
+  aztecprotocol/aztec:4.2.0 \
   -c "
     cd /contract
     /usr/src/noir/noir-repo/target/release/nargo compile --silence-warnings
@@ -83,47 +83,46 @@ fs.writeFileSync('packages/contracts/token/target/token_contract-Token.json', JS
 "
 ```
 
-The compiled artifact is checked in at `packages/contracts/token/target/token_contract-Token.json`.
+The checked-in artifact is not used by the default 4.2 demo path.
 
 ## Aztec Version Compatibility
 
 | Component | Version | Notes |
 |-----------|---------|-------|
-| SDK (`@aztec/aztec.js` etc.) | `4.1.0-nightly.20260314` | Offchain delivery support, new send/simulate shapes |
-| Contract compilation | `aztecprotocol/aztec:4.1.0-nightly.20260314` | nargo 1.0.0-beta.18 + bb |
-| Local sandbox | `aztecprotocol/aztec:4.1.0-nightly.20260314` | Full commitment flow works |
-| Devnet | `4.0.0-devnet.2-patch.1` | Commitment flow blocked (see below) |
+| SDK (`@aztec/aztec.js` etc.) | `4.2.0` | Matches the current testnet generation |
+| AIP-20 token artifact | `@defi-wonderland/aztec-standards@4.2.0` | Published token wrapper and artifact |
+| Public testnet | `4.2.0` | RPC: `https://rpc.testnet.aztec-labs.com` |
+| Local network | `4.2.0` | Use Aztec 4.2.x tooling |
 
-### v4.1.0 API Changes
+### v4.2.x API Notes
 
-The v4.1.0 SDK has significant API shape changes from v4.0.x:
+The code handles the post-v4.1 Aztec.js send/simulate shapes:
 
 - **`send()`** returns `{ receipt, offchainEffects, offchainMessages }` — txHash is on `receipt.txHash`, not top-level
 - **`simulate()`** returns `{ result: Field, offchainEffects, offchainMessages }` — the AIP-20 `initialize_transfer_commitment` returns a raw `Field` (commitment)
-- **`offchainMessages`** is present but currently empty (`[]`) for `initialize_transfer_commitment` — the infrastructure for offchain partial note delivery exists (PR [#20893](https://github.com/AztecProtocol/aztec-packages/pull/20893)) but isn't wired up for partial notes yet
-- **Contract artifacts** require transpilation via `bb aztec_process` (v4.0.x artifacts fail with "Contract's public bytecode has not been transpiled")
+- **`offchainMessages`** is preferred when populated; the current fallback still extracts the commitment from `simulate()`
+- **Contract artifacts** must match the SDK/network generation
 
-### Devnet Status
+### Testnet Status
 
-The commitment pattern **does not work on devnet** (`4.0.0-devnet.2-patch.1`) due to a known PXE/simulator bug: `transfer_private_to_commitment` fails with "Nullifier witness not found". This bug was fixed in v4.0.4 (PRs [#14379](https://github.com/AztecProtocol/aztec-packages/pull/14379), [#14432](https://github.com/AztecProtocol/aztec-packages/pull/14432), [#14533](https://github.com/AztecProtocol/aztec-packages/pull/14533)), but the devnet hasn't upgraded yet.
-
-### Running the v4.1.0 Sandbox
-
-The v4.1.0 sandbox requires an external L1 (Anvil):
+The old devnet blocker is no longer the active target. The demo defaults to Aztec public testnet:
 
 ```bash
-# Terminal 1: start Anvil (auto-mine mode, no --block-time)
-anvil --port 8545
-
-# Terminal 2: start the sandbox
-docker run -d --name aztec-sandbox \
-  -p 8080:8080 \
-  -e LOG_LEVEL=info \
-  aztecprotocol/aztec:4.1.0-nightly.20260314 \
-  start --local-network --l1-rpc-urls http://host.docker.internal:8545
+NODE_URL=https://rpc.testnet.aztec-labs.com \
+AZTEC_NETWORK=aztec:testnet \
+USE_SPONSORED_FPC=true \
+bun run ./packages/demo/src/aztec/setup.ts
 ```
 
-Note: v4.1.0 removed the `--sandbox` flag. Use `start --local-network` instead.
+### Running a Local Network
+
+```bash
+# Install Aztec 4.2.x tooling
+VERSION=4.2.0 bash -i <(curl -sL https://install.aztec.network/4.2.0)
+
+# Start a local Aztec network
+aztec start --local-network
+```
 
 ## Anti-Replay Protection
 
@@ -169,7 +168,7 @@ graph LR
 | Package | Description |
 |---------|-------------|
 | `@aztec-x402/core` | Types, constants, signer abstractions (`ClientAztecSigner`, `FacilitatorAztecSigner`) |
-| `@aztec-x402/contracts` | AIP-20 standard token contract compiled for Aztec v4.1.0 |
+| `@aztec-x402/contracts` | AIP-20 standard token wrapper using `@defi-wonderland/aztec-standards@4.2.0` |
 | `@aztec-x402/mechanism` | x402 mechanism plugin — client scheme (sign + transfer) and facilitator scheme (verify + settle) |
 | `@aztec-x402/middleware` | Express-compatible middleware — 3-phase 402 flow, nonce lifecycle, payment verification |
 | `@aztec-x402/client` | Fetch wrapper — automatic 402 detection, prepare, payment, and retry |
@@ -183,9 +182,9 @@ bun install
 # Run tests
 bun test
 
-# One-time: deploy accounts + AIP-20 token on local sandbox
-# Requires: Aztec sandbox running (see "Running the v4.1.0 Sandbox" above)
-USE_SPONSORED_FPC=true bun run setup
+# One-time: deploy accounts + AIP-20 token
+# Defaults to public testnet and uses Sponsored FPC for fees
+bun run setup
 
 # Run the payment-gated client demo
 bun run demo
@@ -203,7 +202,7 @@ bun run demo
 
 **Status: Known limitation — waiting on Aztec offchain delivery for partial notes.**
 
-`simulate()` and `send()` are independent executions with potentially different randomness. The commitment extracted from `simulate()` may not match the one that goes on-chain via `send()`. The `send()` result (`{ receipt, offchainEffects, offchainMessages }`) does not expose the commitment — `offchainMessages` is empty (`[]`) for `initialize_transfer_commitment` on v4.1.0.
+`simulate()` and `send()` are independent executions with potentially different randomness. The commitment extracted from `simulate()` may not match the one that goes on-chain via `send()` if Aztec does not return the commitment through `offchainMessages`.
 
 **Mitigations in place:**
 - `PXEWallet` uses real account entrypoints for simulation, which aligns randomness with what `send()` does internally — this works in practice on the sandbox but is not a guaranteed fix
@@ -223,16 +222,11 @@ The facilitator snapshots its private balance before `prepareCommitment()` and c
 
 Each 402 challenge includes a server-generated UUID v7 nonce that acts as the invoice/correlation ID. The nonce binds each payment to a specific request and is tracked by the middleware throughout the 3-phase flow. For external invoice correlation, the server can map nonces to its own invoice system via the `extra` field.
 
-### Devnet Compatibility
-
-The commitment pattern does not work on devnet (`4.0.0-devnet.2-patch.1`) — see [Devnet Status](#devnet-status). Blocked until devnet upgrades to v4.0.4+.
-
 ### Other TODOs
 
-- [ ] Switch to stable v4.1.0 release when available (currently on nightly)
 - [ ] Consume offchain messages when Aztec wires up partial note delivery
-- [ ] Add `offchain_receive()` client-side call when offchain messages are populated
-- [ ] Switch to AIP-20 npm package when v4.1.0 is published
+- [x] Add `offchain_receive()` client-side hook when offchain messages are populated
+- [x] Switch to the published AIP-20 npm package
 - [ ] E2e integration test (setup + full payment flow in CI)
 
 ## Development
@@ -252,7 +246,7 @@ If you need to recompile the AIP-20 token contract (e.g. for a different Aztec v
 docker run --rm \
   -v ./packages/contracts/token:/contract \
   --entrypoint sh \
-  aztecprotocol/aztec:4.1.0-nightly.20260314 \
+  aztecprotocol/aztec:4.2.0 \
   -c "
     cd /contract
     /usr/src/noir/noir-repo/target/release/nargo compile --silence-warnings
@@ -275,7 +269,7 @@ fs.writeFileSync('packages/contracts/token/target/token_contract-Token.json', JS
 |----------|---------|-------------|
 | `NODE_URL` | `http://localhost:8080` | Aztec node endpoint |
 | `AZTEC_NETWORK` | `aztec:sandbox` | CAIP-2 network id |
-| `USE_SPONSORED_FPC` | — | Set to `true` to use Sponsored FPC for gas fees (required for v4.1.0 sandbox) |
+| `USE_SPONSORED_FPC` | — | Set to `true` to use Sponsored FPC for gas fees on public networks |
 | `SERVER_URL` | `https://aztec-x402.unfazed.engineering` | x402 demo server endpoint (client only) |
 
 ## Design Decisions

@@ -29,3 +29,19 @@ export {
   isValidAztecAddress,
   isAztecNetwork,
 } from "./utils.js";
+
+export {
+  AztecNetworkSchema,
+  AztecPaymentExtraSchema,
+  AztecPrepareRequestSchema,
+  AztecSdkResultSchema,
+  AztecOffchainMessageSchema,
+  AztecOffchainMessagesSchema,
+  AztecTxEffectSchema,
+  parseAztecPaymentExtra,
+  unwrapAztecSdkResult,
+  getAztecTxEffectArray,
+  type AztecPaymentExtra,
+  type AztecPrepareRequest,
+  type AztecOffchainMessage,
+} from "./schemas.js";

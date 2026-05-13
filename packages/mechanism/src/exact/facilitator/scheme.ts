@@ -2,11 +2,20 @@ import {
   type FacilitatorAztecSigner,
   type AztecNetwork,
   type ExactAztecPayload,
-  type PrepareCommitmentResult,
   SCHEME,
   CAIP_FAMILY,
   isValidAztecAddress,
+  parseAztecPaymentExtra,
 } from "@aztec-x402/core";
+import type {
+  SchemeNetworkFacilitator,
+  PaymentPayload,
+  PaymentRequirements,
+  VerifyResponse,
+  SettleResponse,
+  FacilitatorContext,
+  Network,
+} from "../../x402-types.js";
 
 /**
  * Parse the generic payload record into an ExactAztecPayload.
@@ -20,15 +29,6 @@ function parseAztecPayload(raw: Record<string, unknown>): ExactAztecPayload {
     timestamp: String(raw.timestamp ?? ""),
   };
 }
-import type {
-  SchemeNetworkFacilitator,
-  PaymentPayload,
-  PaymentRequirements,
-  VerifyResponse,
-  SettleResponse,
-  FacilitatorContext,
-  Network,
-} from "../../x402-types.js";
 
 /**
  * Facilitator-side x402 scheme for Aztec.
@@ -109,10 +109,9 @@ export class ExactAztecFacilitatorScheme implements SchemeNetworkFacilitator {
     if (typeof result === "string") {
       commitment = result;
     } else {
-      const prepResult = result as PrepareCommitmentResult;
-      commitment = prepResult.commitment;
-      offchainMessage = prepResult.offchainMessage;
-      prepareTxHash = prepResult.prepareTxHash;
+      commitment = result.commitment;
+      offchainMessage = result.offchainMessage;
+      prepareTxHash = result.prepareTxHash;
     }
 
     this.pendingCommitments.add(commitment);
@@ -155,7 +154,7 @@ export class ExactAztecFacilitatorScheme implements SchemeNetworkFacilitator {
     }
 
     // 3. Validate that the commitment was issued by this facilitator
-    const commitment = requirements.extra?.commitment as string | undefined;
+    const commitment = parseAztecPaymentExtra(requirements.extra).commitment;
     if (!commitment || !this.pendingCommitments.has(commitment)) {
       return {
         isValid: false,
@@ -205,7 +204,7 @@ export class ExactAztecFacilitatorScheme implements SchemeNetworkFacilitator {
     const aztecPayload = parseAztecPayload(payload.payload);
 
     // Consume the commitment and txHash
-    const commitment = requirements.extra?.commitment as string | undefined;
+    const commitment = parseAztecPaymentExtra(requirements.extra).commitment;
     if (commitment) {
       this.pendingCommitments.delete(commitment);
     }

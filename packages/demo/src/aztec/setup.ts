@@ -15,8 +15,9 @@
  */
 import { createAztecNodeClient } from "@aztec/aztec.js/node";
 import { AztecAddress } from "@aztec/aztec.js/addresses";
-import { Fr } from "@aztec/aztec.js/fields";
+import { TxStatus } from "@aztec/aztec.js/tx";
 import { TokenContract } from "@aztec-x402/contracts/Token";
+import { unwrapAztecSdkResult } from "@aztec-x402/core";
 import { createPXEWallet } from "./pxe-wallet.js";
 import { writeFileSync, existsSync, readFileSync } from "fs";
 import { join, dirname } from "path";
@@ -29,7 +30,7 @@ const TOKEN_NAME = "Overcast USD";
 const TOKEN_SYMBOL = "oUSD";
 const TOKEN_DECIMALS = 6;
 const MINT_AMOUNT = 1_000_000n; // 1.0 oUSD (6 decimals)
-const TX_TIMEOUT = 120;
+const TX_TIMEOUT = 240;
 
 const __dirname = dirname(new URL(import.meta.url).pathname);
 const DATA_DIR = process.env.DATA_DIR ?? __dirname;
@@ -47,6 +48,10 @@ function loadConfig(): Record<string, string> {
 /** Save config incrementally */
 function saveConfig(config: Record<string, unknown>) {
   writeFileSync(CONFIG_PATH, JSON.stringify(config, null, 2));
+}
+
+function extractSimulateValue(result: unknown): unknown {
+  return unwrapAztecSdkResult(result);
 }
 
 async function main() {
@@ -92,7 +97,7 @@ async function main() {
   const sendOpts = (from: AztecAddress) => {
     const opts: Record<string, unknown> = {
       from,
-      wait: { timeout: TX_TIMEOUT },
+      wait: { timeout: TX_TIMEOUT, waitForStatus: TxStatus.CHECKPOINTED },
     };
     if (paymentMethod) {
       opts.fee = { paymentMethod };
@@ -101,7 +106,7 @@ async function main() {
   };
 
   // Step 3: Deploy token (skip if already recorded and exists on-chain)
-  let tokenAddress: AztecAddress;
+  let tokenAddress: AztecAddress | undefined;
   if (config.tokenAddress) {
     const existing = AztecAddress.fromString(config.tokenAddress);
     const onChain = await node.getContract(existing);
@@ -125,13 +130,9 @@ async function main() {
       alice,
     );
     await tokenDeploy.simulate({ from: alice });
-    const deployResult = await tokenDeploy.send(sendOpts(alice));
-    // v4.1.0: send() returns a SentTx, not the contract. Use getInstance() or the pre-computed address.
-    const deployResultAny = deployResult as any;
-    // v4.1.0: send() returns { contract, receipt, offchainEffects, offchainMessages }
-    tokenAddress = deployResultAny?.contract?.address
-      ?? deployResultAny?.address
-      ?? tokenDeploy.getInstance()?.address;
+    await tokenDeploy.send(sendOpts(alice));
+    // send() returns a SentTx; the deploy method keeps the pre-computed address.
+    tokenAddress = tokenDeploy.getInstance()?.address;
     if (!tokenAddress) {
       throw new Error("Could not determine token address after deployment");
     }
@@ -144,13 +145,17 @@ async function main() {
     saveConfig(config);
   }
 
+  if (!tokenAddress) {
+    throw new Error("Token address was not set after setup");
+  }
+
   // Step 4: Mint tokens (skip if already done)
   if (config.minted !== "true") {
-    const tokenInstance = await node.getContract(tokenAddress!);
+    const tokenInstance = await node.getContract(tokenAddress);
     if (tokenInstance) {
       await wallet.registerContract(tokenInstance, TokenContract.artifact);
     }
-    const token = await TokenContract.at(tokenAddress!, wallet);
+    const token = await TokenContract.at(tokenAddress, wallet);
 
     console.log(`Minting ${MINT_AMOUNT} to Alice's private balance...`);
     await token.methods
@@ -164,7 +169,7 @@ async function main() {
       const aliceBalance = await token.methods
         .balance_of_private(alice)
         .simulate({ from: alice });
-      console.log(`  Alice's balance:     ${aliceBalance}\n`);
+      console.log(`  Alice's balance:     ${extractSimulateValue(aliceBalance)}\n`);
     } catch {
       // v4.1.0: balance_of_private may fail if contract compiled for v4.0.4
       // (MAX_NOTE_PACKED_LEN ABI mismatch). Mint tx succeeded — skip balance check.

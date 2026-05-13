@@ -6,6 +6,7 @@ import { createAztecNodeClient } from "@aztec/aztec.js/node";
 import { AztecAddress } from "@aztec/aztec.js/addresses";
 import { Fr } from "@aztec/aztec.js/fields";
 import { TokenContract } from "@aztec-x402/contracts/Token";
+import { getAztecTxEffectArray, unwrapAztecSdkResult } from "@aztec-x402/core";
 import { createPXEWallet } from "./pxe-wallet.js";
 import { readFileSync } from "fs";
 import { join, dirname } from "path";
@@ -48,12 +49,7 @@ const feeOpts = paymentMethod ? { fee: { paymentMethod } } : {};
 console.log("Step 1: Alice calls initialize_transfer_commitment(alice, alice)...");
 const interaction = token.methods.initialize_transfer_commitment(alice, alice);
 const simResult = await interaction.simulate({ from: alice });
-let commitment: unknown;
-if (simResult != null && typeof simResult === "object" && "result" in simResult) {
-  commitment = (simResult as { result: unknown }).result;
-} else {
-  commitment = simResult;
-}
+const commitment = unwrapAztecSdkResult(simResult);
 console.log(`  Commitment value: ${String(commitment)}`);
 console.log(`  Commitment type: ${typeof commitment}`);
 console.log(`  Commitment constructor: ${commitment?.constructor?.name}`);
@@ -70,8 +66,7 @@ console.log(`  Token address: ${tokenAddress.toString()}`);
 
 // Try to import poseidon2 and the constants
 try {
-  const { poseidon2Hash } = await import("@aztec/foundation/crypto");
-  const { GeneratorIndex, SILOED_NULLIFIER_SEPARATOR } = await import("@aztec/constants");
+  const { SILOED_NULLIFIER_SEPARATOR } = await import("@aztec/constants");
 
   console.log("\nStep 2: Computing expected nullifier hashes...");
   console.log(`  DOM_SEP for partial note validity: looking up...`);
@@ -95,7 +90,7 @@ const receipt = await interaction.send({ from: alice, wait: { timeout: 120 }, ..
 console.log(`  Tx mined: ${receipt.txHash}`);
 
 const txEffect = await node.getTxEffect(receipt.txHash);
-const nullifiers = (txEffect as any)?.data?.nullifiers ?? (txEffect as any)?.nullifiers ?? [];
+const nullifiers = getAztecTxEffectArray(txEffect, "nullifiers");
 const nonZero = nullifiers.filter((n: unknown) => {
   const s = String(n);
   return s !== "0" && s !== "0x0" && !/^0x0+$/.test(s);

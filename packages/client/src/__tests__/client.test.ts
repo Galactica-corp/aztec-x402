@@ -1,6 +1,8 @@
 import { describe, it, expect, jest, beforeEach } from "bun:test";
 import { wrapFetchWithPayment } from "../client.js";
-import type { SchemeNetworkClient, PaymentRequirements } from "@aztec-x402/mechanism";
+import { PaymentRequirementsSchema, type PaymentRequirements } from "@aztec-x402/mechanism";
+import { parseAztecPaymentExtra } from "@aztec-x402/core";
+import { z } from "zod";
 
 const SENDER_ADDRESS = "0x" + "aa".repeat(32);
 const SERVER_ADDRESS = "0x" + "bb".repeat(32);
@@ -9,7 +11,19 @@ const TX_HASH = "0x" + "cc".repeat(32);
 const MOCK_COMMITMENT = "0x" + "ff".repeat(32);
 const MOCK_NONCE = "01234567-0123-0123-0123-012345678901";
 
-function createMockScheme(): SchemeNetworkClient {
+const FetchCallInitSchema = z
+  .object({
+    headers: z.record(z.string(), z.string()).optional(),
+    method: z.string().optional(),
+    body: z.unknown().optional(),
+  })
+  .passthrough();
+
+function getInitHeader(init: unknown, key: string): string | undefined {
+  return FetchCallInitSchema.parse(init).headers?.[key];
+}
+
+function createMockScheme() {
   return {
     scheme: "exact",
     getSenderAddress: jest.fn().mockResolvedValue(SENDER_ADDRESS),
@@ -119,28 +133,25 @@ describe("wrapFetchWithPayment", () => {
 
     // Phase 2 should include X-402-PREPARE header
     const prepareCall = mockFetch.mock.calls[1];
-    const prepareInit: Record<string, unknown> = prepareCall[1];
-    const prepareHeaders: Record<string, string> = prepareInit.headers;
-    expect(prepareHeaders["X-402-PREPARE"]).toBeTruthy();
+    const prepareHeader = getInitHeader(prepareCall[1], "X-402-PREPARE");
+    expect(prepareHeader).toBeTruthy();
 
     // Decode and verify prepare data contains nonce + sender address
     const prepareData = JSON.parse(
-      Buffer.from(prepareHeaders["X-402-PREPARE"], "base64").toString(),
+      Buffer.from(prepareHeader ?? "", "base64").toString(),
     );
     expect(prepareData.nonce).toBe(MOCK_NONCE);
     expect(prepareData.senderAddress).toBe(SENDER_ADDRESS);
 
     // Phase 3 should include PAYMENT-SIGNATURE header
     const paymentCall = mockFetch.mock.calls[2];
-    const paymentInit: Record<string, unknown> = paymentCall[1];
-    const paymentHeaders: Record<string, string> = paymentInit.headers;
-    expect(paymentHeaders["PAYMENT-SIGNATURE"]).toBeTruthy();
+    expect(getInitHeader(paymentCall[1], "PAYMENT-SIGNATURE")).toBeTruthy();
 
     // createPaymentPayload should receive requirements with commitment
     expect(scheme.createPaymentPayload).toHaveBeenCalledTimes(1);
-    const payloadCall = (scheme.createPaymentPayload as ReturnType<typeof jest.fn>).mock.calls[0];
-    const requirements = payloadCall[1] as PaymentRequirements;
-    expect(requirements.extra?.commitment).toBe(MOCK_COMMITMENT);
+    const payloadCall = scheme.createPaymentPayload.mock.calls[0];
+    const requirements = PaymentRequirementsSchema.parse(payloadCall[1]);
+    expect(parseAztecPaymentExtra(requirements.extra).commitment).toBe(MOCK_COMMITMENT);
   });
 
   it("passes through original request options on retry", async () => {
@@ -176,13 +187,12 @@ describe("wrapFetchWithPayment", () => {
 
     // Phase 3 should preserve original headers + add PAYMENT-SIGNATURE
     const retryCall = mockFetch.mock.calls[2];
+    const retryInit = FetchCallInitSchema.parse(retryCall[1]);
     expect(retryCall[0]).toBe("https://api.example.com/data");
-    const retryInit: Record<string, unknown> = retryCall[1];
     expect(retryInit.method).toBe("POST");
     expect(retryInit.body).toBe("test body");
-    const headers: Record<string, string> = retryInit.headers;
-    expect(headers["X-Custom"]).toBe("value");
-    expect(headers["PAYMENT-SIGNATURE"]).toBeTruthy();
+    expect(getInitHeader(retryCall[1], "X-Custom")).toBe("value");
+    expect(getInitHeader(retryCall[1], "PAYMENT-SIGNATURE")).toBeTruthy();
   });
 
   it("falls back gracefully when prepare phase returns non-402", async () => {

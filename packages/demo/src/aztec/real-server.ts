@@ -24,7 +24,7 @@ import { loadKeys, loadAccount, setupSponsoredPayment } from "./wallet-manager.j
 
 const USE_SPONSORED_FPC = process.env.USE_SPONSORED_FPC === "true";
 
-import type { AztecNetwork } from "@aztec-x402/core";
+import { AztecNetworkSchema, type AztecNetwork } from "@aztec-x402/core";
 import { ExactAztecFacilitatorScheme } from "@aztec-x402/mechanism/exact/facilitator";
 import { createPaymentMiddleware } from "@aztec-x402/middleware";
 import type {
@@ -43,6 +43,11 @@ const __dirname = dirname(new URL(import.meta.url).pathname);
 const DATA_DIR = process.env.DATA_DIR ?? __dirname;
 const CONFIG_PATH = join(DATA_DIR, "deploy.json");
 const KEYS_PATH = join(DATA_DIR, "keys.json");
+
+function parseAztecNetwork(value: string): AztecNetwork {
+  return AztecNetworkSchema.parse(value);
+}
+
 let config: Record<string, string>;
 try {
   config = JSON.parse(readFileSync(CONFIG_PATH, "utf-8"));
@@ -53,7 +58,7 @@ try {
 }
 
 const NODE_URL = config.nodeUrl;
-const NETWORK = config.network as AztecNetwork;
+const NETWORK = parseAztecNetwork(config.network);
 const TOKEN_ADDRESS = config.tokenAddress;
 const SERVER_ADDRESS = config.bobAddress;
 const isDevnet = NETWORK !== "aztec:sandbox";
@@ -96,7 +101,7 @@ const routes: RoutesConfig = {
     asset: TOKEN_ADDRESS,
     amount: PRICE_AMOUNT,
     payTo: SERVER_ADDRESS,
-    maxTimeoutSeconds: 120,
+    maxTimeoutSeconds: 600,
     description: "Current weather data — costs $0.01 per resource (real Aztec payment)",
   },
 };
@@ -186,6 +191,7 @@ async function handleRequest(req: Request): Promise<Response> {
 
 const server = Bun.serve({
   port: PORT,
+  idleTimeout: 255,
   fetch: handleRequest,
   error(error) {
     Sentry.captureException(error);

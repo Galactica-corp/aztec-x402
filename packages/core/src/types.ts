@@ -27,7 +27,9 @@ export type AztecNetwork = `aztec:${string}`;
 export const AZTEC_NETWORKS = {
   /** Local sandbox for development */
   SANDBOX: "aztec:sandbox",
-  /** Aztec v4 devnet */
+  /** Aztec public testnet */
+  TESTNET: "aztec:testnet",
+  /** Legacy Aztec v4 devnet */
   DEVNET: "aztec:devnet",
 } as const satisfies Record<string, AztecNetwork>;
 

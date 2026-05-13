@@ -11,6 +11,7 @@
 import { createAztecNodeClient } from "@aztec/aztec.js/node";
 import { AztecAddress } from "@aztec/aztec.js/addresses";
 import { TokenContract } from "@aztec-x402/contracts/Token";
+import { getAztecTxEffectArray, unwrapAztecSdkResult } from "@aztec-x402/core";
 import { createPXEWallet } from "./pxe-wallet.js";
 import { readFileSync } from "fs";
 import { join, dirname } from "path";
@@ -35,6 +36,12 @@ const NODE_URL = config.nodeUrl;
 const NETWORK = config.network;
 const isDevnet = USE_SPONSORED_FPC || NETWORK !== "aztec:sandbox";
 const TRANSFER_AMOUNT = 10000n;
+
+function getConstructorName(value: unknown): string | undefined {
+  return value != null && typeof value === "object"
+    ? value.constructor?.name
+    : undefined;
+}
 
 console.log("=== Phase 0: Commitment Pattern Test (AIP-20 TokenContract) ===\n");
 
@@ -92,12 +99,7 @@ try {
 
   // Extract commitment field — AIP-20 returns Field directly
   // v4.1.0 wraps in { result: Field }, otherwise it's the raw Field
-  let commitment: unknown;
-  if (commitmentResult != null && typeof commitmentResult === "object" && "result" in commitmentResult) {
-    commitment = (commitmentResult as { result: unknown }).result;
-  } else {
-    commitment = commitmentResult;
-  }
+  const commitment = unwrapAztecSdkResult(commitmentResult);
   console.log(`  Commitment: ${String(commitment)}`);
 
   const sendOpts: Record<string, unknown> = { from: alice, wait: { timeout: 120 }, ...feeOpts };
@@ -107,8 +109,7 @@ try {
   // Debug: Check what nullifiers the prepare tx created
   const prepareEffect = await node.getTxEffect(receipt.txHash);
   if (prepareEffect) {
-    const nullifiers = (prepareEffect as { data?: { nullifiers?: unknown[] } }).data?.nullifiers ??
-      (prepareEffect as { nullifiers?: unknown[] }).nullifiers ?? [];
+    const nullifiers = getAztecTxEffectArray(prepareEffect, "nullifiers");
     const nonZero = nullifiers.filter((n: unknown) => {
       const s = String(n);
       return s !== "0" && s !== "0x0" && !/^0x0+$/.test(s);
@@ -125,7 +126,7 @@ try {
   console.log(`  Current node block number: ${await node.getBlockNumber()}`);
 
   // Debug: log commitment details
-  console.log(`\n  Commitment type: ${typeof commitment}, constructor: ${(commitment as any)?.constructor?.name}`);
+  console.log(`\n  Commitment type: ${typeof commitment}, constructor: ${getConstructorName(commitment)}`);
   console.log(`  Full commitmentResult: ${JSON.stringify(commitmentResult, (_, v) => typeof v === 'bigint' ? v.toString() : v)}`);
 
   // 6. Alice calls: transfer_private_to_commitment(aliceAddr, {commitment}, amount, 0)
@@ -153,8 +154,7 @@ try {
 
   const txEffect = await node.getTxEffect(txHash);
   if (txEffect) {
-    const noteHashes = (txEffect as { data?: { noteHashes?: unknown[] } }).data?.noteHashes ??
-      (txEffect as { noteHashes?: unknown[] }).noteHashes ?? [];
+    const noteHashes = getAztecTxEffectArray(txEffect, "noteHashes");
     const nonEmpty = noteHashes.filter((h: unknown) => {
       const s = String(h);
       return s !== "0" && s !== "0x0" && !/^0x0+$/.test(s);

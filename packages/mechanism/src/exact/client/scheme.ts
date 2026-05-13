@@ -2,6 +2,7 @@ import {
   type ClientAztecSigner,
   SCHEME,
   generateCorrelationId,
+  parseAztecPaymentExtra,
 } from "@aztec-x402/core";
 import type {
   SchemeNetworkClient,
@@ -39,11 +40,10 @@ export class ExactAztecClientScheme implements SchemeNetworkClient {
   ): Promise<PaymentPayloadResult> {
     const senderAddress = await this.signer.getAddress();
     const correlationId = generateCorrelationId();
+    const extra = parseAztecPaymentExtra(paymentRequirements.extra);
 
     // Read the server-created commitment from the prepare phase
-    const commitment = paymentRequirements.extra?.commitment as
-      | string
-      | undefined;
+    const commitment = extra.commitment;
     if (!commitment) {
       throw new Error(
         "missing commitment in payment requirements — server must include extra.commitment",
@@ -51,8 +51,8 @@ export class ExactAztecClientScheme implements SchemeNetworkClient {
     }
 
     // v4.1.0+: Process offchain message if present (registers partial note in PXE)
-    const offchainMessage = paymentRequirements.extra?.offchainMessage as string | undefined;
-    const prepareTxHash = paymentRequirements.extra?.prepareTxHash as string | undefined;
+    const offchainMessage = extra.offchainMessage;
+    const prepareTxHash = extra.prepareTxHash;
     if (offchainMessage && prepareTxHash && this.signer.processOffchainMessage) {
       await this.signer.processOffchainMessage(
         paymentRequirements.asset,

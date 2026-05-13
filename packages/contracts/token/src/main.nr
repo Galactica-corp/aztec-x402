@@ -1,7 +1,7 @@
 // AIP-20 standard token contract from @defi-wonderland/aztec-standards
 // Source: https://github.com/defi-wonderland/aztec-standards/blob/dev/src/token_contract/src/main.nr
-// Compiled against Aztec v4.1.0-nightly.20260314 for compatibility with our sandbox.
-// Once AIP-20 publishes a v4.1.0 npm package, switch to a direct dependency.
+// Local reference copy only. The TypeScript demo imports the published
+// @defi-wonderland/aztec-standards v4.2.0 artifact.
 
 use aztec::macros::aztec;
 

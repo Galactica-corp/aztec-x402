@@ -18,14 +18,46 @@ import { Fr } from "@aztec/aztec.js/fields";
 import { TokenContract, TokenContractArtifact } from "@aztec/noir-contracts.js/Token";
 import { SponsoredFeePaymentMethod } from "@aztec/aztec.js/fee";
 import { getContractInstanceFromInstantiationParams } from "@aztec/aztec.js/contracts";
+import { TxHash } from "@aztec/aztec.js/tx";
 import { INITIAL_TEST_SECRET_KEYS, INITIAL_TEST_SIGNING_KEYS, INITIAL_TEST_ACCOUNT_SALTS } from "@aztec/accounts/testing";
 import { SponsoredFPCContractArtifact } from "@aztec/noir-contracts.js/SponsoredFPC";
 import { SPONSORED_FPC_SALT } from "@aztec/constants";
 import { createPXEWallet } from "./pxe-wallet.js";
+import { z } from "zod";
 
 const NODE_URL = process.env.NODE_URL ?? "http://localhost:8080";
 const MINT_AMOUNT = 1_000_000n;
 const TRANSFER_AMOUNT = 10_000n;
+
+const UnknownRecordSchema = z.record(z.string(), z.unknown());
+
+function parseRecord(value: unknown): Record<string, unknown> {
+  const parsed = UnknownRecordSchema.safeParse(value);
+  return parsed.success ? parsed.data : {};
+}
+
+function getObjectProperty(value: unknown, key: string): unknown {
+  return parseRecord(value)[key];
+}
+
+function getKeys(value: unknown): string[] {
+  return Object.keys(parseRecord(value));
+}
+
+function getEntries(value: unknown): Array<[string, unknown]> {
+  return Object.entries(parseRecord(value));
+}
+
+function getArrayProperty(value: unknown, key: string): unknown[] {
+  const prop = getObjectProperty(value, key);
+  return Array.isArray(prop) ? prop : [];
+}
+
+function getConstructorName(value: unknown): string | undefined {
+  return value != null && typeof value === "object"
+    ? value.constructor?.name
+    : undefined;
+}
 
 console.log("=== v4.1.0 Offchain Partial Note Delivery Test ===\n");
 console.log(`Node: ${NODE_URL}`);
@@ -67,7 +99,7 @@ const bob = bobAccount.address;
 console.log(`Alice: ${alice}`);
 console.log(`Bob:   ${bob}\n`);
 
-const sendOpts = (from: any) => ({
+const sendOpts = (from: unknown) => ({
   from,
   wait: { timeout: 120 },
   fee: { paymentMethod },
@@ -77,15 +109,14 @@ const sendOpts = (from: any) => ({
 console.log("Deploying official v4.1.0 TokenContract...");
 const tokenDeploy = TokenContract.deploy(wallet, alice, "TestUSD", "tUSD", 6);
 const deployResult = await tokenDeploy.send(sendOpts(alice));
-const deployAny = deployResult as any;
-const tokenAddress = deployAny.contract?.address ?? deployAny.address ?? tokenDeploy.getInstance()?.address;
+const tokenAddress = tokenDeploy.getInstance()?.address;
 if (!tokenAddress) {
-  console.log(`  deployResult keys: ${Object.keys(deployAny)}`);
+  console.log(`  deployResult keys: ${getKeys(deployResult)}`);
   console.error("Could not get token address");
   process.exit(1);
 }
 // v4.1.0 confirmation: send() returns { contract, receipt, offchainEffects, offchainMessages }
-console.log(`  send() returned keys: ${Object.keys(deployAny)}`);
+console.log(`  send() returned keys: ${getKeys(deployResult)}`);
 console.log(`Token: ${tokenAddress}\n`);
 
 // Register contract
@@ -103,13 +134,17 @@ await wallet.registerSender(alice, "alice");
 console.log(`Minting ${MINT_AMOUNT} to Alice...`);
 try {
   const mintResult = await token.methods.mint_to_private(alice, alice, MINT_AMOUNT).send(sendOpts(alice));
-  console.log(`  Minted. send() keys: ${Object.keys(mintResult as any)}`);
+  console.log(`  Minted. send() keys: ${getKeys(mintResult)}`);
 } catch (err) {
   console.log(`  Mint failed: ${String(err).slice(0, 200)}`);
   console.log("  Trying public mint + transfer instead...");
   try {
     // Try minting publicly then transferring to private
-    await (token.methods as any).mint_to_public(alice, MINT_AMOUNT).send(sendOpts(alice));
+    const mintToPublic = getObjectProperty(token.methods, "mint_to_public");
+    if (typeof mintToPublic !== "function") {
+      throw new Error("mint_to_public is not available on this token contract");
+    }
+    await mintToPublic.call(token.methods, alice, MINT_AMOUNT).send(sendOpts(alice));
     console.log("  Public mint succeeded.");
     await token.methods.transfer_to_private(alice, MINT_AMOUNT).send(sendOpts(alice));
     console.log("  Transferred to private.");
@@ -135,18 +170,18 @@ const simResult = await interaction.simulate({ from: alice });
 console.log(`simulate() result: ${JSON.stringify(simResult, (_, v) => typeof v === "bigint" ? v.toString() : v)}`);
 
 const sendResult = await interaction.send(sendOpts(alice));
-const sendResultAny = sendResult as Record<string, unknown>;
-console.log(`\nsend() result keys: ${Object.keys(sendResultAny)}`);
-console.log(`send() txHash: ${sendResultAny.txHash}`);
+console.log(`\nsend() result keys: ${getKeys(sendResult)}`);
+console.log(`send() txHash: ${getObjectProperty(sendResult, "txHash")}`);
 
 // Check for offchainMessages
-if (sendResultAny.offchainMessages) {
-  const msgs = sendResultAny.offchainMessages as Array<Record<string, unknown>>;
+const offchainMessages = getArrayProperty(sendResult, "offchainMessages");
+if (offchainMessages.length > 0) {
+  const msgs = offchainMessages;
   console.log(`\n✓ offchainMessages found! Count: ${msgs.length}`);
   for (let i = 0; i < msgs.length; i++) {
     const msg = msgs[i];
     console.log(`  Message ${i}:`);
-    for (const [k, v] of Object.entries(msg)) {
+    for (const [k, v] of getEntries(msg)) {
       const valStr = typeof v === "string" && v.length > 100 ? v.slice(0, 100) + "..." : String(v);
       console.log(`    ${k}: ${valStr}`);
     }
@@ -154,8 +189,8 @@ if (sendResultAny.offchainMessages) {
 
   // Compare with simulate
   let simCommitment: string;
-  if (simResult != null && typeof simResult === "object" && "commitment" in (simResult as any)) {
-    simCommitment = String((simResult as any).commitment);
+  if (simResult != null && typeof simResult === "object" && "commitment" in simResult) {
+    simCommitment = String(simResult.commitment);
   } else {
     simCommitment = String(simResult);
   }
@@ -165,9 +200,9 @@ if (sendResultAny.offchainMessages) {
 
   // Inspect full result shape
   console.log("\n  Full send() result:");
-  for (const [key, val] of Object.entries(sendResultAny)) {
+  for (const [key, val] of getEntries(sendResult)) {
     if (typeof val === "object" && val !== null) {
-      console.log(`    ${key}: [${val.constructor?.name}] keys: ${Object.keys(val).slice(0, 10)}`);
+      console.log(`    ${key}: [${getConstructorName(val)}] keys: ${getKeys(val).slice(0, 10)}`);
     } else {
       console.log(`    ${key}: ${String(val).slice(0, 80)}`);
     }
@@ -176,7 +211,7 @@ if (sendResultAny.offchainMessages) {
 
 // 6. List all token methods — check for offchain-related
 console.log("\n=== Token contract methods ===");
-const methods = Object.keys((token as any).methods ?? {});
+const methods = getKeys(getObjectProperty(token, "methods"));
 console.log(methods.join(", "));
 
 const offchainMethods = methods.filter(m => m.toLowerCase().includes("offchain"));
@@ -190,17 +225,16 @@ if (offchainMethods.length > 0) {
 console.log("\n=== Test 2: transfer_to_private ===\n");
 try {
   const transferResult = await token.methods.transfer_to_private(bob, TRANSFER_AMOUNT).send(sendOpts(alice));
-  const transferAny = transferResult as Record<string, unknown>;
-  console.log(`send() keys: ${Object.keys(transferAny)}`);
+  console.log(`send() keys: ${getKeys(transferResult)}`);
 
-  if (transferAny.offchainMessages) {
+  if (getArrayProperty(transferResult, "offchainMessages").length > 0) {
     console.log("✓ offchainMessages on transfer_to_private!");
   } else {
     console.log("  No offchainMessages on transfer_to_private");
     // Check receipt
-    for (const [key, val] of Object.entries(transferAny)) {
+    for (const [key, val] of getEntries(transferResult)) {
       if (typeof val === "object" && val !== null) {
-        console.log(`    ${key}: [${val.constructor?.name}] keys: ${Object.keys(val).slice(0, 10)}`);
+        console.log(`    ${key}: [${getConstructorName(val)}] keys: ${getKeys(val).slice(0, 10)}`);
       } else {
         console.log(`    ${key}: ${String(val).slice(0, 80)}`);
       }
@@ -208,9 +242,9 @@ try {
   }
 
   // Check on-chain
-  const txHash = transferAny.txHash as any;
+  const txHash = getObjectProperty(transferResult, "txHash");
   if (txHash) {
-    const receipt = await node.getTxReceipt(txHash);
+    const receipt = await node.getTxReceipt(TxHash.fromString(String(txHash)));
     console.log(`Tx status: ${receipt.status}`);
   }
 } catch (err) {

@@ -9,11 +9,12 @@
  * in the partial note flow — see pxe-wallet.ts for details.
  */
 import { Fr, GrumpkinScalar } from "@aztec/aztec.js/fields";
-import { AztecAddress } from "@aztec/aztec.js/addresses";
 import { SponsoredFeePaymentMethod } from "@aztec/aztec.js/fee";
 import { getContractInstanceFromInstantiationParams } from "@aztec/aztec.js/contracts";
 import { SponsoredFPCContractArtifact } from "@aztec/noir-contracts.js/SponsoredFPC";
 import { SPONSORED_FPC_SALT } from "@aztec/constants";
+import { NO_FROM } from "@aztec/aztec.js/account";
+import { TxStatus } from "@aztec/aztec.js/tx";
 import type { AztecNode } from "@aztec/aztec.js/node";
 import type { PXEWallet } from "./pxe-wallet.js";
 import type { AccountManager } from "@aztec/aztec.js/wallet";
@@ -29,6 +30,25 @@ export interface KeySet {
 export interface StoredKeys {
   alice: KeySet;
   bob: KeySet;
+}
+
+async function createKeySet(
+  wallet: PXEWallet,
+  name: "alice" | "bob",
+): Promise<KeySet> {
+  const secretKey = Fr.random();
+  const signingKey = GrumpkinScalar.random();
+  const salt = Fr.random();
+  const account = await wallet.createSchnorrAccount(secretKey, salt, signingKey);
+  const address = account.address;
+
+  console.log(`  ${name}: ${address}`);
+  return {
+    secretKey: secretKey.toString(),
+    signingKey: signingKey.toString(),
+    salt: salt.toString(),
+    address: address.toString(),
+  };
 }
 
 /**
@@ -53,23 +73,10 @@ export async function ensureKeys(keysPath: string, wallet: PXEWallet): Promise<S
   }
 
   console.log("Generating fresh Schnorr account keys...");
-  const keys = {} as StoredKeys;
-
-  for (const name of ["alice", "bob"] as const) {
-    const secretKey = Fr.random();
-    const signingKey = GrumpkinScalar.random();
-    const salt = Fr.random();
-    const account = await wallet.createSchnorrAccount(secretKey, salt, signingKey);
-    const address = account.address;
-
-    keys[name] = {
-      secretKey: secretKey.toString(),
-      signingKey: signingKey.toString(),
-      salt: salt.toString(),
-      address: address.toString(),
-    };
-    console.log(`  ${name}: ${address}`);
-  }
+  const keys: StoredKeys = {
+    alice: await createKeySet(wallet, "alice"),
+    bob: await createKeySet(wallet, "bob"),
+  };
 
   writeFileSync(keysPath, JSON.stringify(keys, null, 2));
   console.log(`Keys saved to ${keysPath}\n`);
@@ -104,8 +111,9 @@ export async function deployAccounts(
   keys: StoredKeys,
   opts?: { paymentMethod?: SponsoredFeePaymentMethod; timeout?: number },
 ): Promise<{ aliceAccount: AccountManager; bobAccount: AccountManager }> {
-  const result = {} as { aliceAccount: AccountManager; bobAccount: AccountManager };
-  const timeout = opts?.timeout ?? 120;
+  let aliceAccount: AccountManager | undefined;
+  let bobAccount: AccountManager | undefined;
+  const timeout = opts?.timeout ?? 240;
 
   for (const name of ["alice", "bob"] as const) {
     const k = keys[name];
@@ -123,8 +131,8 @@ export async function deployAccounts(
       try {
         const deployMethod = await account.getDeployMethod();
         const sendOpts: Record<string, unknown> = {
-          from: AztecAddress.ZERO,
-          wait: { timeout },
+          from: NO_FROM,
+          wait: { timeout, waitForStatus: TxStatus.CHECKPOINTED },
         };
         if (opts?.paymentMethod) {
           sendOpts.fee = { paymentMethod: opts.paymentMethod };
@@ -141,10 +149,18 @@ export async function deployAccounts(
       }
     }
 
-    result[`${name}Account`] = account;
+    if (name === "alice") {
+      aliceAccount = account;
+    } else {
+      bobAccount = account;
+    }
   }
 
-  return result;
+  if (!aliceAccount || !bobAccount) {
+    throw new Error("Failed to load Alice and Bob accounts");
+  }
+
+  return { aliceAccount, bobAccount };
 }
 
 /**

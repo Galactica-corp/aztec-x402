@@ -18,7 +18,9 @@
 import { describe, it, expect, jest } from "bun:test";
 
 // Polyfill for @aztec/foundation which calls expect.addEqualityTesters at module load
-(expect as unknown as Record<string, unknown>).addEqualityTesters ??= () => {};
+if (!Reflect.get(expect, "addEqualityTesters")) {
+  Reflect.set(expect, "addEqualityTesters", () => {});
+}
 
 const { RealFacilitatorAztecSigner } = await import("../aztec/facilitator-signer.js");
 
@@ -77,6 +79,19 @@ interface MockTokenOptions {
   balanceError?: boolean;
 }
 
+function isMockTokenOptions(opts: unknown): opts is MockTokenOptions {
+  return (
+    opts != null &&
+    typeof opts === "object" &&
+    (
+      "offchainMessages" in opts ||
+      "simulateResult" in opts ||
+      "balances" in opts ||
+      "balanceError" in opts
+    )
+  );
+}
+
 /**
  * Create a mock token contract.
  *
@@ -96,12 +111,11 @@ function createMockToken(opts?: unknown | MockTokenOptions) {
   let balances: [bigint, bigint] | undefined;
   let balanceError = false;
 
-  if (opts != null && typeof opts === "object" && ("offchainMessages" in opts || "simulateResult" in opts || "balances" in opts || "balanceError" in opts)) {
-    const typedOpts = opts as MockTokenOptions;
-    if (typedOpts.simulateResult !== undefined) simulateResult = typedOpts.simulateResult;
-    offchainMessages = typedOpts.offchainMessages;
-    balances = typedOpts.balances;
-    balanceError = typedOpts.balanceError ?? false;
+  if (isMockTokenOptions(opts)) {
+    if (opts.simulateResult !== undefined) simulateResult = opts.simulateResult;
+    offchainMessages = opts.offchainMessages;
+    balances = opts.balances;
+    balanceError = opts.balanceError ?? false;
   } else if (opts !== undefined) {
     // Legacy: raw value = simulate result
     simulateResult = opts;
@@ -358,12 +372,12 @@ describe("RealFacilitatorAztecSigner", () => {
       expect(result.prepareTxHash).toBe(TX_HASH);
     });
 
-    it("prefers offchainMessages commitment when available", async () => {
+    it("forwards offchainMessages without using ciphertext as commitment", async () => {
       const signer = createSigner("success", {
         offchainMessages: [{ payload: "0xdeadbeef" }],
       });
       const result = await signer.prepareCommitment(TOKEN_ADDRESS_STR, CLIENT_ADDRESS_STR);
-      expect(result.commitment).toBe("0xdeadbeef");
+      expect(result.commitment).toBe(MOCK_COMMITMENT);
       expect(result.offchainMessage).toBe(JSON.stringify([{ payload: "0xdeadbeef" }]));
       expect(result.prepareTxHash).toBe(TX_HASH);
     });
@@ -392,17 +406,17 @@ describe("RealFacilitatorAztecSigner", () => {
       ];
       const signer = createSigner("success", { offchainMessages });
       const result = await signer.prepareCommitment(TOKEN_ADDRESS_STR, CLIENT_ADDRESS_STR);
-      expect(result.commitment).toBe("0xcafe");
+      expect(result.commitment).toBe(MOCK_COMMITMENT);
       expect(result.offchainMessage).toBe(JSON.stringify(offchainMessages));
       expect(result.prepareTxHash).toBe(TX_HASH);
     });
 
-    it("handles JSON payload in offchainMessages", async () => {
+    it("does not parse JSON payload in offchainMessages as a commitment", async () => {
       const signer = createSigner("success", {
         offchainMessages: [{ payload: JSON.stringify({ commitment: "0xjsoncommit" }) }],
       });
       const result = await signer.prepareCommitment(TOKEN_ADDRESS_STR, CLIENT_ADDRESS_STR);
-      expect(result.commitment).toBe("0xjsoncommit");
+      expect(result.commitment).toBe(MOCK_COMMITMENT);
     });
   });
 });
