@@ -53,37 +53,7 @@ This closes the "who did the payment go to?" verification gap that exists with d
 
 This project uses the **AIP-20 standard token** from [`@defi-wonderland/aztec-standards`](https://github.com/defi-wonderland/aztec-standards). AIP-20 natively supports the `completer` parameter in `initialize_transfer_commitment(to, completer)`, enabling cross-party commitment flows where the server prepares and the client finalizes.
 
-The demo now consumes the published `@defi-wonderland/aztec-standards@4.2.0` token wrapper and artifact through `@aztec-x402/contracts`. The local Noir source under `packages/contracts/token` is kept as a reference copy for contract experiments, not as the default demo artifact.
-
-### Compilation
-
-Normal demo usage does not require local token compilation. If you edit the reference contract, compile it with matching Aztec 4.2.x tooling:
-
-```bash
-docker run --rm \
-  -v ./packages/contracts/token:/contract \
-  --entrypoint sh \
-  aztecprotocol/aztec:4.2.0 \
-  -c "
-    cd /contract
-    /usr/src/noir/noir-repo/target/release/nargo compile --silence-warnings
-    /usr/src/barretenberg/ts/build/arm64-linux/bb aztec_process \
-      -i target/token_contract-Token.json
-  "
-```
-
-After `bb aztec_process`, strip the internal function name prefixes:
-
-```bash
-node -e "
-const fs = require('fs');
-const d = JSON.parse(fs.readFileSync('packages/contracts/token/target/token_contract-Token.json', 'utf8'));
-for (const fn of d.functions) fn.name = fn.name.replace(/^__aztec_nr_internals__/, '');
-fs.writeFileSync('packages/contracts/token/target/token_contract-Token.json', JSON.stringify(d));
-"
-```
-
-The checked-in artifact is not used by the default 4.2 demo path.
+The demo consumes the published `@defi-wonderland/aztec-standards@4.2.0` token wrapper and artifact through `@aztec-x402/contracts`. There is no checked-in local token artifact or Noir source copy in this repo.
 
 ## Aztec Version Compatibility
 
@@ -235,32 +205,6 @@ Each 402 challenge includes a server-generated UUID v7 nonce that acts as the in
 bun install
 bun test        # Run all tests
 bun run build   # Build all packages
-```
-
-### Recompiling the Token Contract
-
-If you need to recompile the AIP-20 token contract (e.g. for a different Aztec version), use the Docker image:
-
-```bash
-# Compile + transpile
-docker run --rm \
-  -v ./packages/contracts/token:/contract \
-  --entrypoint sh \
-  aztecprotocol/aztec:4.2.0 \
-  -c "
-    cd /contract
-    /usr/src/noir/noir-repo/target/release/nargo compile --silence-warnings
-    /usr/src/barretenberg/ts/build/arm64-linux/bb aztec_process \
-      -i target/token_contract-Token.json
-  "
-
-# Strip internal prefixes
-node -e "
-const fs = require('fs');
-const d = JSON.parse(fs.readFileSync('packages/contracts/token/target/token_contract-Token.json', 'utf8'));
-for (const fn of d.functions) fn.name = fn.name.replace(/^__aztec_nr_internals__/, '');
-fs.writeFileSync('packages/contracts/token/target/token_contract-Token.json', JSON.stringify(d));
-"
 ```
 
 ## Environment Variables
