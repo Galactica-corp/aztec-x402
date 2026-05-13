@@ -16,7 +16,7 @@
 import { createAztecNodeClient } from "@aztec/aztec.js/node";
 import { AztecAddress } from "@aztec/aztec.js/addresses";
 import { TxStatus } from "@aztec/aztec.js/tx";
-import { TokenContract } from "@aztec-x402/contracts/Token";
+import { TokenContract } from "@defi-wonderland/aztec-standards/dist/src/artifacts/Token.js";
 import { unwrapAztecSdkResult } from "@aztec-x402/core";
 import { createPXEWallet } from "./pxe-wallet.js";
 import { writeFileSync, existsSync, readFileSync } from "fs";
@@ -122,8 +122,8 @@ async function main() {
 
   if (!config.tokenAddress) {
     console.log(`Deploying ${TOKEN_NAME} (${TOKEN_SYMBOL})...`);
-    const tokenDeploy = TokenContract.deploy(
-      wallet,
+    const tokenDeploy = TokenContract.deployWithOpts(
+      { wallet, method: "constructor_with_minter" },
       TOKEN_NAME,
       TOKEN_SYMBOL,
       TOKEN_DECIMALS,

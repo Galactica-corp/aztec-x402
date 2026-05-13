@@ -5,7 +5,7 @@
 import { createAztecNodeClient } from "@aztec/aztec.js/node";
 import { AztecAddress } from "@aztec/aztec.js/addresses";
 import { Fr } from "@aztec/aztec.js/fields";
-import { TokenContract } from "@aztec-x402/contracts/Token";
+import { TokenContract } from "@defi-wonderland/aztec-standards/dist/src/artifacts/Token.js";
 import { getAztecTxEffectArray, unwrapAztecSdkResult } from "@aztec-x402/core";
 import { createPXEWallet } from "./pxe-wallet.js";
 import { readFileSync } from "fs";

@@ -21,14 +21,6 @@
         "zod": "^4.4.3",
       },
     },
-    "packages/contracts": {
-      "name": "@aztec-x402/contracts",
-      "version": "0.1.0",
-      "dependencies": {
-        "@aztec/aztec.js": "4.2.0",
-        "@defi-wonderland/aztec-standards": "4.2.0",
-      },
-    },
     "packages/core": {
       "name": "@aztec-x402/core",
       "version": "0.1.0",
@@ -44,7 +36,6 @@
       "version": "0.1.0",
       "dependencies": {
         "@aztec-x402/client": "workspace:*",
-        "@aztec-x402/contracts": "workspace:*",
         "@aztec-x402/core": "workspace:*",
         "@aztec-x402/mechanism": "workspace:*",
         "@aztec-x402/middleware": "workspace:*",
@@ -54,6 +45,7 @@
         "@aztec/noir-contracts.js": "4.2.0",
         "@aztec/stdlib": "4.2.0",
         "@aztec/wallets": "4.2.0",
+        "@defi-wonderland/aztec-standards": "4.2.0",
         "@sentry/bun": "^10.43.0",
         "zod": "^4.4.3",
       },
@@ -168,8 +160,6 @@
     "@aws/lambda-invoke-store": ["@aws/lambda-invoke-store@0.2.3", "", {}, "sha512-oLvsaPMTBejkkmHhjf09xTgk71mOqyr/409NKhRIL08If7AhVfUsJhVsx386uJaqNd42v9kWamQ9lFbkoC2dYw=="],
 
     "@aztec-x402/client": ["@aztec-x402/client@workspace:packages/client"],
-
-    "@aztec-x402/contracts": ["@aztec-x402/contracts@workspace:packages/contracts"],
 
     "@aztec-x402/core": ["@aztec-x402/core@workspace:packages/core"],
 

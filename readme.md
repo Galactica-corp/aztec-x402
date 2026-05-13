@@ -53,7 +53,7 @@ This closes the "who did the payment go to?" verification gap that exists with d
 
 This project uses the **AIP-20 standard token** from [`@defi-wonderland/aztec-standards`](https://github.com/defi-wonderland/aztec-standards). AIP-20 natively supports the `completer` parameter in `initialize_transfer_commitment(to, completer)`, enabling cross-party commitment flows where the server prepares and the client finalizes.
 
-The demo consumes the published `@defi-wonderland/aztec-standards@4.2.0` token wrapper and artifact through `@aztec-x402/contracts`. There is no checked-in local token artifact or Noir source copy in this repo.
+The demo consumes the published `@defi-wonderland/aztec-standards@4.2.0` token wrapper and artifact directly. There is no checked-in local token artifact or Noir source copy in this repo.
 
 ## Aztec Version Compatibility
 
@@ -116,7 +116,6 @@ graph LR
         MF["mechanism/facilitator<br/><i>ExactAztecFacilitatorScheme</i><br/>Commitment + txHash anti-replay"]
     end
 
-    CT["@aztec-x402/contracts<br/><i>AIP-20 TokenContract</i>"]
     CO["@aztec-x402/core<br/><i>Types, signer interfaces</i>"]
 
     CL --> MC
@@ -124,21 +123,17 @@ graph LR
     MC --> CO
     MF --> CO
     CL -.->|HTTP 402 / 200| MW
-    MF --> CT
-    MC --> CT
 
     style CL fill:#46d,color:#fff
     style MC fill:#46d,color:#fff
     style MW fill:#d84,color:#fff
     style MF fill:#d84,color:#fff
-    style CT fill:#2a7,color:#fff
     style CO fill:#555,color:#fff
 ```
 
 | Package | Description |
 |---------|-------------|
 | `@aztec-x402/core` | Types, constants, signer abstractions (`ClientAztecSigner`, `FacilitatorAztecSigner`) |
-| `@aztec-x402/contracts` | AIP-20 standard token wrapper using `@defi-wonderland/aztec-standards@4.2.0` |
 | `@aztec-x402/mechanism` | x402 mechanism plugin — client scheme (sign + transfer) and facilitator scheme (verify + settle) |
 | `@aztec-x402/middleware` | Express-compatible middleware — 3-phase 402 flow, nonce lifecycle, payment verification |
 | `@aztec-x402/client` | Fetch wrapper — automatic 402 detection, prepare, payment, and retry |
