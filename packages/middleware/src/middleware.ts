@@ -15,6 +15,15 @@ import type {
   NextFunction,
 } from "./types.js";
 
+interface PendingPayment {
+  createdAt: number;
+  timeoutMs: number;
+  senderAddress?: string;
+  commitment?: string;
+  offchainMessage?: string;
+  prepareTxHash?: string;
+}
+
 /**
  * Creates x402 payment middleware for Aztec.
  *
@@ -33,10 +42,7 @@ export function createPaymentMiddleware(
   routes: RoutesConfig,
   config: MiddlewareConfig,
 ) {
-  const pendingPayments = new Map<
-    string,
-    { createdAt: number; timeoutMs: number; commitment?: string; offchainMessage?: string; prepareTxHash?: string }
-  >();
+  const pendingPayments = new Map<string, PendingPayment>();
   const paidResources = new Set<string>();
 
   return async (
@@ -81,15 +87,17 @@ export function createPaymentMiddleware(
         prepareData = AztecPrepareRequestSchema.parse(
           JSON.parse(Buffer.from(prepareHeader, "base64").toString()),
         );
-      } catch {
-        return send402(res, requirements, routeConfig.description, "Invalid prepare payload encoding");
+      } catch (error) {
+        return send402(
+          res,
+          requirements,
+          routeConfig.description,
+          formatParseError("Invalid prepare payload", error),
+        );
       }
 
       const nonce = prepareData.nonce;
       const senderAddress = prepareData.senderAddress;
-      if (!nonce || !senderAddress) {
-        return send402(res, requirements, routeConfig.description, "missing nonce or senderAddress in prepare");
-      }
 
       const paymentEntry = pendingPayments.get(nonce);
       if (!paymentEntry) {
@@ -101,18 +109,58 @@ export function createPaymentMiddleware(
         return send402(res, requirements, routeConfig.description, "invalid or expired payment nonce");
       }
 
+      if (paymentEntry.senderAddress && paymentEntry.senderAddress !== senderAddress) {
+        return send402(
+          res,
+          requirements,
+          routeConfig.description,
+          "prepare senderAddress does not match existing commitment",
+        );
+      }
+      paymentEntry.senderAddress = senderAddress;
+
       // Create commitment if facilitator supports it
       if (config.facilitator.preparePayment) {
-        const extra = await config.facilitator.preparePayment(
-          routeConfig.asset,
-          senderAddress,
-        );
-        const parsedExtra = parseAztecPaymentExtra(extra);
-        // Store commitment + offchain data in pending entry for validation in phase 3
-        paymentEntry.commitment = parsedExtra.commitment;
-        paymentEntry.offchainMessage = parsedExtra.offchainMessage;
-        paymentEntry.prepareTxHash = parsedExtra.prepareTxHash;
-        requirements.extra = { nonce, ...extra };
+        if (!paymentEntry.commitment) {
+          let extra: Record<string, unknown>;
+          try {
+            extra = await config.facilitator.preparePayment(
+              routeConfig.asset,
+              senderAddress,
+              {
+                nonce,
+                timeoutMs: paymentEntry.timeoutMs,
+                createdAt: paymentEntry.createdAt,
+              },
+            );
+          } catch (error) {
+            const message = error instanceof Error ? error.message : String(error);
+            return send402(
+              res,
+              requirements,
+              routeConfig.description,
+              `commitment preparation failed: ${message}`,
+            );
+          }
+          const parsedExtra = parseAztecPaymentExtra(extra);
+          // Store commitment + offchain data in pending entry for validation in phase 3
+          paymentEntry.senderAddress = senderAddress;
+          paymentEntry.commitment = parsedExtra.commitment;
+          paymentEntry.offchainMessage = parsedExtra.offchainMessage;
+          paymentEntry.prepareTxHash = parsedExtra.prepareTxHash;
+          requirements.extra = { nonce, ...extra };
+        } else {
+          requirements.extra = {
+            nonce,
+            commitment: paymentEntry.commitment,
+          };
+          if (paymentEntry.offchainMessage) {
+            requirements.extra.offchainMessage = paymentEntry.offchainMessage;
+          }
+          if (paymentEntry.prepareTxHash) {
+            requirements.extra.prepareTxHash = paymentEntry.prepareTxHash;
+          }
+        }
       } else {
         requirements.extra = { nonce };
       }
@@ -127,8 +175,13 @@ export function createPaymentMiddleware(
       try {
         const decoded = Buffer.from(paymentHeader, "base64").toString();
         paymentPayload = PaymentPayloadSchema.parse(JSON.parse(decoded));
-      } catch {
-        return send402(res, requirements, routeConfig.description, "Invalid payment payload encoding");
+      } catch (error) {
+        return send402(
+          res,
+          requirements,
+          routeConfig.description,
+          formatParseError("Invalid payment payload", error),
+        );
       }
 
       // Validate nonce
@@ -242,15 +295,36 @@ function matchRoute(path: string, routes: RoutesConfig): { config: RouteConfig; 
   return null;
 }
 
-function sweepExpiredPayments(
-  payments: Map<string, { createdAt: number; timeoutMs: number }>,
-): void {
+function sweepExpiredPayments(payments: Map<string, PendingPayment>): void {
   const now = Date.now();
   for (const [key, entry] of payments) {
     if (now - entry.createdAt > entry.timeoutMs) {
       payments.delete(key);
     }
   }
+}
+
+function formatParseError(prefix: string, error: unknown): string {
+  if (error && typeof error === "object" && "issues" in error) {
+    const issues = Reflect.get(error, "issues");
+    if (Array.isArray(issues) && issues.length > 0) {
+      const details = issues
+        .map((issue) => {
+          if (!issue || typeof issue !== "object") return "";
+          const path = Reflect.get(issue, "path");
+          const message = Reflect.get(issue, "message");
+          const pathLabel = Array.isArray(path) && path.length > 0
+            ? path.join(".")
+            : "payload";
+          return `${pathLabel}: ${String(message)}`;
+        })
+        .filter(Boolean)
+        .join("; ");
+      if (details) return `${prefix}: ${details}`;
+    }
+  }
+  const message = error instanceof Error ? error.message : String(error);
+  return `${prefix}: ${message}`;
 }
 
 function send402(

@@ -103,6 +103,14 @@ describe("ExactAztecFacilitatorScheme", () => {
       const result = await scheme.verify(payload, requirements);
       expect(result.isValid).toBe(true);
     });
+
+    it("rejects invalid commitment values from the signer", async () => {
+      signer.prepareCommitment = jest.fn().mockResolvedValue("0x0");
+
+      await expect(
+        scheme.preparePayment(TOKEN_ADDRESS, SENDER_ADDRESS),
+      ).rejects.toThrow("invalid commitment");
+    });
   });
 
   describe("verify", () => {
@@ -204,6 +212,34 @@ describe("ExactAztecFacilitatorScheme", () => {
       expect(result.invalidReason).toContain("commitment");
     });
 
+    it("rejects when payload sender does not match prepared completer", async () => {
+      const wrongSender = "0x" + "ab".repeat(32);
+      const result = await scheme.verify(
+        createPayload({
+          payload: {
+            ...createPayload().payload,
+            senderAddress: wrongSender,
+          },
+        }),
+        createRequirements(),
+      );
+
+      expect(result.isValid).toBe(false);
+      expect(result.invalidReason).toContain("sender");
+    });
+
+    it("rejects expired commitments", async () => {
+      await scheme.preparePayment(TOKEN_ADDRESS, SENDER_ADDRESS, {
+        createdAt: Date.now() - 10,
+        timeoutMs: 1,
+      });
+
+      const result = await scheme.verify(createPayload(), createRequirements());
+
+      expect(result.isValid).toBe(false);
+      expect(result.invalidReason).toContain("commitment");
+    });
+
     it("rejects when payment verification fails", async () => {
       signer.verifyPayment = jest.fn().mockResolvedValue({
         isValid: false,
@@ -215,6 +251,14 @@ describe("ExactAztecFacilitatorScheme", () => {
 
       expect(result.isValid).toBe(false);
       expect(result.invalidReason).toContain("insufficient");
+
+      signer.verifyPayment = jest.fn().mockResolvedValue({
+        isValid: true,
+        amountFound: 100_000n,
+      });
+      const retry = await scheme.verify(createPayload(), createRequirements());
+      expect(retry.isValid).toBe(false);
+      expect(retry.invalidReason).toContain("commitment");
     });
 
     it("accepts when payment verification succeeds", async () => {

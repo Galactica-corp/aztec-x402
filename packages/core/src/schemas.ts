@@ -1,11 +1,11 @@
 import { z } from "zod";
-import type { AztecNetwork } from "./types.js";
+import { AZTEC_NETWORKS } from "./types.js";
 
-export const AztecNetworkSchema = z
-  .string()
-  .refine((value): value is AztecNetwork => value.startsWith("aztec:"), {
-    message: "network must use the aztec:* CAIP-2 family",
-  });
+export const AztecNetworkSchema = z.enum([
+  AZTEC_NETWORKS.SANDBOX,
+  AZTEC_NETWORKS.TESTNET,
+  AZTEC_NETWORKS.DEVNET,
+]);
 
 export const AztecPaymentExtraSchema = z
   .object({
@@ -17,8 +17,8 @@ export const AztecPaymentExtraSchema = z
   .catchall(z.unknown());
 
 export const AztecPrepareRequestSchema = z.object({
-  nonce: z.string().min(1).optional(),
-  senderAddress: z.string().min(1).optional(),
+  nonce: z.string().min(1),
+  senderAddress: z.string().min(1),
 });
 
 export const AztecSdkResultSchema = z

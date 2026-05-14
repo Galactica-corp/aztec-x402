@@ -421,10 +421,11 @@ describe("createPaymentMiddleware", () => {
     const commitment = await prepareCommitment(middleware, "/api/data", nonce);
 
     expect(commitment).toBe(MOCK_COMMITMENT);
-    expect(config.facilitator.preparePayment).toHaveBeenCalledWith(
-      TOKEN_ADDRESS,
-      SENDER_ADDRESS,
-    );
+    const prepareCall = config.facilitator.preparePayment.mock.calls[0];
+    expect(prepareCall[0]).toBe(TOKEN_ADDRESS);
+    expect(prepareCall[1]).toBe(SENDER_ADDRESS);
+    expect(prepareCall[2].nonce).toBe(nonce);
+    expect(prepareCall[2].timeoutMs).toBe(120_000);
   });
 
   it("rejects prepare with invalid nonce", async () => {
@@ -459,7 +460,40 @@ describe("createPaymentMiddleware", () => {
     const decoded = JSON.parse(
       Buffer.from(res.headers["PAYMENT-REQUIRED"], "base64").toString(),
     );
-    expect(decoded.error).toBe("missing nonce or senderAddress in prepare");
+    expect(decoded.error).toContain("senderAddress");
+  });
+
+  it("does not create a second commitment for the same nonce and sender", async () => {
+    const middleware = createPaymentMiddleware({ "/api/data": createRouteConfig() }, config);
+
+    const nonce = await getNonce(middleware, "/api/data");
+    const first = await prepareCommitment(middleware, "/api/data", nonce);
+    const second = await prepareCommitment(middleware, "/api/data", nonce);
+
+    expect(first).toBe(MOCK_COMMITMENT);
+    expect(second).toBe(MOCK_COMMITMENT);
+    expect(config.facilitator.preparePayment).toHaveBeenCalledTimes(1);
+  });
+
+  it("rejects prepare sender changes for an existing nonce", async () => {
+    const middleware = createPaymentMiddleware({ "/api/data": createRouteConfig() }, config);
+
+    const nonce = await getNonce(middleware, "/api/data");
+    await prepareCommitment(middleware, "/api/data", nonce);
+
+    const prepareData = Buffer.from(
+      JSON.stringify({ nonce, senderAddress: "0x" + "ab".repeat(32) }),
+    ).toString("base64");
+    const req = createMockReq("/api/data", { "x-402-prepare": prepareData });
+    const res = createMockRes();
+    await middleware(req, res, jest.fn());
+
+    const decoded = JSON.parse(
+      Buffer.from(res.headers["PAYMENT-REQUIRED"], "base64").toString(),
+    );
+    expect(res.statusCode).toBe(402);
+    expect(decoded.error).toContain("senderAddress");
+    expect(config.facilitator.preparePayment).toHaveBeenCalledTimes(1);
   });
 
   it("carries commitment through to payment phase after prepare", async () => {

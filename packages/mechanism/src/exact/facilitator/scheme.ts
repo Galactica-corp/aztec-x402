@@ -30,6 +30,36 @@ function parseAztecPayload(raw: Record<string, unknown>): ExactAztecPayload {
   };
 }
 
+interface PendingCommitment {
+  senderAddress: string;
+  tokenAddress: string;
+  nonce?: string;
+  expiresAt: number;
+}
+
+interface PreparePaymentOptions {
+  nonce?: string;
+  timeoutMs?: number;
+  createdAt?: number;
+}
+
+const DEFAULT_COMMITMENT_TIMEOUT_MS = 120_000;
+
+function normalizeAddress(address: string): string {
+  return address.toLowerCase();
+}
+
+function isNonZeroFieldString(value: string): boolean {
+  const trimmed = value.trim();
+  if (/^0x[0-9a-fA-F]{1,64}$/.test(trimmed)) {
+    return !/^0x0*$/i.test(trimmed);
+  }
+  if (/^[0-9]+$/.test(trimmed)) {
+    return BigInt(trimmed) > 0n;
+  }
+  return false;
+}
+
 /**
  * Facilitator-side x402 scheme for Aztec.
  *
@@ -54,7 +84,7 @@ export class ExactAztecFacilitatorScheme implements SchemeNetworkFacilitator {
 
   private cachedAddresses: string[] = [];
   private consumedTxHashes = new Set<string>();
-  private pendingCommitments = new Set<string>();
+  private pendingCommitments = new Map<string, PendingCommitment>();
 
   constructor(
     private readonly signer: FacilitatorAztecSigner,
@@ -95,7 +125,10 @@ export class ExactAztecFacilitatorScheme implements SchemeNetworkFacilitator {
   async preparePayment(
     tokenAddress: string,
     completerAddress: string,
+    options: PreparePaymentOptions = {},
   ): Promise<Record<string, unknown>> {
+    this.sweepExpiredCommitments();
+
     const result = await this.signer.prepareCommitment(
       tokenAddress,
       completerAddress,
@@ -114,7 +147,18 @@ export class ExactAztecFacilitatorScheme implements SchemeNetworkFacilitator {
       prepareTxHash = result.prepareTxHash;
     }
 
-    this.pendingCommitments.add(commitment);
+    if (!isNonZeroFieldString(commitment)) {
+      throw new Error("facilitator returned an invalid commitment");
+    }
+
+    const createdAt = options.createdAt ?? Date.now();
+    const timeoutMs = options.timeoutMs ?? DEFAULT_COMMITMENT_TIMEOUT_MS;
+    this.pendingCommitments.set(commitment, {
+      senderAddress: normalizeAddress(completerAddress),
+      tokenAddress: normalizeAddress(tokenAddress),
+      nonce: options.nonce,
+      expiresAt: createdAt + timeoutMs,
+    });
 
     const extra: Record<string, unknown> = { commitment };
     if (offchainMessage) {
@@ -132,36 +176,85 @@ export class ExactAztecFacilitatorScheme implements SchemeNetworkFacilitator {
     _context?: FacilitatorContext,
   ): Promise<VerifyResponse> {
     const aztecPayload = parseAztecPayload(payload.payload);
+    const extra = parseAztecPaymentExtra(requirements.extra);
+    const commitment = extra.commitment;
 
-    // 1. Reject replayed payments
-    if (aztecPayload.txHash && this.consumedTxHashes.has(aztecPayload.txHash)) {
+    this.sweepExpiredCommitments();
+
+    const fail = (
+      invalidReason: string,
+      invalidMessage: string,
+    ): VerifyResponse => {
+      if (commitment) {
+        this.pendingCommitments.delete(commitment);
+      }
       return {
         isValid: false,
-        invalidReason: "payment already used",
-        invalidMessage: "This payment has already been consumed.",
+        invalidReason,
+        invalidMessage,
         payer: aztecPayload.senderAddress,
       };
-    }
+    };
 
-    // 2. Validate payload structure
+    // 1. Validate payload structure
     const validationError = this.validatePayload(aztecPayload);
     if (validationError) {
-      return {
-        isValid: false,
-        invalidReason: validationError,
-        invalidMessage: `Payment payload validation failed: ${validationError}`,
-      };
+      return fail(
+        validationError,
+        `Payment payload validation failed: ${validationError}`,
+      );
+    }
+
+    // 2. Reject replayed payments
+    if (aztecPayload.txHash && this.consumedTxHashes.has(aztecPayload.txHash)) {
+      return fail(
+        "payment already used",
+        "This payment has already been consumed.",
+      );
     }
 
     // 3. Validate that the commitment was issued by this facilitator
-    const commitment = parseAztecPaymentExtra(requirements.extra).commitment;
-    if (!commitment || !this.pendingCommitments.has(commitment)) {
-      return {
-        isValid: false,
-        invalidReason: "invalid or missing commitment",
-        invalidMessage: "Payment commitment was not issued by this facilitator.",
-        payer: aztecPayload.senderAddress,
-      };
+    if (!commitment || !isNonZeroFieldString(commitment)) {
+      return fail(
+        "invalid or missing commitment",
+        "Payment commitment is missing or malformed.",
+      );
+    }
+
+    const pending = this.pendingCommitments.get(commitment);
+    if (!pending) {
+      return fail(
+        "invalid or missing commitment",
+        "Payment commitment was not issued by this facilitator or has expired.",
+      );
+    }
+
+    if (Date.now() > pending.expiresAt) {
+      return fail(
+        "expired commitment",
+        "Payment commitment has expired.",
+      );
+    }
+
+    if (pending.senderAddress !== normalizeAddress(aztecPayload.senderAddress)) {
+      return fail(
+        "sender does not match prepared commitment",
+        "Payment sender does not match the address used during prepare.",
+      );
+    }
+
+    if (pending.tokenAddress !== normalizeAddress(requirements.asset)) {
+      return fail(
+        "asset does not match prepared commitment",
+        "Payment asset does not match the token used during prepare.",
+      );
+    }
+
+    if (pending.nonce && pending.nonce !== extra.nonce) {
+      return fail(
+        "nonce does not match prepared commitment",
+        "Payment nonce does not match the nonce used during prepare.",
+      );
     }
 
     try {
@@ -174,12 +267,8 @@ export class ExactAztecFacilitatorScheme implements SchemeNetworkFacilitator {
       );
 
       if (!verification.isValid) {
-        return {
-          isValid: false,
-          invalidReason: verification.error ?? "payment verification failed",
-          invalidMessage: `Payment verification failed: ${verification.error ?? "unknown error"}`,
-          payer: aztecPayload.senderAddress,
-        };
+        const error = verification.error ?? "payment verification failed";
+        return fail(error, `Payment verification failed: ${error}`);
       }
 
       return {
@@ -188,11 +277,10 @@ export class ExactAztecFacilitatorScheme implements SchemeNetworkFacilitator {
       };
     } catch (error) {
       const message = error instanceof Error ? error.message : String(error);
-      return {
-        isValid: false,
-        invalidReason: `verification error: ${message}`,
-        invalidMessage: `Failed to verify payment: ${message}`,
-      };
+      return fail(
+        `verification error: ${message}`,
+        `Failed to verify payment: ${message}`,
+      );
     }
   }
 
@@ -238,5 +326,14 @@ export class ExactAztecFacilitatorScheme implements SchemeNetworkFacilitator {
     }
 
     return undefined;
+  }
+
+  private sweepExpiredCommitments(): void {
+    const now = Date.now();
+    for (const [commitment, pending] of this.pendingCommitments) {
+      if (now > pending.expiresAt) {
+        this.pendingCommitments.delete(commitment);
+      }
+    }
   }
 }

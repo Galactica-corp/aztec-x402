@@ -27,8 +27,8 @@
  * The facilitator snapshots its private balance before `prepareCommitment()` and
  * checks `balance_of_private` again after the client's finalization tx settles.
  * The difference is the actual amount transferred. If the client underpays,
- * verification rejects the payment. Falls back to trusting tx effects if
- * `balance_of_private` is unavailable (e.g. ABI mismatch).
+ * verification rejects the payment. If amount verification cannot be completed,
+ * verification fails closed.
  */
 import type {
   FacilitatorAztecSigner,
@@ -106,6 +106,7 @@ interface SimulateResult {
 }
 
 interface TokenContract {
+  address?: { toString(): string };
   methods: {
     initialize_transfer_commitment(
       to: AztecAddress,
@@ -138,12 +139,13 @@ interface TokenContract {
  */
 function extractCommitmentFromSimulate(result: unknown): string {
   const value = unwrapAztecSdkResult(result);
-  return value == null ? "" : String(value);
+  return normalizeCommitment(value);
 }
 
 function extractCommitmentFromSendResult(sendResult: SendResult): string | undefined {
   const value = sendResult.appReturnValues?.[0];
-  return value == null ? undefined : String(value);
+  if (value == null) return undefined;
+  return normalizeCommitment(value);
 }
 
 function extractSimulateValue(result: unknown): unknown {
@@ -160,7 +162,34 @@ function bigintFromSimulate(result: unknown): bigint {
  * v4.1.0: receipt.txHash, v4.0.x: txHash directly
  */
 function extractTxHash(sendResult: SendResult): string {
-  return (sendResult.receipt?.txHash ?? sendResult.txHash)?.toString() ?? "";
+  const txHash = (sendResult.receipt?.txHash ?? sendResult.txHash)?.toString();
+  if (!txHash) {
+    throw new Error("send() result did not include a transaction hash");
+  }
+  return txHash;
+}
+
+function isNonZeroFieldString(value: string): boolean {
+  const trimmed = value.trim();
+  if (/^0x[0-9a-fA-F]{1,64}$/.test(trimmed)) {
+    return !/^0x0*$/i.test(trimmed);
+  }
+  if (/^[0-9]+$/.test(trimmed)) {
+    return BigInt(trimmed) > 0n;
+  }
+  return false;
+}
+
+function normalizeCommitment(value: unknown): string {
+  const commitment = value == null ? "" : String(value);
+  if (!isNonZeroFieldString(commitment)) {
+    throw new Error("invalid commitment returned by token contract");
+  }
+  return commitment;
+}
+
+function addressesEqual(left: string, right: string): boolean {
+  return left.toLowerCase() === right.toLowerCase();
 }
 
 /**
@@ -202,17 +231,14 @@ export class RealFacilitatorAztecSigner implements FacilitatorAztecSigner {
     const completerAddr = AztecAddress.fromString(completerAddress);
 
     // Snapshot balance before preparing, so we can verify the actual amount later
-    let balanceSnapshotted = false;
+    let balanceBefore: bigint | undefined;
     try {
       const balResult = await this.token.methods
         .balance_of_private(facilitatorAddr)
         .simulate({ from: facilitatorAddr });
-      const bal = bigintFromSimulate(balResult);
-      // Store temporarily — will key by commitment once we have it
-      this.balanceBefore.set("_pending", bal);
-      balanceSnapshotted = true;
+      balanceBefore = bigintFromSimulate(balResult);
     } catch {
-      // balance_of_private may fail (ABI mismatch, etc.) — fall back to no amount verification
+      // verifyPayment fails closed if this snapshot is unavailable.
     }
 
     // Create partial note: to=facilitator (recipient), completer=client (who will finalize)
@@ -247,13 +273,8 @@ export class RealFacilitatorAztecSigner implements FacilitatorAztecSigner {
       extractCommitmentFromSendResult(sendResult) ??
       extractCommitmentFromSimulate(simulateResult);
 
-    // Re-key the balance snapshot from _pending to the commitment (used during verification)
-    const pendingBalance = this.balanceBefore.get("_pending");
-    if (balanceSnapshotted && finalCommitment && pendingBalance !== undefined) {
-      this.balanceBefore.set(finalCommitment, pendingBalance);
-      this.balanceBefore.delete("_pending");
-    } else if (this.balanceBefore.has("_pending")) {
-      this.balanceBefore.delete("_pending");
+    if (balanceBefore !== undefined) {
+      this.balanceBefore.set(finalCommitment, balanceBefore);
     }
 
     const result: PrepareCommitmentResult = {
@@ -275,6 +296,23 @@ export class RealFacilitatorAztecSigner implements FacilitatorAztecSigner {
     try {
       const txHash = TxHash.fromString(txHashStr);
 
+      const actualTokenAddress = this.token.address?.toString();
+      if (actualTokenAddress && !addressesEqual(actualTokenAddress, tokenAddress)) {
+        return {
+          isValid: false,
+          amountFound: 0n,
+          error: `wrong token: expected ${actualTokenAddress}, got ${tokenAddress}`,
+        };
+      }
+
+      if (!commitment || !isNonZeroFieldString(commitment)) {
+        return {
+          isValid: false,
+          amountFound: 0n,
+          error: "missing or invalid commitment",
+        };
+      }
+
       // 1. Confirm the transaction succeeded via the node
       const receipt = await this.node.getTxReceipt(txHash);
       const validStatuses = [
@@ -293,72 +331,92 @@ export class RealFacilitatorAztecSigner implements FacilitatorAztecSigner {
       }
 
       // 2. Check tx effects: notes created AND nullifiers consumed.
+      let txEffect: TxEffect | null;
       try {
-        const txEffect = await this.node.getTxEffect(txHash);
-        if (txEffect) {
-          const noteHashes = getAztecTxEffectArray(txEffect, "noteHashes");
-          const nonEmptyNotes = noteHashes.filter((h) => {
-            if (h == null) return false;
-            const str = String(h);
-            if (str === "" || str === "0") return false;
-            return !/^0x0+$/.test(str);
-          });
+        txEffect = await this.node.getTxEffect(txHash);
+      } catch (error) {
+        const message = error instanceof Error ? error.message : String(error);
+        return {
+          isValid: false,
+          amountFound: 0n,
+          error: `transaction effects unavailable: ${message}`,
+        };
+      }
+      if (!txEffect) {
+        return {
+          isValid: false,
+          amountFound: 0n,
+          error: "transaction effects unavailable",
+        };
+      }
 
-          if (nonEmptyNotes.length === 0) {
-            return {
-              isValid: false,
-              amountFound: 0n,
-              error:
-                "transaction produced no private notes — not a valid private transfer",
-            };
-          }
+      const noteHashes = getAztecTxEffectArray(txEffect, "noteHashes");
+      const nonEmptyNotes = noteHashes.filter((h) => {
+        if (h == null) return false;
+        const str = String(h);
+        if (str === "" || str === "0") return false;
+        return !/^0x0+$/i.test(str);
+      });
 
-          const nullifiers = getAztecTxEffectArray(txEffect, "nullifiers");
-          const nonZeroNullifiers = nullifiers.filter((n) => {
-            if (n == null) return false;
-            const str = String(n);
-            if (str === "" || str === "0") return false;
-            return !/^0x0+$/.test(str);
-          });
+      if (nonEmptyNotes.length === 0) {
+        return {
+          isValid: false,
+          amountFound: 0n,
+          error:
+            "transaction produced no private notes — not a valid private transfer",
+        };
+      }
 
-          if (nonZeroNullifiers.length === 0) {
-            return {
-              isValid: false,
-              amountFound: 0n,
-              error:
-                "transaction consumed no nullifiers — commitment was not used",
-            };
-          }
-        }
-      } catch {
-        // getTxEffect might not be available on all node versions.
+      const nullifiers = getAztecTxEffectArray(txEffect, "nullifiers");
+      const nonZeroNullifiers = nullifiers.filter((n) => {
+        if (n == null) return false;
+        const str = String(n);
+        if (str === "" || str === "0") return false;
+        return !/^0x0+$/i.test(str);
+      });
+
+      if (nonZeroNullifiers.length === 0) {
+        return {
+          isValid: false,
+          amountFound: 0n,
+          error:
+            "transaction consumed no nullifiers — commitment was not used",
+        };
       }
 
       // 3. Verify actual amount via balance difference (keyed by commitment)
-      void tokenAddress;
-      const beforeBal = commitment ? this.balanceBefore.get(commitment) : undefined;
-      if (beforeBal !== undefined && commitment) {
-        this.balanceBefore.delete(commitment);
-        try {
-          const facilitatorAddr = this.account.address;
-          const afterResult = await this.token.methods
-            .balance_of_private(facilitatorAddr)
-            .simulate({ from: facilitatorAddr });
-          const afterBal = bigintFromSimulate(afterResult);
-          const actualAmount = afterBal - beforeBal;
-          if (actualAmount < requiredAmount) {
-            return {
-              isValid: false,
-              amountFound: actualAmount,
-              error: `insufficient payment: received ${actualAmount}, required ${requiredAmount}`,
-            };
-          }
-          return { isValid: true, amountFound: actualAmount };
-        } catch {
-          // balance_of_private failed — fall back to trusting tx effects
-        }
+      const beforeBal = this.balanceBefore.get(commitment);
+      if (beforeBal === undefined) {
+        return {
+          isValid: false,
+          amountFound: 0n,
+          error: "amount snapshot unavailable for commitment",
+        };
       }
-      return { isValid: true, amountFound: requiredAmount };
+      this.balanceBefore.delete(commitment);
+      try {
+        const facilitatorAddr = this.account.address;
+        const afterResult = await this.token.methods
+          .balance_of_private(facilitatorAddr)
+          .simulate({ from: facilitatorAddr });
+        const afterBal = bigintFromSimulate(afterResult);
+        const actualAmount = afterBal - beforeBal;
+        if (actualAmount < requiredAmount) {
+          return {
+            isValid: false,
+            amountFound: actualAmount,
+            error: `insufficient payment: received ${actualAmount}, required ${requiredAmount}`,
+          };
+        }
+        return { isValid: true, amountFound: actualAmount };
+      } catch (error) {
+        const message = error instanceof Error ? error.message : String(error);
+        return {
+          isValid: false,
+          amountFound: 0n,
+          error: `amount verification failed: ${message}`,
+        };
+      }
     } catch (err) {
       const message = err instanceof Error ? err.message : String(err);
       return {

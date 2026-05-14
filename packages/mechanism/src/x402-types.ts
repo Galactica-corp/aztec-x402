@@ -126,6 +126,11 @@ export interface SchemeNetworkFacilitator {
   preparePayment?(
     tokenAddress: string,
     completerAddress: string,
+    options?: {
+      nonce?: string;
+      timeoutMs?: number;
+      createdAt?: number;
+    },
   ): Promise<Record<string, unknown>>;
 
   verify(
