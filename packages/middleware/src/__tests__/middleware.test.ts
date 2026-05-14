@@ -268,6 +268,43 @@ describe("createPaymentMiddleware", () => {
     expect(next).not.toHaveBeenCalled();
   });
 
+  it("allows retry with the same nonce after retryable verification failure", async () => {
+    config.facilitator.verify = jest.fn()
+      .mockResolvedValueOnce({
+        isValid: false,
+        invalidReason: "amount verification failed: PXE timeout",
+      })
+      .mockResolvedValueOnce({
+        isValid: true,
+        payer: SENDER_ADDRESS,
+      });
+
+    const middleware = createPaymentMiddleware({ "/api/data": createRouteConfig() }, config);
+
+    const nonce = await getNonce(middleware, "/api/data");
+    await prepareCommitment(middleware, "/api/data", nonce);
+    const paymentPayload = buildPaymentPayload(nonce);
+
+    const firstReq = createMockReq("/api/data", {
+      "payment-signature": encodePayload(paymentPayload),
+    });
+    const firstRes = createMockRes();
+    await middleware(firstReq, firstRes, jest.fn());
+
+    expect(firstRes.statusCode).toBe(402);
+
+    const retryReq = createMockReq("/api/data", {
+      "payment-signature": encodePayload(paymentPayload),
+    });
+    const retryRes = createMockRes();
+    const retryNext = jest.fn();
+    await middleware(retryReq, retryRes, retryNext);
+
+    expect(config.facilitator.verify).toHaveBeenCalledTimes(2);
+    expect(config.facilitator.settle).toHaveBeenCalledTimes(1);
+    expect(retryNext).toHaveBeenCalled();
+  });
+
   it("returns 500 when settlement fails", async () => {
     config.facilitator.settle = jest.fn().mockResolvedValue({
       success: false,

@@ -111,6 +111,15 @@ describe("ExactAztecFacilitatorScheme", () => {
         scheme.preparePayment(TOKEN_ADDRESS, SENDER_ADDRESS),
       ).rejects.toThrow("invalid commitment");
     });
+
+    it("rejects a second pending commitment while amount verification is balance-diff based", async () => {
+      await scheme.preparePayment(TOKEN_ADDRESS, SENDER_ADDRESS);
+
+      await expect(
+        scheme.preparePayment(TOKEN_ADDRESS, SENDER_ADDRESS),
+      ).rejects.toThrow("concurrent pending Aztec payments");
+      expect(signer.prepareCommitment).toHaveBeenCalledTimes(1);
+    });
   });
 
   describe("verify", () => {
@@ -229,12 +238,13 @@ describe("ExactAztecFacilitatorScheme", () => {
     });
 
     it("rejects expired commitments", async () => {
-      await scheme.preparePayment(TOKEN_ADDRESS, SENDER_ADDRESS, {
+      const expiredScheme = new ExactAztecFacilitatorScheme(signer, networks);
+      await expiredScheme.preparePayment(TOKEN_ADDRESS, SENDER_ADDRESS, {
         createdAt: Date.now() - 10,
         timeoutMs: 1,
       });
 
-      const result = await scheme.verify(createPayload(), createRequirements());
+      const result = await expiredScheme.verify(createPayload(), createRequirements());
 
       expect(result.isValid).toBe(false);
       expect(result.invalidReason).toContain("commitment");
@@ -259,6 +269,26 @@ describe("ExactAztecFacilitatorScheme", () => {
       const retry = await scheme.verify(createPayload(), createRequirements());
       expect(retry.isValid).toBe(false);
       expect(retry.invalidReason).toContain("commitment");
+    });
+
+    it("keeps commitment available after retryable verification failures", async () => {
+      signer.verifyPayment = jest.fn()
+        .mockResolvedValueOnce({
+          isValid: false,
+          amountFound: 0n,
+          error: "amount verification failed: PXE timeout",
+        })
+        .mockResolvedValueOnce({
+          isValid: true,
+          amountFound: 100_000n,
+        });
+
+      const first = await scheme.verify(createPayload(), createRequirements());
+      expect(first.isValid).toBe(false);
+      expect(first.invalidReason).toContain("amount verification failed");
+
+      const retry = await scheme.verify(createPayload(), createRequirements());
+      expect(retry.isValid).toBe(true);
     });
 
     it("accepts when payment verification succeeds", async () => {

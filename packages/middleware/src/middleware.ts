@@ -201,9 +201,6 @@ export function createPaymentMiddleware(
         return send402(res, requirements, routeConfig.description, "invalid or expired payment nonce");
       }
 
-      // Consume nonce (one-shot)
-      pendingPayments.delete(nonce);
-
       // Carry commitment + offchain data from the prepare phase into verify requirements
       if (paymentEntry.commitment) {
         requirements.extra = {
@@ -226,6 +223,10 @@ export function createPaymentMiddleware(
       );
 
       if (!verifyResult.isValid) {
+        const failureReason = verifyResult.invalidReason || verifyResult.invalidMessage || "";
+        if (!isRetryablePaymentFailure(failureReason)) {
+          pendingPayments.delete(nonce);
+        }
         return send402(
           res,
           requirements,
@@ -248,6 +249,8 @@ export function createPaymentMiddleware(
         });
         return;
       }
+
+      pendingPayments.delete(nonce);
 
       // Set PAYMENT-RESPONSE header
       const responsePayload = Buffer.from(
@@ -302,6 +305,15 @@ function sweepExpiredPayments(payments: Map<string, PendingPayment>): void {
       payments.delete(key);
     }
   }
+}
+
+function isRetryablePaymentFailure(reason: string): boolean {
+  return (
+    reason.startsWith("transaction effects unavailable") ||
+    reason.startsWith("amount verification failed") ||
+    reason.startsWith("verification error:") ||
+    reason.startsWith("verification failed:")
+  );
 }
 
 function formatParseError(prefix: string, error: unknown): string {

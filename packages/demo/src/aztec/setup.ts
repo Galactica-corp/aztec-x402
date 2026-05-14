@@ -130,9 +130,8 @@ async function main() {
       alice,
     );
     await tokenDeploy.simulate({ from: alice });
-    await tokenDeploy.send(sendOpts(alice));
-    // send() returns a SentTx; the deploy method keeps the pre-computed address.
-    tokenAddress = tokenDeploy.getInstance()?.address;
+    const deployResult = await tokenDeploy.send(sendOpts(alice));
+    tokenAddress = deployResult.contract.address;
     if (!tokenAddress) {
       throw new Error("Could not determine token address after deployment");
     }
@@ -171,9 +170,7 @@ async function main() {
         .simulate({ from: alice });
       console.log(`  Alice's balance:     ${extractSimulateValue(aliceBalance)}\n`);
     } catch {
-      // v4.1.0: balance_of_private may fail if contract compiled for v4.0.4
-      // (MAX_NOTE_PACKED_LEN ABI mismatch). Mint tx succeeded — skip balance check.
-      console.log("  (balance check skipped — ABI mismatch with v4.1.0 PXE)\n");
+      console.log("  (balance check skipped — private balance not visible yet)\n");
     }
 
     config.minted = "true";

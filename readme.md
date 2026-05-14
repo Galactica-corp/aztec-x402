@@ -49,6 +49,10 @@ The server creates the commitment via `initialize_transfer_commitment(serverAddr
 
 This closes the "who did the payment go to?" verification gap that exists with direct `transfer_in_private`.
 
+### Facilitator Model
+
+In this demo the API provider runs the facilitator inside its own server process. That is different from the common EVM x402 shape where a merchant can ask an external facilitator to verify a prepared payment. For Aztec private payments, the receiver's Aztec account creates the commitment first, so the facilitator needs access to the merchant/server Aztec wallet or to an explicitly delegated service that can create commitments for that merchant. A third-party facilitator is possible later, but it must own that delegation and the retry/rate-limit policy around prepare transactions.
+
 ## Token Contract
 
 This project uses the **AIP-20 standard token** from [`@defi-wonderland/aztec-standards`](https://github.com/defi-wonderland/aztec-standards). AIP-20 natively supports the `completer` parameter in `initialize_transfer_commitment(to, completer)`, enabling cross-party commitment flows where the server prepares and the client finalizes.
