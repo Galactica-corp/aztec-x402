@@ -5,7 +5,7 @@
 import { createAztecNodeClient } from "@aztec/aztec.js/node";
 import { AztecAddress } from "@aztec/aztec.js/addresses";
 import { TokenContract } from "@aztec/noir-contracts.js/Token";
-import { EmbeddedWallet } from "@aztec/wallets/embedded";
+import { createPXEWallet } from "./pxe-wallet.js";
 import { readFileSync } from "fs";
 import { join, dirname } from "path";
 import { ExactAztecClientScheme } from "@aztec-x402/mechanism/exact/client";
@@ -23,7 +23,7 @@ const NODE_URL = config.nodeUrl;
 const isDevnet = config.network !== "aztec:sandbox";
 
 const node = createAztecNodeClient(NODE_URL);
-const wallet = await EmbeddedWallet.create(node, {
+const wallet = await createPXEWallet(node, {
   ephemeral: true,
   pxeConfig: { proverEnabled: isDevnet },
 });

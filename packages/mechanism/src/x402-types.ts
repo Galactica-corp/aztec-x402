@@ -91,6 +91,9 @@ export interface SupportedKind {
 export interface SchemeNetworkClient {
   readonly scheme: string;
 
+  /** Get the sender's address (used by the client wrapper for the prepare phase) */
+  getSenderAddress?(): Promise<string>;
+
   createPaymentPayload(
     x402Version: number,
     paymentRequirements: PaymentRequirements,
@@ -105,6 +108,30 @@ export interface SchemeNetworkFacilitator {
 
   getExtra(network: Network): Record<string, unknown> | undefined;
   getSigners(network: string): string[];
+
+  /**
+   * Prepare a commitment for a pending payment.
+   *
+   * Called by the middleware during the prepare phase. The client sends
+   * its address, and the facilitator creates a commitment via
+   * `initialize_transfer_commitment(facilitatorAddr)`.
+   *
+   * The returned record is merged into PaymentRequirements.extra
+   * (includes `commitment`).
+   *
+   * @param tokenAddress - The token contract address
+   * @param completerAddress - The client's Aztec address
+   * @returns Extra data to merge into requirements.extra
+   */
+  preparePayment?(
+    tokenAddress: string,
+    completerAddress: string,
+    options?: {
+      nonce?: string;
+      timeoutMs?: number;
+      createdAt?: number;
+    },
+  ): Promise<Record<string, unknown>>;
 
   verify(
     payload: PaymentPayload,

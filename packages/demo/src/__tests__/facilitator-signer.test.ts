@@ -1,46 +1,47 @@
 /**
  * Unit tests for RealFacilitatorAztecSigner.
  *
- * These tests verify the actual verification logic used in the demo server.
- * They use mock node/wallet objects to test without a running Aztec sandbox.
+ * These tests verify commitment creation and payment verification used in
+ * the demo server. They use mock node/token objects to test without a
+ * running Aztec sandbox.
  *
- * Key finding: the current implementation only checks tx status and does NOT
- * verify recipient address, token contract, or payment amount. This means
- * any successful transaction is accepted as valid payment, regardless of
- * who received the funds. See the "verification gap" test group below.
+ * v4.1.0 API changes (confirmed on sandbox 4.1.0-nightly.20260314):
+ * - send() returns { receipt, offchainEffects, offchainMessages }
+ * - simulate() returns { result: Field, offchainEffects, offchainMessages }
+ * - txHash is on receipt, not top-level
+ * - offchainMessages is present but currently empty [] for initialize_transfer_commitment
  *
  * NOTE: We avoid importing AztecAddress directly because @aztec/foundation
  * validates field elements at module load time and our synthetic test addresses
- * ("0xbb..bb") exceed the BN254 field modulus. Instead, we use duck-typed mocks
- * that match the AztecAddress interface (toString() → hex string).
+ * exceed the BN254 field modulus. Instead, we use duck-typed mocks.
  */
 import { describe, it, expect, jest } from "bun:test";
-import { RealFacilitatorAztecSigner } from "../aztec/facilitator-signer.js";
+
+// Polyfill for @aztec/foundation which calls expect.addEqualityTesters at module load
+if (!Reflect.get(expect, "addEqualityTesters")) {
+  Reflect.set(expect, "addEqualityTesters", () => {});
+}
+
+const { RealFacilitatorAztecSigner } = await import("../aztec/facilitator-signer.js");
 
 /** Valid Aztec address (within BN254 field modulus) */
 const SERVER_ADDRESS_STR =
   "0x09ee8a90f9c3d7db87b55fb92a3bbfc69e65be5b8d4d135c756ecbfec37a1c01";
-const SENDER_ADDRESS_STR =
-  "0x1234567890abcdef1234567890abcdef1234567890abcdef1234567890abcdef";
+const CLIENT_ADDRESS_STR =
+  "0x0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef";
 const TOKEN_ADDRESS_STR =
   "0x0abcdef1234567890abcdef1234567890abcdef1234567890abcdef1234567890";
-const WRONG_ADDRESS_STR =
-  "0x0fedcba0987654321fedcba0987654321fedcba0987654321fedcba098765432";
 const TX_HASH =
   "0x0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef";
+const MOCK_COMMITMENT = "0x" + "ff".repeat(32);
 const REQUIRED_AMOUNT = 100_000n;
+const VALID_TX_EFFECT = {
+  noteHashes: ["0x0abababababababababababababababababababababababababababababababab"],
+  nullifiers: ["0x0efefefefefefefefefefefefefefefefefefefefefefefefefefefefefef"],
+};
 
-/**
- * Duck-typed mock for AztecAddress.
- * RealFacilitatorAztecSigner only calls address.toString()
- * in getAddresses(), so this is sufficient.
- */
 function mockAztecAddress(addrStr: string) {
-  return {
-    toString() {
-      return addrStr;
-    },
-  };
+  return { toString: () => addrStr };
 }
 
 interface MockNodeOptions {
@@ -48,7 +49,6 @@ interface MockNodeOptions {
   txEffect?: {
     noteHashes?: unknown[];
     nullifiers?: unknown[];
-    /** Wrapped SDK shape — real IndexedTxEffect nests data inside { data: ... } */
     data?: { noteHashes?: unknown[]; nullifiers?: unknown[] };
   } | null;
   txEffectError?: boolean;
@@ -64,28 +64,113 @@ function createMockNode(opts?: string | MockNodeOptions) {
     }),
     getTxEffect: options.txEffectError
       ? jest.fn().mockRejectedValue(new Error("getTxEffect not supported"))
-      : jest.fn().mockResolvedValue(options.txEffect ?? null),
-  };
-}
-
-function createMockWallet() {
-  return {
-    registerSender: jest.fn().mockResolvedValue(undefined),
+      : jest.fn().mockResolvedValue(
+          "txEffect" in options ? options.txEffect : VALID_TX_EFFECT,
+        ),
   };
 }
 
 function createMockAccount(addr = SERVER_ADDRESS_STR) {
-  // Use duck-typed mock instead of real AztecAddress to avoid
-  // BN254 field modulus validation at module load time.
   return { address: mockAztecAddress(addr) };
 }
 
-function createSigner(opts?: string | MockNodeOptions) {
+interface MockTokenOptions {
+  /** What simulate() returns */
+  simulateResult?: unknown;
+  /** What send() returns (v4.1.0 shape) */
+  offchainMessages?: Array<{ payload: string; recipient?: string; anchorBlockTimestamp?: number }>;
+  /** balance_of_private return values: [before, after] */
+  balances?: [bigint, bigint];
+  /** If true, balance_of_private throws */
+  balanceError?: boolean;
+}
+
+function isMockTokenOptions(opts: unknown): opts is MockTokenOptions {
+  return (
+    opts != null &&
+    typeof opts === "object" &&
+    (
+      "offchainMessages" in opts ||
+      "simulateResult" in opts ||
+      "balances" in opts ||
+      "balanceError" in opts
+    )
+  );
+}
+
+/**
+ * Create a mock token contract.
+ *
+ * Default simulate result uses v4.1.0 shape: { result: Field, offchainEffects: [], offchainMessages: [] }
+ * AIP-20's initialize_transfer_commitment returns Field directly (not nested { commitment }).
+ * Default send result uses v4.1.0 shape: { receipt: { txHash }, offchainEffects: [], offchainMessages: [] }
+ */
+function createMockToken(opts?: unknown | MockTokenOptions) {
+  // v4.1.0 default simulate result — AIP-20 returns Field directly
+  let simulateResult: unknown = {
+    result: MOCK_COMMITMENT,
+    offchainEffects: [],
+    offchainMessages: [],
+  };
+  let offchainMessages: Array<{ payload: string; recipient?: string; anchorBlockTimestamp?: number }> | undefined;
+
+  let balances: [bigint, bigint] = [0n, REQUIRED_AMOUNT];
+  let balanceError = false;
+
+  if (isMockTokenOptions(opts)) {
+    if (opts.simulateResult !== undefined) simulateResult = opts.simulateResult;
+    offchainMessages = opts.offchainMessages;
+    balances = opts.balances ?? balances;
+    balanceError = opts.balanceError ?? false;
+  } else if (opts !== undefined) {
+    // Legacy: raw value = simulate result
+    simulateResult = opts;
+  }
+
+  // balance_of_private mock: returns balances[0] first call, balances[1] second call
+  let balanceCallCount = 0;
+  const balanceOfPrivate = balanceError
+    ? jest.fn().mockReturnValue({
+        simulate: jest.fn().mockRejectedValue(new Error("balance_of_private unavailable")),
+      })
+    : jest.fn().mockReturnValue({
+        simulate: jest.fn().mockImplementation(() => {
+          const idx = Math.min(balanceCallCount++, balances.length - 1);
+          return Promise.resolve(balances[idx]);
+        }),
+      });
+
+  return {
+    address: mockAztecAddress(TOKEN_ADDRESS_STR),
+    methods: {
+      initialize_transfer_commitment: jest.fn().mockReturnValue({
+        simulate: jest.fn().mockResolvedValue(simulateResult),
+        send: jest.fn().mockResolvedValue({
+          // v4.1.0 shape: txHash on receipt
+          receipt: { txHash: { toString: () => TX_HASH }, status: "success" },
+          offchainEffects: [],
+          offchainMessages: offchainMessages ?? [],
+        }),
+      }),
+      balance_of_private: balanceOfPrivate,
+    },
+  };
+}
+
+function createSigner(opts?: string | MockNodeOptions, tokenOpts?: unknown | MockTokenOptions) {
   return new RealFacilitatorAztecSigner(
     createMockAccount(),
-    createMockWallet(),
     createMockNode(opts),
+    tokenOpts !== undefined ? createMockToken(tokenOpts) : createMockToken(),
   );
+}
+
+async function verifyPrepared(
+  signer: InstanceType<typeof RealFacilitatorAztecSigner>,
+  amount: bigint = REQUIRED_AMOUNT,
+) {
+  const prepared = await signer.prepareCommitment(TOKEN_ADDRESS_STR, CLIENT_ADDRESS_STR);
+  return signer.verifyPayment(TX_HASH, TOKEN_ADDRESS_STR, amount, prepared.commitment);
 }
 
 describe("RealFacilitatorAztecSigner", () => {
@@ -96,94 +181,40 @@ describe("RealFacilitatorAztecSigner", () => {
     });
   });
 
-  describe("registerSender", () => {
-    it("calls wallet.registerSender with the parsed address", async () => {
-      const wallet = createMockWallet();
-      const signer = new RealFacilitatorAztecSigner(
-        createMockAccount(),
-        wallet,
-        createMockNode(),
-      );
-
-      await signer.registerSender(SENDER_ADDRESS_STR);
-
-      // Verify registerSender was called (address is parsed internally)
-      expect(wallet.registerSender).toHaveBeenCalledTimes(1);
-    });
-  });
-
-  describe("verifyPaymentNotes — tx status checks", () => {
+  describe("verifyPayment — tx status checks", () => {
     it("accepts a successful transaction", async () => {
-      const result = await createSigner("success").verifyPaymentNotes(
-        TX_HASH,
-        TOKEN_ADDRESS_STR,
-        SERVER_ADDRESS_STR,
-        REQUIRED_AMOUNT,
-      );
-
+      const result = await verifyPrepared(createSigner("success"));
       expect(result.isValid).toBe(true);
     });
 
     it("accepts tx with status 'proposed'", async () => {
-      const result = await createSigner("proposed").verifyPaymentNotes(
-        TX_HASH,
-        TOKEN_ADDRESS_STR,
-        SERVER_ADDRESS_STR,
-        REQUIRED_AMOUNT,
-      );
+      const result = await verifyPrepared(createSigner("proposed"));
       expect(result.isValid).toBe(true);
     });
 
     it("accepts tx with status 'checkpointed'", async () => {
-      const result = await createSigner("checkpointed").verifyPaymentNotes(
-        TX_HASH,
-        TOKEN_ADDRESS_STR,
-        SERVER_ADDRESS_STR,
-        REQUIRED_AMOUNT,
-      );
+      const result = await verifyPrepared(createSigner("checkpointed"));
       expect(result.isValid).toBe(true);
     });
 
     it("accepts tx with status 'proven'", async () => {
-      const result = await createSigner("proven").verifyPaymentNotes(
-        TX_HASH,
-        TOKEN_ADDRESS_STR,
-        SERVER_ADDRESS_STR,
-        REQUIRED_AMOUNT,
-      );
+      const result = await verifyPrepared(createSigner("proven"));
       expect(result.isValid).toBe(true);
     });
 
     it("accepts tx with status 'finalized'", async () => {
-      const result = await createSigner("finalized").verifyPaymentNotes(
-        TX_HASH,
-        TOKEN_ADDRESS_STR,
-        SERVER_ADDRESS_STR,
-        REQUIRED_AMOUNT,
-      );
+      const result = await verifyPrepared(createSigner("finalized"));
       expect(result.isValid).toBe(true);
     });
 
     it("rejects a dropped transaction", async () => {
-      const result = await createSigner("dropped").verifyPaymentNotes(
-        TX_HASH,
-        TOKEN_ADDRESS_STR,
-        SERVER_ADDRESS_STR,
-        REQUIRED_AMOUNT,
-      );
-
+      const result = await verifyPrepared(createSigner("dropped"));
       expect(result.isValid).toBe(false);
       expect(result.error).toContain("dropped");
     });
 
     it("rejects a reverted transaction", async () => {
-      const result = await createSigner("reverted").verifyPaymentNotes(
-        TX_HASH,
-        TOKEN_ADDRESS_STR,
-        SERVER_ADDRESS_STR,
-        REQUIRED_AMOUNT,
-      );
-
+      const result = await verifyPrepared(createSigner("reverted"));
       expect(result.isValid).toBe(false);
       expect(result.error).toContain("reverted");
     });
@@ -193,226 +224,222 @@ describe("RealFacilitatorAztecSigner", () => {
         getTxReceipt: jest.fn().mockRejectedValue(new Error("node unavailable")),
         getTxEffect: jest.fn().mockResolvedValue(null),
       };
-      const signer = new RealFacilitatorAztecSigner(
-        createMockAccount(),
-        createMockWallet(),
-        node,
-      );
-
-      const result = await signer.verifyPaymentNotes(
-        TX_HASH,
-        TOKEN_ADDRESS_STR,
-        SERVER_ADDRESS_STR,
-        REQUIRED_AMOUNT,
-      );
-
+      const signer = new RealFacilitatorAztecSigner(createMockAccount(), node, createMockToken());
+      const prepared = await signer.prepareCommitment(TOKEN_ADDRESS_STR, CLIENT_ADDRESS_STR);
+      const result = await signer.verifyPayment(TX_HASH, TOKEN_ADDRESS_STR, REQUIRED_AMOUNT, prepared.commitment);
       expect(result.isValid).toBe(false);
       expect(result.error).toContain("node unavailable");
     });
   });
 
-  /**
-   * VERIFICATION GAP TESTS
-   *
-   * These tests document the current limitation: verifyPaymentNotes does NOT
-   * validate the recipient address, token contract, or actual payment amount.
-   * Any successful transaction is accepted as valid payment.
-   *
-   * The proper fix is to switch to transfer_private_to_commitment, which
-   * allows the facilitator to verify payments via PXE note discovery on
-   * commitment-linked notes. See the FIXME in facilitator-signer.ts.
-   */
-  describe("verification gap — documents current limitation", () => {
-    it("KNOWN GAP: accepts payment sent to wrong address", async () => {
-      // Payment was sent to WRONG_ADDRESS instead of SERVER_ADDRESS,
-      // but verifyPaymentNotes doesn't check the recipient.
-      const result = await createSigner("success").verifyPaymentNotes(
-        TX_HASH,
-        TOKEN_ADDRESS_STR,
-        WRONG_ADDRESS_STR, // wrong recipient!
-        REQUIRED_AMOUNT,
-      );
-
-      // BUG: this should be false, but the current implementation
-      // ignores the recipient address and returns true.
-      // This test documents the gap — it will need updating when
-      // transfer_private_to_commitment is implemented.
-      expect(result.isValid).toBe(true);
-      expect(result.amountFound).toBe(REQUIRED_AMOUNT);
-    });
-
-    it("KNOWN GAP: accepts payment with wrong token", async () => {
-      // Payment used a completely different token contract,
-      // but verifyPaymentNotes doesn't check the token.
-      const result = await createSigner("success").verifyPaymentNotes(
-        TX_HASH,
-        "0x0999999999999999999999999999999999999999999999999999999999999999", // wrong token!
-        SERVER_ADDRESS_STR,
-        REQUIRED_AMOUNT,
-      );
-
-      // BUG: this should be false, but the current implementation
-      // ignores the token address and returns true.
-      expect(result.isValid).toBe(true);
-    });
-
-    it("KNOWN GAP: reports required amount without verifying actual amount", async () => {
-      // We ask for 100_000 but the tx might have transferred only 1.
-      // verifyPaymentNotes echoes back the required amount without
-      // checking the actual amount in the transaction notes.
-      const result = await createSigner("success").verifyPaymentNotes(
-        TX_HASH,
-        TOKEN_ADDRESS_STR,
-        SERVER_ADDRESS_STR,
-        100_000n,
-      );
-
-      // BUG: amountFound should reflect the actual amount from the tx,
-      // not just echo back the required amount.
-      expect(result.amountFound).toBe(100_000n);
-    });
-  });
-
-  describe("verifyPaymentNotes — tx effect validation", () => {
-    it("rejects transaction with no note hashes (not a private transfer)", async () => {
-      const result = await createSigner({
+  describe("verifyPayment — tx effect validation", () => {
+    it("rejects transaction with no note hashes", async () => {
+      const signer = createSigner({
         status: "success",
         txEffect: { noteHashes: [], nullifiers: [] },
-      }).verifyPaymentNotes(
-        TX_HASH,
-        TOKEN_ADDRESS_STR,
-        SERVER_ADDRESS_STR,
-        REQUIRED_AMOUNT,
-      );
-
+      });
+      const result = await verifyPrepared(signer);
       expect(result.isValid).toBe(false);
       expect(result.error).toContain("no private notes");
     });
 
-    it("rejects transaction where all note hashes are zero (short form)", async () => {
-      const result = await createSigner({
+    it("rejects transaction where all note hashes are zero", async () => {
+      const signer = createSigner({
         status: "success",
         txEffect: { noteHashes: ["0", "0x0", "0"], nullifiers: [] },
-      }).verifyPaymentNotes(
-        TX_HASH,
-        TOKEN_ADDRESS_STR,
-        SERVER_ADDRESS_STR,
-        REQUIRED_AMOUNT,
-      );
-
+      });
+      const result = await verifyPrepared(signer);
       expect(result.isValid).toBe(false);
       expect(result.error).toContain("no private notes");
     });
 
-    it("rejects transaction where all note hashes are Fr.ZERO (full 66-char hex)", async () => {
-      // Fr.ZERO.toString() produces the full 66-char padded hex, not just "0"
+    it("rejects transaction where all note hashes are Fr.ZERO", async () => {
       const FR_ZERO = "0x" + "0".repeat(64);
-      const result = await createSigner({
+      const signer = createSigner({
         status: "success",
         txEffect: { noteHashes: [FR_ZERO, FR_ZERO], nullifiers: [] },
-      }).verifyPaymentNotes(
-        TX_HASH,
-        TOKEN_ADDRESS_STR,
-        SERVER_ADDRESS_STR,
-        REQUIRED_AMOUNT,
-      );
-
+      });
+      const result = await verifyPrepared(signer);
       expect(result.isValid).toBe(false);
       expect(result.error).toContain("no private notes");
     });
 
-    it("accepts transaction with non-zero note hashes", async () => {
-      const result = await createSigner({
+    it("accepts transaction with non-zero note hashes and nullifiers", async () => {
+      const signer = createSigner({
         status: "success",
-        txEffect: {
-          noteHashes: [
-            "0x0abababababababababababababababababababababababababababababababab",
-            "0x0cdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcd",
-          ],
-          nullifiers: [
-            "0x0efefefefefefefefefefefefefefefefefefefefefefefefefefefefefefef",
-          ],
-        },
-      }).verifyPaymentNotes(
-        TX_HASH,
-        TOKEN_ADDRESS_STR,
-        SERVER_ADDRESS_STR,
-        REQUIRED_AMOUNT,
-      );
-
+        txEffect: VALID_TX_EFFECT,
+      });
+      const result = await verifyPrepared(signer);
       expect(result.isValid).toBe(true);
     });
 
     it("handles wrapped SDK shape (IndexedTxEffect with data property)", async () => {
-      // Real Aztec SDK returns { data: { noteHashes, nullifiers, ... } }
-      const result = await createSigner({
+      const signer = createSigner({
         status: "success",
         txEffect: {
-          data: {
-            noteHashes: [
-              "0x0abababababababababababababababababababababababababababababababab",
-            ],
-            nullifiers: [],
-          },
+          data: VALID_TX_EFFECT,
         },
-      }).verifyPaymentNotes(
-        TX_HASH,
-        TOKEN_ADDRESS_STR,
-        SERVER_ADDRESS_STR,
-        REQUIRED_AMOUNT,
-      );
-
+      });
+      const result = await verifyPrepared(signer);
       expect(result.isValid).toBe(true);
     });
 
-    it("rejects wrapped SDK shape with no notes", async () => {
-      const result = await createSigner({
+    it("rejects transaction with notes but no nullifiers", async () => {
+      const signer = createSigner({
         status: "success",
         txEffect: {
-          data: {
-            noteHashes: [],
-            nullifiers: [],
-          },
+          noteHashes: VALID_TX_EFFECT.noteHashes,
+          nullifiers: [],
         },
-      }).verifyPaymentNotes(
-        TX_HASH,
-        TOKEN_ADDRESS_STR,
-        SERVER_ADDRESS_STR,
-        REQUIRED_AMOUNT,
-      );
-
+      });
+      const result = await verifyPrepared(signer);
       expect(result.isValid).toBe(false);
-      expect(result.error).toContain("no private notes");
+      expect(result.error).toContain("no nullifiers");
     });
 
-    it("still accepts when getTxEffect is not available (graceful fallback)", async () => {
-      const result = await createSigner({
+    it("rejects when getTxEffect is not available", async () => {
+      const signer = createSigner({
         status: "success",
         txEffectError: true,
-      }).verifyPaymentNotes(
-        TX_HASH,
-        TOKEN_ADDRESS_STR,
-        SERVER_ADDRESS_STR,
-        REQUIRED_AMOUNT,
-      );
-
-      // Falls back to trust-based check when getTxEffect isn't available
-      expect(result.isValid).toBe(true);
+      });
+      const result = await verifyPrepared(signer);
+      expect(result.isValid).toBe(false);
+      expect(result.error).toContain("effects unavailable");
     });
 
-    it("still accepts when getTxEffect returns null (tx effect not found)", async () => {
-      const result = await createSigner({
+    it("rejects when getTxEffect returns null", async () => {
+      const signer = createSigner({
         status: "success",
         txEffect: null,
-      }).verifyPaymentNotes(
-        TX_HASH,
-        TOKEN_ADDRESS_STR,
-        SERVER_ADDRESS_STR,
-        REQUIRED_AMOUNT,
-      );
+      });
+      const result = await verifyPrepared(signer);
+      expect(result.isValid).toBe(false);
+      expect(result.error).toContain("effects unavailable");
+    });
+  });
 
-      // Falls back to trust-based check when tx effect isn't available
+  describe("verifyPayment — amount verification", () => {
+    it("verifies actual amount via balance difference (keyed by commitment)", async () => {
+      const token = createMockToken({ balances: [500_000n, 600_000n] });
+      const signer = new RealFacilitatorAztecSigner(createMockAccount(), createMockNode("success"), token);
+      // prepareCommitment snapshots balance (500_000), keyed by commitment
+      const prepared = await signer.prepareCommitment(TOKEN_ADDRESS_STR, CLIENT_ADDRESS_STR);
+      // verifyPayment checks balance again (600_000), diff = 100_000
+      const result = await signer.verifyPayment(TX_HASH, TOKEN_ADDRESS_STR, 100_000n, prepared.commitment);
       expect(result.isValid).toBe(true);
+      expect(result.amountFound).toBe(100_000n);
+    });
+
+    it("rejects when actual amount is less than required", async () => {
+      const token = createMockToken({ balances: [500_000n, 550_000n] });
+      const signer = new RealFacilitatorAztecSigner(createMockAccount(), createMockNode("success"), token);
+      const prepared = await signer.prepareCommitment(TOKEN_ADDRESS_STR, CLIENT_ADDRESS_STR);
+      const result = await signer.verifyPayment(TX_HASH, TOKEN_ADDRESS_STR, 100_000n, prepared.commitment);
+      expect(result.isValid).toBe(false);
+      expect(result.amountFound).toBe(50_000n);
+      expect(result.error).toContain("insufficient payment");
+    });
+
+    it("accepts when actual amount exceeds required", async () => {
+      const token = createMockToken({ balances: [500_000n, 700_000n] });
+      const signer = new RealFacilitatorAztecSigner(createMockAccount(), createMockNode("success"), token);
+      const prepared = await signer.prepareCommitment(TOKEN_ADDRESS_STR, CLIENT_ADDRESS_STR);
+      const result = await signer.verifyPayment(TX_HASH, TOKEN_ADDRESS_STR, 100_000n, prepared.commitment);
+      expect(result.isValid).toBe(true);
+      expect(result.amountFound).toBe(200_000n);
+    });
+
+    it("rejects when balance_of_private is unavailable", async () => {
+      const token = createMockToken({ balanceError: true });
+      const signer = new RealFacilitatorAztecSigner(createMockAccount(), createMockNode("success"), token);
+      const prepared = await signer.prepareCommitment(TOKEN_ADDRESS_STR, CLIENT_ADDRESS_STR);
+      const result = await signer.verifyPayment(TX_HASH, TOKEN_ADDRESS_STR, 100_000n, prepared.commitment);
+      expect(result.isValid).toBe(false);
+      expect(result.error).toContain("amount snapshot unavailable");
+    });
+
+    it("rejects when no commitment provided", async () => {
+      const result = await createSigner("success").verifyPayment(TX_HASH, TOKEN_ADDRESS_STR, 100_000n);
+      expect(result.isValid).toBe(false);
+      expect(result.error).toContain("commitment");
+    });
+
+    it("rejects wrong token address when the contract address is known", async () => {
+      const signer = createSigner("success");
+      const prepared = await signer.prepareCommitment(TOKEN_ADDRESS_STR, CLIENT_ADDRESS_STR);
+      const result = await signer.verifyPayment(
+        TX_HASH,
+        "0x" + "ee".repeat(32),
+        100_000n,
+        prepared.commitment,
+      );
+      expect(result.isValid).toBe(false);
+      expect(result.error).toContain("wrong token");
+    });
+  });
+
+  describe("prepareCommitment", () => {
+    it("calls initialize_transfer_commitment with facilitator and completer addresses", async () => {
+      const token = createMockToken();
+      const signer = new RealFacilitatorAztecSigner(createMockAccount(), createMockNode("success"), token);
+      await signer.prepareCommitment(TOKEN_ADDRESS_STR, CLIENT_ADDRESS_STR);
+      expect(token.methods.initialize_transfer_commitment).toHaveBeenCalled();
+    });
+
+    it("extracts commitment from v4.1.0 simulate result shape", async () => {
+      // v4.1.0: simulate() returns { result: Field, offchainEffects, offchainMessages }
+      const signer = createSigner("success");
+      const result = await signer.prepareCommitment(TOKEN_ADDRESS_STR, CLIENT_ADDRESS_STR);
+      expect(result.commitment).toBe(MOCK_COMMITMENT);
+      expect(result.prepareTxHash).toBe(TX_HASH);
+    });
+
+    it("forwards offchainMessages without using ciphertext as commitment", async () => {
+      const signer = createSigner("success", {
+        offchainMessages: [{ payload: "0xdeadbeef" }],
+      });
+      const result = await signer.prepareCommitment(TOKEN_ADDRESS_STR, CLIENT_ADDRESS_STR);
+      expect(result.commitment).toBe(MOCK_COMMITMENT);
+      expect(result.offchainMessage).toBe(JSON.stringify([{ payload: "0xdeadbeef" }]));
+      expect(result.prepareTxHash).toBe(TX_HASH);
+    });
+
+    it("falls back to simulate when offchainMessages is empty", async () => {
+      // This is the current v4.1.0 behavior: offchainMessages: []
+      const signer = createSigner("success", {
+        offchainMessages: [],
+      });
+      const result = await signer.prepareCommitment(TOKEN_ADDRESS_STR, CLIENT_ADDRESS_STR);
+      expect(result.commitment).toBe(MOCK_COMMITMENT);
+      expect(result.offchainMessage).toBeUndefined();
+    });
+
+    it("handles raw Field simulate result (no wrapper)", async () => {
+      const rawCommitment = "0x" + "12".repeat(32);
+      const signer = createSigner("success", {
+        simulateResult: rawCommitment,
+      });
+      const result = await signer.prepareCommitment(TOKEN_ADDRESS_STR, CLIENT_ADDRESS_STR);
+      expect(result.commitment).toBe(rawCommitment);
+    });
+
+    it("includes offchainMessage and prepareTxHash when offchain data present", async () => {
+      const offchainMessages = [
+        { payload: "0xcafe", recipient: SERVER_ADDRESS_STR, anchorBlockTimestamp: 12345 },
+      ];
+      const signer = createSigner("success", { offchainMessages });
+      const result = await signer.prepareCommitment(TOKEN_ADDRESS_STR, CLIENT_ADDRESS_STR);
+      expect(result.commitment).toBe(MOCK_COMMITMENT);
+      expect(result.offchainMessage).toBe(JSON.stringify(offchainMessages));
+      expect(result.prepareTxHash).toBe(TX_HASH);
+    });
+
+    it("does not parse JSON payload in offchainMessages as a commitment", async () => {
+      const signer = createSigner("success", {
+        offchainMessages: [{ payload: JSON.stringify({ commitment: "0xjsoncommit" }) }],
+      });
+      const result = await signer.prepareCommitment(TOKEN_ADDRESS_STR, CLIENT_ADDRESS_STR);
+      expect(result.commitment).toBe(MOCK_COMMITMENT);
     });
   });
 });

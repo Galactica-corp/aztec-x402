@@ -7,6 +7,7 @@ export {
   type AztecFacilitatorConfig,
   type AztecServerConfig,
   type PaymentNoteVerification,
+  type PrepareCommitmentResult,
   AZTEC_NETWORKS,
   SCHEME,
   CAIP_FAMILY,
@@ -28,3 +29,19 @@ export {
   isValidAztecAddress,
   isAztecNetwork,
 } from "./utils.js";
+
+export {
+  AztecNetworkSchema,
+  AztecPaymentExtraSchema,
+  AztecPrepareRequestSchema,
+  AztecSdkResultSchema,
+  AztecOffchainMessageSchema,
+  AztecOffchainMessagesSchema,
+  AztecTxEffectSchema,
+  parseAztecPaymentExtra,
+  unwrapAztecSdkResult,
+  getAztecTxEffectArray,
+  type AztecPaymentExtra,
+  type AztecPrepareRequest,
+  type AztecOffchainMessage,
+} from "./schemas.js";

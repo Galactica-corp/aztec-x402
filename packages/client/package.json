@@ -22,6 +22,7 @@
     "@aztec-x402/mechanism": "workspace:*"
   },
   "devDependencies": {
-    "typescript": "^5.5.0"
+    "typescript": "^5.5.0",
+    "zod": "^4.4.3"
   }
 }

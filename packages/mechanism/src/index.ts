@@ -4,6 +4,16 @@ export {
   ExactAztecServerScheme,
 } from "./exact/index.js";
 
+export {
+  NetworkSchema,
+  PaymentRequirementsSchema,
+  PaymentRequiredSchema,
+  PaymentPayloadSchema,
+  type ParsedPaymentRequirements,
+  type ParsedPaymentRequired,
+  type ParsedPaymentPayload,
+} from "./schemas.js";
+
 export type {
   SchemeNetworkClient,
   SchemeNetworkFacilitator,

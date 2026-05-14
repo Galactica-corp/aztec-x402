@@ -33,7 +33,8 @@
     "clean": "rm -rf dist"
   },
   "dependencies": {
-    "@aztec-x402/core": "workspace:*"
+    "@aztec-x402/core": "workspace:*",
+    "zod": "^4.4.3"
   },
   "devDependencies": {
     "typescript": "^5.5.0"

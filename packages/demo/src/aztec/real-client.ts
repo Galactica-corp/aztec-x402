@@ -8,8 +8,8 @@
  */
 import { createAztecNodeClient } from "@aztec/aztec.js/node";
 import { AztecAddress } from "@aztec/aztec.js/addresses";
-import { TokenContract } from "@aztec/noir-contracts.js/Token";
-import { EmbeddedWallet } from "@aztec/wallets/embedded";
+import { TokenContract } from "@defi-wonderland/aztec-standards/dist/src/artifacts/Token.js";
+import { createPXEWallet } from "./pxe-wallet.js";
 import { readFileSync } from "fs";
 import { join, dirname } from "path";
 
@@ -17,6 +17,7 @@ import { ExactAztecClientScheme } from "@aztec-x402/mechanism/exact/client";
 import { wrapFetchWithPayment } from "@aztec-x402/client";
 import { RealClientAztecSigner } from "./client-signer.js";
 import { loadKeys, loadAccount, setupSponsoredPayment } from "./wallet-manager.js";
+import { unwrapAztecSdkResult } from "@aztec-x402/core";
 
 const SERVER_URL = process.env.SERVER_URL ?? "https://aztec-x402.unfazed.engineering";
 
@@ -36,12 +37,22 @@ try {
 
 const NODE_URL = config.nodeUrl;
 const NETWORK = config.network;
-const isDevnet = NETWORK !== "aztec:sandbox";
+const USE_SPONSORED_FPC = process.env.USE_SPONSORED_FPC === "true";
+const isDevnet = USE_SPONSORED_FPC || NETWORK !== "aztec:sandbox";
+
+function extractSimulateValue(result: unknown): unknown {
+  return unwrapAztecSdkResult(result);
+}
+
+function bigintFromSimulate(result: unknown): bigint {
+  const value = extractSimulateValue(result);
+  return typeof value === "bigint" ? value : BigInt(String(value));
+}
 
 // Connect to Aztec
 console.log(`Connecting to Aztec node at ${NODE_URL}...`);
 const node = createAztecNodeClient(NODE_URL);
-const wallet = await EmbeddedWallet.create(node, {
+const wallet = await createPXEWallet(node, {
   ephemeral: true,
   pxeConfig: { proverEnabled: isDevnet },
 });
@@ -60,11 +71,15 @@ if (tokenInstance) {
 }
 const token = await TokenContract.at(tokenAddress, wallet);
 
+// Register Bob as sender so we can discover notes from him
+const bob = AztecAddress.fromString(config.bobAddress);
+await wallet.registerSender(bob, "bob");
+
 // Check balance before
 const balanceBefore = await token.methods
   .balance_of_private(alice)
   .simulate({ from: alice });
-console.log(`Balance before: ${balanceBefore}\n`);
+console.log(`Balance before: ${extractSimulateValue(balanceBefore)}\n`);
 
 // Set up fee payment (Sponsored FPC on devnet, none on sandbox)
 const paymentMethod = isDevnet ? await setupSponsoredPayment(wallet) : undefined;
@@ -91,6 +106,6 @@ console.log(JSON.stringify(data, null, 2));
 const balanceAfter = await token.methods
   .balance_of_private(alice)
   .simulate({ from: alice });
-console.log(`\nBalance after: ${balanceAfter}`);
-console.log(`Spent: ${Number(balanceBefore) - Number(balanceAfter)}`);
+console.log(`\nBalance after: ${extractSimulateValue(balanceAfter)}`);
+console.log(`Spent: ${bigintFromSimulate(balanceBefore) - bigintFromSimulate(balanceAfter)}`);
 process.exit(0);

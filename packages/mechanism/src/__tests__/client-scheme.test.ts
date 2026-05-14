@@ -6,7 +6,7 @@ import type { PaymentRequirements } from "../x402-types.js";
 function createMockSigner(overrides?: Partial<ClientAztecSigner>): ClientAztecSigner {
   return {
     getAddress: jest.fn().mockResolvedValue("0x" + "aa".repeat(32)),
-    transferPrivateToPrivate: jest.fn().mockResolvedValue("0x" + "cc".repeat(32)),
+    finalizePayment: jest.fn().mockResolvedValue("0x" + "cc".repeat(32)),
     ...overrides,
   };
 }
@@ -39,20 +39,33 @@ describe("ExactAztecClientScheme", () => {
     expect(scheme.scheme).toBe("exact");
   });
 
-  it("calls transferPrivateToPrivate with correct args", async () => {
-    const requirements = createPaymentRequirements();
+  it("calls finalizePayment with commitment from requirements.extra", async () => {
+    const commitment = "0x" + "ff".repeat(32);
+    const requirements = createPaymentRequirements({
+      extra: { commitment },
+    });
 
     await scheme.createPaymentPayload(2, requirements);
 
-    expect(signer.transferPrivateToPrivate).toHaveBeenCalledWith(
+    expect(signer.finalizePayment).toHaveBeenCalledWith(
       requirements.asset,
-      requirements.payTo,
+      commitment,
       BigInt(requirements.amount),
     );
   });
 
+  it("throws when commitment is missing from requirements", async () => {
+    const requirements = createPaymentRequirements({ extra: {} });
+
+    await expect(
+      scheme.createPaymentPayload(2, requirements),
+    ).rejects.toThrow("missing commitment");
+  });
+
   it("returns a payload with sender address and correlation ID", async () => {
-    const requirements = createPaymentRequirements();
+    const requirements = createPaymentRequirements({
+      extra: { commitment: "0x" + "ff".repeat(32) },
+    });
 
     const result = await scheme.createPaymentPayload(2, requirements);
 
@@ -64,7 +77,9 @@ describe("ExactAztecClientScheme", () => {
   });
 
   it("generates unique correlation IDs", async () => {
-    const requirements = createPaymentRequirements();
+    const requirements = createPaymentRequirements({
+      extra: { commitment: "0x" + "ff".repeat(32) },
+    });
 
     const result1 = await scheme.createPaymentPayload(2, requirements);
     const result2 = await scheme.createPaymentPayload(2, requirements);
@@ -73,7 +88,9 @@ describe("ExactAztecClientScheme", () => {
   });
 
   it("includes a valid ISO timestamp", async () => {
-    const requirements = createPaymentRequirements();
+    const requirements = createPaymentRequirements({
+      extra: { commitment: "0x" + "ff".repeat(32) },
+    });
 
     const result = await scheme.createPaymentPayload(2, requirements);
 
@@ -83,10 +100,12 @@ describe("ExactAztecClientScheme", () => {
 
   it("propagates signer errors", async () => {
     const failingSigner = createMockSigner({
-      transferPrivateToPrivate: jest.fn().mockRejectedValue(new Error("tx failed")),
+      finalizePayment: jest.fn().mockRejectedValue(new Error("tx failed")),
     });
     const failingScheme = new ExactAztecClientScheme(failingSigner);
-    const requirements = createPaymentRequirements();
+    const requirements = createPaymentRequirements({
+      extra: { commitment: "0x" + "ff".repeat(32) },
+    });
 
     await expect(
       failingScheme.createPaymentPayload(2, requirements),

@@ -10,18 +10,22 @@
     "setup": "bun run src/aztec/setup.ts",
     "real:server": "bun run src/aztec/real-server.ts",
     "real:client": "bun run src/aztec/real-client.ts",
-    "test": "bun test"
+    "test": "bun test",
+    "test:offchain": "bun run src/aztec/test-offchain-partial.ts"
   },
   "dependencies": {
     "@aztec-x402/client": "workspace:*",
     "@aztec-x402/core": "workspace:*",
     "@aztec-x402/mechanism": "workspace:*",
     "@aztec-x402/middleware": "workspace:*",
-    "@aztec/accounts": "4.0.0-devnet.2-patch.1",
-    "@aztec/aztec.js": "4.0.0-devnet.2-patch.1",
-    "@aztec/constants": "4.0.0-devnet.2-patch.1",
-    "@aztec/noir-contracts.js": "4.0.0-devnet.2-patch.1",
-    "@aztec/wallets": "4.0.0-devnet.2-patch.1",
-    "@sentry/bun": "^10.43.0"
+    "@aztec/accounts": "4.2.0",
+    "@aztec/aztec.js": "4.2.0",
+    "@aztec/constants": "4.2.0",
+    "@aztec/noir-contracts.js": "4.2.0",
+    "@aztec/stdlib": "4.2.0",
+    "@aztec/wallets": "4.2.0",
+    "@defi-wonderland/aztec-standards": "4.2.0",
+    "@sentry/bun": "^10.43.0",
+    "zod": "^4.4.3"
   }
 }

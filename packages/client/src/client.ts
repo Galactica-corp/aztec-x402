@@ -1,23 +1,23 @@
 import type {
   SchemeNetworkClient,
   PaymentPayload,
-  PaymentRequirements,
+  ParsedPaymentRequired,
 } from "@aztec-x402/mechanism";
+import { PaymentRequiredSchema } from "@aztec-x402/mechanism";
+import { parseAztecPaymentExtra } from "@aztec-x402/core";
 
 type FetchFunction = typeof fetch;
-
-interface PaymentRequired {
-  x402Version: number;
-  accepts: PaymentRequirements[];
-}
 
 /**
  * Wraps a fetch function with automatic x402 payment handling.
  *
- * When a request returns HTTP 402:
- * 1. Reads the PAYMENT-REQUIRED header
- * 2. Creates a payment payload using the provided scheme
- * 3. Retries the request with a PAYMENT-SIGNATURE header
+ * 3-request flow for Aztec commitment-based payments:
+ * 1. Initial request → 402 with nonce (no commitment yet)
+ * 2. Prepare request (X-402-PREPARE header) → 402 with nonce + commitment
+ * 3. Payment request (PAYMENT-SIGNATURE header) → success
+ *
+ * The server creates the commitment for its own address during the prepare
+ * phase, providing structural recipient verification.
  *
  * Non-402 responses pass through unchanged.
  */
@@ -29,7 +29,7 @@ export function wrapFetchWithPayment(
     input: RequestInfo | URL,
     init?: RequestInit,
   ): Promise<Response> => {
-    // Make the initial request
+    // Phase 1: Make the initial request
     const response = await fetchFn(input, init);
 
     // If not 402, pass through
@@ -44,10 +44,10 @@ export function wrapFetchWithPayment(
     }
 
     // Decode payment requirements
-    let paymentRequired: PaymentRequired;
+    let paymentRequired: ParsedPaymentRequired;
     try {
-      paymentRequired = JSON.parse(
-        Buffer.from(paymentRequiredHeader, "base64").toString(),
+      paymentRequired = PaymentRequiredSchema.parse(
+        JSON.parse(Buffer.from(paymentRequiredHeader, "base64").toString()),
       );
     } catch {
       return response;
@@ -61,38 +61,69 @@ export function wrapFetchWithPayment(
       return response;
     }
 
-    // Create payment payload
+    // Get nonce from the initial 402 response
+    const nonce = parseAztecPaymentExtra(matching.extra).nonce;
+    if (!nonce) {
+      return response;
+    }
+
+    // Phase 2: Prepare — send our address to get a commitment
+    const senderAddress = await scheme.getSenderAddress?.();
+
+    // Merge existing headers
+    const existingHeaders = extractHeaders(init);
+
+    let preparedRequirements = matching;
+
+    if (senderAddress) {
+      const prepareData = Buffer.from(
+        JSON.stringify({ nonce, senderAddress }),
+      ).toString("base64");
+
+      const prepareResponse = await fetchFn(input, {
+        ...init,
+        headers: {
+          ...existingHeaders,
+          "X-402-PREPARE": prepareData,
+        },
+      });
+
+      if (prepareResponse.status === 402) {
+        const prepareHeader = prepareResponse.headers.get("PAYMENT-REQUIRED");
+        if (prepareHeader) {
+          try {
+            const prepared = PaymentRequiredSchema.parse(
+              JSON.parse(Buffer.from(prepareHeader, "base64").toString()),
+            );
+            const preparedMatch = prepared.accepts.find(
+              (a) => a.scheme === scheme.scheme,
+            );
+            if (preparedMatch && parseAztecPaymentExtra(preparedMatch.extra).commitment) {
+              preparedRequirements = preparedMatch;
+            }
+          } catch {
+            // Fall through with original requirements
+          }
+        }
+      }
+    }
+
+    // Phase 3: Create payment payload using the commitment from prepare phase
     const payloadResult = await scheme.createPaymentPayload(
       paymentRequired.x402Version,
-      matching,
+      preparedRequirements,
     );
 
     // Build full payment payload
     const fullPayload: PaymentPayload = {
       x402Version: payloadResult.x402Version,
-      accepted: matching,
+      accepted: preparedRequirements,
       payload: payloadResult.payload,
       extensions: payloadResult.extensions,
     };
 
     // Encode as base64
     const encoded = Buffer.from(JSON.stringify(fullPayload)).toString("base64");
-
-    // Merge headers
-    const existingHeaders: Record<string, string> = {};
-    if (init?.headers) {
-      if (init.headers instanceof Headers) {
-        init.headers.forEach((value, key) => {
-          existingHeaders[key] = value;
-        });
-      } else if (Array.isArray(init.headers)) {
-        for (const [key, value] of init.headers) {
-          existingHeaders[key] = value;
-        }
-      } else {
-        Object.assign(existingHeaders, init.headers);
-      }
-    }
 
     // Retry with payment
     return fetchFn(input, {
@@ -103,4 +134,22 @@ export function wrapFetchWithPayment(
       },
     });
   };
+}
+
+function extractHeaders(init?: RequestInit): Record<string, string> {
+  const headers: Record<string, string> = {};
+  if (init?.headers) {
+    if (init.headers instanceof Headers) {
+      init.headers.forEach((value, key) => {
+        headers[key] = value;
+      });
+    } else if (Array.isArray(init.headers)) {
+      for (const [key, value] of init.headers) {
+        headers[key] = value;
+      }
+    } else {
+      Object.assign(headers, init.headers);
+    }
+  }
+  return headers;
 }

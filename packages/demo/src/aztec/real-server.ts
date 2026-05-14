@@ -15,12 +15,16 @@ Sentry.init({
 });
 
 import { createAztecNodeClient } from "@aztec/aztec.js/node";
-import { EmbeddedWallet } from "@aztec/wallets/embedded";
+import { AztecAddress } from "@aztec/aztec.js/addresses";
+import { TokenContract } from "@defi-wonderland/aztec-standards/dist/src/artifacts/Token.js";
+import { createPXEWallet } from "./pxe-wallet.js";
 import { readFileSync } from "fs";
 import { join, dirname } from "path";
-import { loadKeys, loadAccount } from "./wallet-manager.js";
+import { loadKeys, loadAccount, setupSponsoredPayment } from "./wallet-manager.js";
 
-import type { AztecNetwork } from "@aztec-x402/core";
+const USE_SPONSORED_FPC = process.env.USE_SPONSORED_FPC === "true";
+
+import { AztecNetworkSchema, type AztecNetwork } from "@aztec-x402/core";
 import { ExactAztecFacilitatorScheme } from "@aztec-x402/mechanism/exact/facilitator";
 import { createPaymentMiddleware } from "@aztec-x402/middleware";
 import type {
@@ -39,6 +43,11 @@ const __dirname = dirname(new URL(import.meta.url).pathname);
 const DATA_DIR = process.env.DATA_DIR ?? __dirname;
 const CONFIG_PATH = join(DATA_DIR, "deploy.json");
 const KEYS_PATH = join(DATA_DIR, "keys.json");
+
+function parseAztecNetwork(value: string): AztecNetwork {
+  return AztecNetworkSchema.parse(value);
+}
+
 let config: Record<string, string>;
 try {
   config = JSON.parse(readFileSync(CONFIG_PATH, "utf-8"));
@@ -49,7 +58,7 @@ try {
 }
 
 const NODE_URL = config.nodeUrl;
-const NETWORK = config.network as AztecNetwork;
+const NETWORK = parseAztecNetwork(config.network);
 const TOKEN_ADDRESS = config.tokenAddress;
 const SERVER_ADDRESS = config.bobAddress;
 const isDevnet = NETWORK !== "aztec:sandbox";
@@ -57,7 +66,7 @@ const isDevnet = NETWORK !== "aztec:sandbox";
 // Connect to Aztec
 console.log(`Connecting to Aztec node at ${NODE_URL}...`);
 const node = createAztecNodeClient(NODE_URL);
-const wallet = await EmbeddedWallet.create(node, {
+const wallet = await createPXEWallet(node, {
   ephemeral: true,
   pxeConfig: { proverEnabled: isDevnet },
 });
@@ -68,8 +77,20 @@ const bobAccount = await loadAccount(wallet, keys, "bob");
 const bob = bobAccount.address;
 console.log(`Server address: ${bob}`);
 
+// Load the token contract for the facilitator (needed for commitment creation)
+const tokenAddress = AztecAddress.fromString(TOKEN_ADDRESS);
+const tokenInstance = await node.getContract(tokenAddress);
+if (tokenInstance) {
+  await wallet.registerContract(tokenInstance, TokenContract.artifact);
+}
+const token = await TokenContract.at(tokenAddress, wallet);
+
+// Set up fee payment (Sponsored FPC on devnet, none on sandbox)
+const paymentMethod = USE_SPONSORED_FPC ? await setupSponsoredPayment(wallet) : undefined;
+const sendOpts = paymentMethod ? { fee: { paymentMethod } } : undefined;
+
 // Create real facilitator signer
-const facilitatorSigner = new RealFacilitatorAztecSigner(bobAccount, wallet, node);
+const facilitatorSigner = new RealFacilitatorAztecSigner(bobAccount, node, token, sendOpts);
 const facilitator = new ExactAztecFacilitatorScheme(facilitatorSigner, [NETWORK]);
 await facilitator.initialize();
 
@@ -80,7 +101,7 @@ const routes: RoutesConfig = {
     asset: TOKEN_ADDRESS,
     amount: PRICE_AMOUNT,
     payTo: SERVER_ADDRESS,
-    maxTimeoutSeconds: 120,
+    maxTimeoutSeconds: 600,
     description: "Current weather data — costs $0.01 per resource (real Aztec payment)",
   },
 };
@@ -170,6 +191,7 @@ async function handleRequest(req: Request): Promise<Response> {
 
 const server = Bun.serve({
   port: PORT,
+  idleTimeout: 255,
   fetch: handleRequest,
   error(error) {
     Sentry.captureException(error);

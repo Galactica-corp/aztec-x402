@@ -2,9 +2,11 @@
 
 x402 payment protocol for Aztec private tokens — HTTP-native micropayments with full transaction privacy.
 
-This monorepo implements the [x402 protocol](https://www.x402.org) for [Aztec](https://aztec.network), allowing any HTTP API to be payment-gated using private stablecoin transfers. All payments use `transfer_private_to_private` — sender, receiver, and amount are hidden on-chain.
+This monorepo implements the [x402 protocol](https://www.x402.org) for [Aztec](https://aztec.network), allowing any HTTP API to be payment-gated using private stablecoin transfers. All payments use private transfers — sender, receiver, and amount are hidden on-chain.
 
 ## Protocol Flow
+
+The x402 protocol uses a 3-phase commitment-based payment flow:
 
 ```mermaid
 sequenceDiagram
@@ -16,47 +18,85 @@ sequenceDiagram
     Client->>Server: GET /api/weather/london
     Server-->>Client: 402 + PAYMENT-REQUIRED<br/>{asset, amount, payTo, nonce}
 
-    Client->>Node: transfer_private_to_private(bob, 10000)
-    Node->>Chain: Submit private tx (encrypted notes)
+    Client->>Server: GET /api/weather/london<br/>X-402-PREPARE: {nonce, senderAddress}
+
+    Note over Server: initialize_transfer_commitment(bob, alice)
+    Server->>Node: Create commitment (partial note)
+    Node->>Chain: Submit prepare tx
+    Chain-->>Node: Tx settled
+    Server-->>Client: 402 + {nonce, commitment}
+
+    Note over Client: transfer_private_to_commitment<br/>(alice, commitment, amount, 0)
+    Client->>Node: Complete transfer using commitment
+    Node->>Chain: Submit finalize tx
     Chain-->>Node: Tx settled
 
     Client->>Server: GET /api/weather/london<br/>PAYMENT-SIGNATURE: {senderAddr, txHash, nonce}
 
     Note over Server: Validate nonce (anti-replay)
-    Server->>Node: getTxReceipt(txHash) → settled?
+    Server->>Node: getTxReceipt(txHash) + getTxEffect(txHash)
 
     Note over Server: Consume nonce + record txHash
     Server-->>Client: 200 OK + weather data<br/>PAYMENT-RESPONSE: {tx, payer}
 ```
 
+### Commitment Pattern — Structural Recipient Verification
+
+The server creates the commitment via `initialize_transfer_commitment(serverAddr, clientAddr)` on the [AIP-20 standard token contract](https://github.com/defi-wonderland/aztec-standards). This provides two guarantees:
+
+1. **Recipient is bound**: the partial note's `to` = server's address — the client can only complete the transfer TO the server
+2. **Completer is bound**: only the specified client address can call `transfer_private_to_commitment` for this commitment
+
+This closes the "who did the payment go to?" verification gap that exists with direct `transfer_in_private`.
+
+## Token Contract
+
+This project uses the **AIP-20 standard token** from [`@defi-wonderland/aztec-standards`](https://github.com/defi-wonderland/aztec-standards). AIP-20 natively supports the `completer` parameter in `initialize_transfer_commitment(to, completer)`, enabling cross-party commitment flows where the server prepares and the client finalizes.
+
+The demo consumes the published `@defi-wonderland/aztec-standards@4.2.0` token wrapper and artifact directly. There is no checked-in local token artifact or Noir source copy in this repo.
+
+## Aztec Version Compatibility
+
+| Component | Version | Notes |
+|-----------|---------|-------|
+| SDK (`@aztec/aztec.js` etc.) | `4.2.0` | Matches the current testnet generation |
+| AIP-20 token artifact | `@defi-wonderland/aztec-standards@4.2.0` | Published token wrapper and artifact |
+| Public testnet | `4.2.0` | RPC: `https://rpc.testnet.aztec-labs.com` |
+| Local network | `4.2.0` | Use Aztec 4.2.x tooling |
+
+### v4.2.x API Notes
+
+The code handles the post-v4.1 Aztec.js send/simulate shapes:
+
+- **`send()`** returns `{ receipt, offchainEffects, offchainMessages }` — txHash is on `receipt.txHash`, not top-level
+- **`simulate()`** returns `{ result: Field, offchainEffects, offchainMessages }` — the AIP-20 `initialize_transfer_commitment` returns a raw `Field` (commitment)
+- **`offchainMessages`** is preferred when populated; the current fallback still extracts the commitment from `simulate()`
+- **Contract artifacts** must match the SDK/network generation
+
+### Testnet Status
+
+The old devnet blocker is no longer the active target. The demo defaults to Aztec public testnet:
+
+```bash
+NODE_URL=https://rpc.testnet.aztec-labs.com \
+AZTEC_NETWORK=aztec:testnet \
+USE_SPONSORED_FPC=true \
+bun run ./packages/demo/src/aztec/setup.ts
+```
+
+### Running a Local Network
+
+```bash
+# Install Aztec 4.2.x tooling
+VERSION=4.2.0 bash -i <(curl -sL https://install.aztec.network/4.2.0)
+
+# Start a local Aztec network
+aztec start --local-network
+```
+
 ## Anti-Replay Protection
 
 The middleware uses a two-layer defense against payment replay attacks:
-
-```mermaid
-flowchart TD
-    A[Client sends PAYMENT-SIGNATURE] --> B{Nonce present?}
-    B -- No --> R1[402: missing payment nonce]
-    B -- Yes --> C{Nonce in pendingNonces?}
-    C -- No --> R2[402: invalid or expired payment nonce]
-    C -- Yes --> D{Nonce expired?}
-    D -- Yes --> R3[402: invalid or expired payment nonce]
-    D -- No --> E[Consume nonce — delete from Map]
-    E --> F{txHash already used?}
-    F -- Yes --> R4[402: payment already used]
-    F -- No --> G[getTxReceipt — tx succeeded?]
-    G -- No --> R5a[402: tx failed/dropped]
-    G -- Yes --> J2[Settle + record txHash]
-    J2 --> J[200 OK + PAYMENT-RESPONSE]
-
-    style E fill:#2d6,color:#fff
-    style J2 fill:#2d6,color:#fff
-    style R1 fill:#d33,color:#fff
-    style R2 fill:#d33,color:#fff
-    style R3 fill:#d33,color:#fff
-    style R4 fill:#d33,color:#fff
-    style R5a fill:#d33,color:#fff
-```
 
 **Layer 1 — Nonce (middleware):** Each 402 response includes a server-generated UUID v7 nonce in `extra.nonce`. The client echoes it back automatically via `accepted.extra`. The nonce is one-shot (consumed on use) and expires after `maxTimeoutSeconds`. This binds each payment to a specific 402 challenge.
 
@@ -72,8 +112,8 @@ graph LR
     end
 
     subgraph Server Side
-        MW["@aztec-x402/middleware<br/><i>createPaymentMiddleware()</i><br/>Nonce lifecycle"]
-        MF["mechanism/facilitator<br/><i>ExactAztecFacilitatorScheme</i><br/>txHash anti-replay"]
+        MW["@aztec-x402/middleware<br/><i>createPaymentMiddleware()</i><br/>3-phase flow + nonce lifecycle"]
+        MF["mechanism/facilitator<br/><i>ExactAztecFacilitatorScheme</i><br/>Commitment + txHash anti-replay"]
     end
 
     CO["@aztec-x402/core<br/><i>Types, signer interfaces</i>"]
@@ -95,56 +135,70 @@ graph LR
 |---------|-------------|
 | `@aztec-x402/core` | Types, constants, signer abstractions (`ClientAztecSigner`, `FacilitatorAztecSigner`) |
 | `@aztec-x402/mechanism` | x402 mechanism plugin — client scheme (sign + transfer) and facilitator scheme (verify + settle) |
-| `@aztec-x402/middleware` | Express-compatible middleware — 402 responses, nonce lifecycle, payment verification |
-| `@aztec-x402/client` | Fetch wrapper — automatic 402 detection, payment, and retry |
-| `@aztec-x402/demo` | Mock demo + real Aztec devnet demo + replay attack test |
+| `@aztec-x402/middleware` | Express-compatible middleware — 3-phase 402 flow, nonce lifecycle, payment verification |
+| `@aztec-x402/client` | Fetch wrapper — automatic 402 detection, prepare, payment, and retry |
+| `@aztec-x402/demo` | Real Aztec demo + mock demo + replay attack test |
 
 ## Quick Start
 
 ```bash
 bun install
 
-# One-time: deploy accounts + token on Aztec devnet
+# Run tests
+bun test
+
+# One-time: deploy accounts + AIP-20 token
+# Defaults to public testnet and uses Sponsored FPC for fees
 bun run setup
 
 # Run the payment-gated client demo
 bun run demo
-
-# Test anti-replay protection
-bun run demo:replay
 ```
 
 ### What happens
 
-1. **`bun run setup`** — generates Schnorr key pairs (`keys.json`), deploys Alice and Bob accounts on Aztec devnet, deploys an Overcast USD (oUSD) token, mints 1.0 oUSD to Alice, and writes config to `deploy.json`. Only needed once.
+1. **`bun run setup`** — generates Schnorr key pairs (`keys.json`), deploys Alice and Bob accounts, deploys the AIP-20 token contract (oUSD), mints 1.0 oUSD to Alice, and writes config to `deploy.json`.
 
-2. **`bun run demo`** — Alice pays $0.01 oUSD (private transfer) for a weather resource (e.g. `/api/weather/abc123`). Each unique resource ID requires a separate payment; repeat access to a paid resource is free. The client gets a 402 challenge, sends a private token transfer, and retries with the payment proof. Server verifies the tx on-chain and returns weather data.
+2. **`bun run demo`** — Alice pays $0.01 oUSD for a weather resource. The 3-phase flow: (1) client gets 402 with nonce, (2) client sends prepare request with sender address, server creates commitment, (3) client finalizes transfer using commitment, sends txHash to server. Server verifies and returns weather data.
 
-3. **`bun run demo:replay`** — sends a payment, then replays the exact same header. First request gets 200, replay gets 402 "invalid or expired payment nonce".
+## Known Issues and TODOs
 
-### Mock demo (no blockchain)
+### Simulate/Send Commitment Mismatch
 
-```bash
-# Terminal 1
-bun run ./packages/demo/src/server.ts
+**Status: Known limitation — waiting on Aztec offchain delivery for partial notes.**
 
-# Terminal 2
-bun run ./packages/demo/src/client.ts
-```
+`simulate()` and `send()` are independent executions with potentially different randomness. The commitment extracted from `simulate()` may not match the one that goes on-chain via `send()` if Aztec does not return the commitment through `offchainMessages`.
 
-### Deploy server
+**Mitigations in place:**
+- `PXEWallet` uses real account entrypoints for simulation, which aligns randomness with what `send()` does internally — this works in practice on the sandbox but is not a guaranteed fix
+- Code is ready to prefer `offchainMessages` when Aztec wires up offchain delivery for partial notes (PR [#20893](https://github.com/AztecProtocol/aztec-packages/pull/20893) added the infrastructure)
 
-```bash
-docker compose up -d
-```
+**Question for Aztec:** What's the intended pattern for extracting the commitment from an `initialize_transfer_commitment` call? When will `offchainMessages` be populated for partial notes?
 
-Server runs on port 1005, available at `https://aztec-x402.unfazed.engineering`.
+### Amount Verification via balance_of_private
+
+The facilitator snapshots its private balance before `prepareCommitment()` and checks again after finalization. The difference is the actual amount transferred. This works but has limitations:
+- Depends on `balance_of_private` being available (falls back to trusting tx effects if not)
+- Concurrent payments could produce incorrect diffs (demo-only concern — production would need per-commitment accounting)
+
+**Question for Aztec:** Is there a way to verify the transfer amount from tx effects in private transfers?
+
+### Payment Attribution
+
+Each 402 challenge includes a server-generated UUID v7 nonce that acts as the invoice/correlation ID. The nonce binds each payment to a specific request and is tracked by the middleware throughout the 3-phase flow. For external invoice correlation, the server can map nonces to its own invoice system via the `extra` field.
+
+### Other TODOs
+
+- [ ] Consume offchain messages when Aztec wires up partial note delivery
+- [x] Add `offchain_receive()` client-side hook when offchain messages are populated
+- [x] Switch to the published AIP-20 npm package
+- [ ] E2e integration test (setup + full payment flow in CI)
 
 ## Development
 
 ```bash
 bun install
-bun test        # Run all tests (84 across 5 packages)
+bun test        # Run all tests
 bun run build   # Build all packages
 ```
 
@@ -152,15 +206,18 @@ bun run build   # Build all packages
 
 | Variable | Default | Description |
 |----------|---------|-------------|
-| `NODE_URL` | `https://v4-devnet-2.aztec-labs.com` | Aztec node endpoint |
-| `AZTEC_NETWORK` | `aztec:devnet` | CAIP-2 network id |
-| `USE_SPONSORED_FPC` | `true` | Use Sponsored FPC for gas fees |
+| `NODE_URL` | `http://localhost:8080` | Aztec node endpoint |
+| `AZTEC_NETWORK` | `aztec:sandbox` | CAIP-2 network id |
+| `USE_SPONSORED_FPC` | — | Set to `true` to use Sponsored FPC for gas fees on public networks |
 | `SERVER_URL` | `https://aztec-x402.unfazed.engineering` | x402 demo server endpoint (client only) |
 
 ## Design Decisions
 
-- **`transfer_private_to_private` only** — all payments stay fully private on-chain
-- **Tx receipt verification** — server verifies the payment transaction settled on-chain via `getTxReceipt`; the ZK proof guarantees correctness of the private transfer
+- **Commitment-based transfers** — server creates commitment (partial note) binding the recipient, client completes the transfer. Provides structural recipient verification.
+- **AIP-20 standard token** — uses the [`@defi-wonderland/aztec-standards`](https://github.com/defi-wonderland/aztec-standards) token which natively supports the `completer` parameter for cross-party commitment flows.
+- **3-phase HTTP flow** — initial 402 → prepare (server creates commitment) → payment (client finalizes + proves)
+- **Tx receipt + tx effect verification** — server verifies the payment transaction settled and produced private notes
 - **Server = facilitator** — no separate facilitator service; the server verifies and settles payments directly
 - **Nonce in `extra` field** — flows through the protocol without any client-side code changes
 - **UUID v7 nonces** — time-ordered for debuggability, expire after `maxTimeoutSeconds`
+- **PXEWallet over EmbeddedWallet** — uses real account entrypoints for simulation, avoiding the stub-account mismatch that causes different commitments between simulate and send
