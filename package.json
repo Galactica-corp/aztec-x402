@@ -15,6 +15,7 @@
     "demo:replay": "bun run ./packages/demo/src/aztec/replay-test.ts"
   },
   "devDependencies": {
+    "@types/node": "^25.4.0",
     "oxlint": "^1.52.0",
     "tsup": "^8.5.1"
   }

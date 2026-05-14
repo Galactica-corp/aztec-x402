@@ -26,9 +26,12 @@
  *
  * The facilitator snapshots its private balance before `prepareCommitment()` and
  * checks `balance_of_private` again after the client's finalization tx settles.
- * The difference is the actual amount transferred. If the client underpays,
- * verification rejects the payment. If amount verification cannot be completed,
- * verification fails closed.
+ * The difference is the actual amount transferred. The facilitator scheme
+ * serializes pending commitments so this balance-diff check is not used across
+ * simultaneous in-flight payments. If the client underpays, verification rejects
+ * the payment. If amount verification cannot be completed, verification fails
+ * closed without consuming the local balance snapshot, so the same proof can be
+ * retried after transient RPC/PXE failures.
  */
 import type {
   FacilitatorAztecSigner,
@@ -44,6 +47,8 @@ import { AztecAddress } from "@aztec/aztec.js/addresses";
 import { toSendOptions } from "@aztec/aztec.js/contracts";
 import type { InteractionFeeOptions, SendInteractionOptions } from "@aztec/aztec.js/contracts";
 import { TxHash, TxStatus } from "@aztec/aztec.js/tx";
+
+const MIN_COMMITMENT_FINALIZATION_NULLIFIERS = 2;
 
 /** Minimal node interface — only the methods we use */
 interface AztecNode {
@@ -375,12 +380,17 @@ export class RealFacilitatorAztecSigner implements FacilitatorAztecSigner {
         return !/^0x0+$/i.test(str);
       });
 
-      if (nonZeroNullifiers.length === 0) {
+      // Tx effects do not expose a stable commitment -> nullifier mapping yet.
+      // Require the finalization tx to consume enough nullifiers for both the
+      // payer-side spend and the prepared commitment consumption.
+      if (nonZeroNullifiers.length < MIN_COMMITMENT_FINALIZATION_NULLIFIERS) {
+        const error = nonZeroNullifiers.length === 0
+          ? "transaction consumed no nullifiers — commitment was not used"
+          : `transaction consumed ${nonZeroNullifiers.length} non-zero nullifier(s); expected at least ${MIN_COMMITMENT_FINALIZATION_NULLIFIERS}`;
         return {
           isValid: false,
           amountFound: 0n,
-          error:
-            "transaction consumed no nullifiers — commitment was not used",
+          error,
         };
       }
 
@@ -393,7 +403,6 @@ export class RealFacilitatorAztecSigner implements FacilitatorAztecSigner {
           error: "amount snapshot unavailable for commitment",
         };
       }
-      this.balanceBefore.delete(commitment);
       try {
         const facilitatorAddr = this.account.address;
         const afterResult = await this.token.methods
@@ -401,6 +410,7 @@ export class RealFacilitatorAztecSigner implements FacilitatorAztecSigner {
           .simulate({ from: facilitatorAddr });
         const afterBal = bigintFromSimulate(afterResult);
         const actualAmount = afterBal - beforeBal;
+        this.balanceBefore.delete(commitment);
         if (actualAmount < requiredAmount) {
           return {
             isValid: false,

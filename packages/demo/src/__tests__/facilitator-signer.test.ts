@@ -37,7 +37,10 @@ const MOCK_COMMITMENT = "0x" + "ff".repeat(32);
 const REQUIRED_AMOUNT = 100_000n;
 const VALID_TX_EFFECT = {
   noteHashes: ["0x0abababababababababababababababababababababababababababababababab"],
-  nullifiers: ["0x0efefefefefefefefefefefefefefefefefefefefefefefefefefefefefef"],
+  nullifiers: [
+    "0x0efefefefefefefefefefefefefefefefefefefefefefefefefefefefefef",
+    "0x0121212121212121212121212121212121212121212121212121212121212121",
+  ],
 };
 
 function mockAztecAddress(addrStr: string) {
@@ -81,6 +84,8 @@ interface MockTokenOptions {
   offchainMessages?: Array<{ payload: string; recipient?: string; anchorBlockTimestamp?: number }>;
   /** balance_of_private return values: [before, after] */
   balances?: [bigint, bigint];
+  /** balance_of_private return values/errors in call order */
+  balanceResults?: Array<bigint | Error>;
   /** If true, balance_of_private throws */
   balanceError?: boolean;
 }
@@ -93,6 +98,7 @@ function isMockTokenOptions(opts: unknown): opts is MockTokenOptions {
       "offchainMessages" in opts ||
       "simulateResult" in opts ||
       "balances" in opts ||
+      "balanceResults" in opts ||
       "balanceError" in opts
     )
   );
@@ -115,12 +121,14 @@ function createMockToken(opts?: unknown | MockTokenOptions) {
   let offchainMessages: Array<{ payload: string; recipient?: string; anchorBlockTimestamp?: number }> | undefined;
 
   let balances: [bigint, bigint] = [0n, REQUIRED_AMOUNT];
+  let balanceResults: Array<bigint | Error> | undefined;
   let balanceError = false;
 
   if (isMockTokenOptions(opts)) {
     if (opts.simulateResult !== undefined) simulateResult = opts.simulateResult;
     offchainMessages = opts.offchainMessages;
     balances = opts.balances ?? balances;
+    balanceResults = opts.balanceResults;
     balanceError = opts.balanceError ?? false;
   } else if (opts !== undefined) {
     // Legacy: raw value = simulate result
@@ -135,6 +143,12 @@ function createMockToken(opts?: unknown | MockTokenOptions) {
       })
     : jest.fn().mockReturnValue({
         simulate: jest.fn().mockImplementation(() => {
+          if (balanceResults) {
+            const idx = Math.min(balanceCallCount++, balanceResults.length - 1);
+            const value = balanceResults[idx];
+            if (value instanceof Error) return Promise.reject(value);
+            return Promise.resolve(value);
+          }
           const idx = Math.min(balanceCallCount++, balances.length - 1);
           return Promise.resolve(balances[idx]);
         }),
@@ -297,6 +311,19 @@ describe("RealFacilitatorAztecSigner", () => {
       expect(result.error).toContain("no nullifiers");
     });
 
+    it("rejects transaction with only one nullifier", async () => {
+      const signer = createSigner({
+        status: "success",
+        txEffect: {
+          noteHashes: VALID_TX_EFFECT.noteHashes,
+          nullifiers: [VALID_TX_EFFECT.nullifiers[0]],
+        },
+      });
+      const result = await verifyPrepared(signer);
+      expect(result.isValid).toBe(false);
+      expect(result.error).toContain("expected at least 2");
+    });
+
     it("rejects when getTxEffect is not available", async () => {
       const signer = createSigner({
         status: "success",
@@ -356,6 +383,36 @@ describe("RealFacilitatorAztecSigner", () => {
       const result = await signer.verifyPayment(TX_HASH, TOKEN_ADDRESS_STR, 100_000n, prepared.commitment);
       expect(result.isValid).toBe(false);
       expect(result.error).toContain("amount snapshot unavailable");
+    });
+
+    it("keeps amount snapshot when after-balance check fails so the proof can be retried", async () => {
+      const token = createMockToken({
+        balanceResults: [
+          500_000n,
+          new Error("temporary PXE failure"),
+          600_000n,
+        ],
+      });
+      const signer = new RealFacilitatorAztecSigner(createMockAccount(), createMockNode("success"), token);
+      const prepared = await signer.prepareCommitment(TOKEN_ADDRESS_STR, CLIENT_ADDRESS_STR);
+
+      const first = await signer.verifyPayment(
+        TX_HASH,
+        TOKEN_ADDRESS_STR,
+        100_000n,
+        prepared.commitment,
+      );
+      expect(first.isValid).toBe(false);
+      expect(first.error).toContain("amount verification failed");
+
+      const retry = await signer.verifyPayment(
+        TX_HASH,
+        TOKEN_ADDRESS_STR,
+        100_000n,
+        prepared.commitment,
+      );
+      expect(retry.isValid).toBe(true);
+      expect(retry.amountFound).toBe(100_000n);
     });
 
     it("rejects when no commitment provided", async () => {
