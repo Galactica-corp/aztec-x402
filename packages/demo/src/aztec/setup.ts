@@ -11,7 +11,7 @@
  * Environment variables:
  *   NODE_URL  — Aztec node URL (default: http://localhost:8080)
  *   AZTEC_NETWORK — CAIP-2 network id (default: aztec:sandbox)
- *   USE_SPONSORED_FPC — set to "true" to use Sponsored FPC for fees (devnet)
+ *   USE_SPONSORED_FPC — set to "true" for Sponsored FPC (public testnet; required for local 4.2+ where fees are non-zero)
  */
 import { createAztecNodeClient } from "@aztec/aztec.js/node";
 import { AztecAddress } from "@aztec/aztec.js/addresses";
