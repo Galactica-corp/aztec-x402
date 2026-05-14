@@ -179,13 +179,23 @@ bun run demo
 
 **Question for Aztec:** What's the intended pattern for extracting the commitment from an `initialize_transfer_commitment` call? When will `offchainMessages` be populated for partial notes?
 
-### Amount Verification via balance_of_private
+### Amount Verification via Completion Log Lookup
 
-The facilitator snapshots its private balance before `prepareCommitment()` and checks again after finalization. The difference is the actual amount transferred. This works but has limitations:
-- Depends on `balance_of_private` being available (falls back to trusting tx effects if not)
-- Concurrent payments could produce incorrect diffs (demo-only concern — production would need per-commitment accounting)
+When the buyer finalizes a partial note via `transfer_*_to_commitment`, the token
+contract emits a completion log keyed by a tag derived from the commitment:
 
-**Question for Aztec:** Is there a way to verify the transfer amount from tx effects in private transfers?
+```
+log_tag    = poseidon2(commitment ; DOM_SEP__NOTE_COMPLETION_LOG_TAG)
+siloedTag  = poseidon2(tokenAddr, log_tag ; PRIVATE_LOG_FIRST_FIELD)
+payload    = [siloedTag, storage_slot, value, 0, 0, ...]
+```
+
+The facilitator recovers `value` by querying the node for the log with this tag
+(`getPrivateLogsByTags` for `complete_from_private`, falling back to
+`getPublicLogsByTagsFromContract` for `complete`). The lookup is O(1), keyed by
+the unique commitment, and binds the proof to the buyer's tx via `log.txHash` —
+so concurrent payments do not interfere with one another and no balance
+snapshots are required.
 
 ### Payment Attribution
 
@@ -220,7 +230,7 @@ bun run build   # Build all packages
 - **Commitment-based transfers** — server creates commitment (partial note) binding the recipient, client completes the transfer. Provides structural recipient verification.
 - **AIP-20 standard token** — uses the [`@defi-wonderland/aztec-standards`](https://github.com/defi-wonderland/aztec-standards) token which natively supports the `completer` parameter for cross-party commitment flows.
 - **3-phase HTTP flow** — initial 402 → prepare (server creates commitment) → payment (client finalizes + proves)
-- **Tx receipt + tx effect verification** — server verifies the payment transaction settled and produced private notes
+- **Commitment-tagged completion log** — server verifies the buyer's payment by looking up the unique completion log emitted by `PartialUintNote::complete{_from_private}`, keyed by the commitment. Concurrent payments are safe.
 - **Server = facilitator** — no separate facilitator service; the server verifies and settles payments directly
 - **Nonce in `extra` field** — flows through the protocol without any client-side code changes
 - **UUID v7 nonces** — time-ordered for debuggability, expire after `maxTimeoutSeconds`

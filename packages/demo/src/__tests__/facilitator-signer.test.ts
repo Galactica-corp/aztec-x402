@@ -11,17 +11,22 @@
  * - txHash is on receipt, not top-level
  * - offchainMessages is present but currently empty [] for initialize_transfer_commitment
  *
- * NOTE: We avoid importing AztecAddress directly because @aztec/foundation
- * validates field elements at module load time and our synthetic test addresses
- * exceed the BN254 field modulus. Instead, we use duck-typed mocks.
+ * Verification flow:
+ * - Verification looks up the completion log keyed by the commitment via
+ *   the node's `getPrivateLogsByTags` / `getPublicLogsByTagsFromContract`
+ *   methods. The recovered log binds the txHash to the commitment and
+ *   yields the actual transferred amount.
  */
 import { describe, it, expect, jest } from "bun:test";
 
-// Polyfill for @aztec/foundation which calls expect.addEqualityTesters at module load
+// Polyfill for @aztec/foundation which calls expect.addEqualityTesters at module load.
+// MUST run before any @aztec/* module import to avoid TypeError at load time.
 if (!Reflect.get(expect, "addEqualityTesters")) {
   Reflect.set(expect, "addEqualityTesters", () => {});
 }
 
+const { Fr } = await import("@aztec/aztec.js/fields");
+const { TxHash } = await import("@aztec/aztec.js/tx");
 const { RealFacilitatorAztecSigner } = await import("../aztec/facilitator-signer.js");
 
 /** Valid Aztec address (within BN254 field modulus) */
@@ -33,43 +38,66 @@ const TOKEN_ADDRESS_STR =
   "0x0abcdef1234567890abcdef1234567890abcdef1234567890abcdef1234567890";
 const TX_HASH =
   "0x0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef";
-const MOCK_COMMITMENT = "0x" + "ff".repeat(32);
+const OTHER_TX_HASH =
+  "0x0fedcba987654321fedcba987654321fedcba987654321fedcba987654321fed";
+const MOCK_COMMITMENT =
+  "0x01010101010101010101010101010101010101010101010101010101010101ab";
+const MOCK_STORAGE_SLOT =
+  "0x0000000000000000000000000000000000000000000000000000000000000007";
 const REQUIRED_AMOUNT = 100_000n;
-const VALID_TX_EFFECT = {
-  noteHashes: ["0x0abababababababababababababababababababababababababababababababab"],
-  nullifiers: [
-    "0x0efefefefefefefefefefefefefefefefefefefefefefefefefefefefefef",
-    "0x0121212121212121212121212121212121212121212121212121212121212121",
-  ],
-};
 
 function mockAztecAddress(addrStr: string) {
   return { toString: () => addrStr };
 }
 
+interface CompletionLogFixture {
+  txHash: TxHash;
+  storageSlot: Fr;
+  value: bigint;
+}
+
 interface MockNodeOptions {
   status?: string;
-  txEffect?: {
-    noteHashes?: unknown[];
-    nullifiers?: unknown[];
-    data?: { noteHashes?: unknown[]; nullifiers?: unknown[] };
-  } | null;
-  txEffectError?: boolean;
+  /** Logs returned on the private channel. Defaults to a single valid log. */
+  privateLogs?: CompletionLogFixture[];
+  /** Logs returned on the public-fallback channel. Defaults to empty. */
+  publicLogs?: CompletionLogFixture[];
+  /** If set, getTxReceipt rejects with this error */
+  txReceiptError?: Error;
+}
+
+function logToTxScopedL2Log(log: CompletionLogFixture) {
+  // Mirrors the on-chain shape: logData[0] is the tag (unused here),
+  // logData[1] is the storage slot, logData[2] is the value.
+  return {
+    txHash: log.txHash,
+    logData: [Fr.random(), log.storageSlot, new Fr(log.value)],
+  };
+}
+
+function defaultCompletionLog(): CompletionLogFixture {
+  return {
+    txHash: TxHash.fromString(TX_HASH),
+    storageSlot: Fr.fromString(MOCK_STORAGE_SLOT),
+    value: REQUIRED_AMOUNT,
+  };
 }
 
 function createMockNode(opts?: string | MockNodeOptions) {
   const options: MockNodeOptions =
     typeof opts === "string" ? { status: opts } : opts ?? {};
 
+  const privateLogs = (options.privateLogs ?? [defaultCompletionLog()]).map(
+    logToTxScopedL2Log,
+  );
+  const publicLogs = (options.publicLogs ?? []).map(logToTxScopedL2Log);
+
   return {
-    getTxReceipt: jest.fn().mockResolvedValue({
-      status: options.status ?? "success",
-    }),
-    getTxEffect: options.txEffectError
-      ? jest.fn().mockRejectedValue(new Error("getTxEffect not supported"))
-      : jest.fn().mockResolvedValue(
-          "txEffect" in options ? options.txEffect : VALID_TX_EFFECT,
-        ),
+    getTxReceipt: options.txReceiptError
+      ? jest.fn().mockRejectedValue(options.txReceiptError)
+      : jest.fn().mockResolvedValue({ status: options.status ?? "success" }),
+    getPrivateLogsByTags: jest.fn().mockResolvedValue([privateLogs]),
+    getPublicLogsByTagsFromContract: jest.fn().mockResolvedValue([publicLogs]),
   };
 }
 
@@ -82,25 +110,13 @@ interface MockTokenOptions {
   simulateResult?: unknown;
   /** What send() returns (v4.1.0 shape) */
   offchainMessages?: Array<{ payload: string; recipient?: string; anchorBlockTimestamp?: number }>;
-  /** balance_of_private return values: [before, after] */
-  balances?: [bigint, bigint];
-  /** balance_of_private return values/errors in call order */
-  balanceResults?: Array<bigint | Error>;
-  /** If true, balance_of_private throws */
-  balanceError?: boolean;
 }
 
 function isMockTokenOptions(opts: unknown): opts is MockTokenOptions {
   return (
     opts != null &&
     typeof opts === "object" &&
-    (
-      "offchainMessages" in opts ||
-      "simulateResult" in opts ||
-      "balances" in opts ||
-      "balanceResults" in opts ||
-      "balanceError" in opts
-    )
+    ("offchainMessages" in opts || "simulateResult" in opts)
   );
 }
 
@@ -112,47 +128,22 @@ function isMockTokenOptions(opts: unknown): opts is MockTokenOptions {
  * Default send result uses v4.1.0 shape: { receipt: { txHash }, offchainEffects: [], offchainMessages: [] }
  */
 function createMockToken(opts?: unknown | MockTokenOptions) {
-  // v4.1.0 default simulate result — AIP-20 returns Field directly
   let simulateResult: unknown = {
     result: MOCK_COMMITMENT,
     offchainEffects: [],
     offchainMessages: [],
   };
-  let offchainMessages: Array<{ payload: string; recipient?: string; anchorBlockTimestamp?: number }> | undefined;
-
-  let balances: [bigint, bigint] = [0n, REQUIRED_AMOUNT];
-  let balanceResults: Array<bigint | Error> | undefined;
-  let balanceError = false;
+  let offchainMessages:
+    | Array<{ payload: string; recipient?: string; anchorBlockTimestamp?: number }>
+    | undefined;
 
   if (isMockTokenOptions(opts)) {
     if (opts.simulateResult !== undefined) simulateResult = opts.simulateResult;
     offchainMessages = opts.offchainMessages;
-    balances = opts.balances ?? balances;
-    balanceResults = opts.balanceResults;
-    balanceError = opts.balanceError ?? false;
   } else if (opts !== undefined) {
     // Legacy: raw value = simulate result
     simulateResult = opts;
   }
-
-  // balance_of_private mock: returns balances[0] first call, balances[1] second call
-  let balanceCallCount = 0;
-  const balanceOfPrivate = balanceError
-    ? jest.fn().mockReturnValue({
-        simulate: jest.fn().mockRejectedValue(new Error("balance_of_private unavailable")),
-      })
-    : jest.fn().mockReturnValue({
-        simulate: jest.fn().mockImplementation(() => {
-          if (balanceResults) {
-            const idx = Math.min(balanceCallCount++, balanceResults.length - 1);
-            const value = balanceResults[idx];
-            if (value instanceof Error) return Promise.reject(value);
-            return Promise.resolve(value);
-          }
-          const idx = Math.min(balanceCallCount++, balances.length - 1);
-          return Promise.resolve(balances[idx]);
-        }),
-      });
 
   return {
     address: mockAztecAddress(TOKEN_ADDRESS_STR),
@@ -166,15 +157,17 @@ function createMockToken(opts?: unknown | MockTokenOptions) {
           offchainMessages: offchainMessages ?? [],
         }),
       }),
-      balance_of_private: balanceOfPrivate,
     },
   };
 }
 
-function createSigner(opts?: string | MockNodeOptions, tokenOpts?: unknown | MockTokenOptions) {
+function createSigner(
+  nodeOpts?: string | MockNodeOptions,
+  tokenOpts?: unknown | MockTokenOptions,
+) {
   return new RealFacilitatorAztecSigner(
     createMockAccount(),
-    createMockNode(opts),
+    createMockNode(nodeOpts),
     tokenOpts !== undefined ? createMockToken(tokenOpts) : createMockToken(),
   );
 }
@@ -234,191 +227,201 @@ describe("RealFacilitatorAztecSigner", () => {
     });
 
     it("handles node errors gracefully", async () => {
-      const node = {
-        getTxReceipt: jest.fn().mockRejectedValue(new Error("node unavailable")),
-        getTxEffect: jest.fn().mockResolvedValue(null),
-      };
-      const signer = new RealFacilitatorAztecSigner(createMockAccount(), node, createMockToken());
+      const signer = createSigner({ txReceiptError: new Error("node unavailable") });
       const prepared = await signer.prepareCommitment(TOKEN_ADDRESS_STR, CLIENT_ADDRESS_STR);
-      const result = await signer.verifyPayment(TX_HASH, TOKEN_ADDRESS_STR, REQUIRED_AMOUNT, prepared.commitment);
+      const result = await signer.verifyPayment(
+        TX_HASH,
+        TOKEN_ADDRESS_STR,
+        REQUIRED_AMOUNT,
+        prepared.commitment,
+      );
       expect(result.isValid).toBe(false);
       expect(result.error).toContain("node unavailable");
     });
   });
 
-  describe("verifyPayment — tx effect validation", () => {
-    it("rejects transaction with no note hashes", async () => {
+  describe("verifyPayment — completion log lookup", () => {
+    it("returns isValid with the recovered amount when the private log matches", async () => {
       const signer = createSigner({
-        status: "success",
-        txEffect: { noteHashes: [], nullifiers: [] },
+        privateLogs: [
+          {
+            txHash: TxHash.fromString(TX_HASH),
+            storageSlot: Fr.fromString(MOCK_STORAGE_SLOT),
+            value: 250_000n,
+          },
+        ],
       });
-      const result = await verifyPrepared(signer);
-      expect(result.isValid).toBe(false);
-      expect(result.error).toContain("no private notes");
-    });
-
-    it("rejects transaction where all note hashes are zero", async () => {
-      const signer = createSigner({
-        status: "success",
-        txEffect: { noteHashes: ["0", "0x0", "0"], nullifiers: [] },
-      });
-      const result = await verifyPrepared(signer);
-      expect(result.isValid).toBe(false);
-      expect(result.error).toContain("no private notes");
-    });
-
-    it("rejects transaction where all note hashes are Fr.ZERO", async () => {
-      const FR_ZERO = "0x" + "0".repeat(64);
-      const signer = createSigner({
-        status: "success",
-        txEffect: { noteHashes: [FR_ZERO, FR_ZERO], nullifiers: [] },
-      });
-      const result = await verifyPrepared(signer);
-      expect(result.isValid).toBe(false);
-      expect(result.error).toContain("no private notes");
-    });
-
-    it("accepts transaction with non-zero note hashes and nullifiers", async () => {
-      const signer = createSigner({
-        status: "success",
-        txEffect: VALID_TX_EFFECT,
-      });
-      const result = await verifyPrepared(signer);
+      const prepared = await signer.prepareCommitment(TOKEN_ADDRESS_STR, CLIENT_ADDRESS_STR);
+      const result = await signer.verifyPayment(
+        TX_HASH,
+        TOKEN_ADDRESS_STR,
+        100_000n,
+        prepared.commitment,
+      );
       expect(result.isValid).toBe(true);
+      expect(result.amountFound).toBe(250_000n);
     });
 
-    it("handles wrapped SDK shape (IndexedTxEffect with data property)", async () => {
+    it("falls back to the public log channel when the private channel is empty", async () => {
       const signer = createSigner({
-        status: "success",
-        txEffect: {
-          data: VALID_TX_EFFECT,
-        },
+        privateLogs: [],
+        publicLogs: [
+          {
+            txHash: TxHash.fromString(TX_HASH),
+            storageSlot: Fr.fromString(MOCK_STORAGE_SLOT),
+            value: 175_000n,
+          },
+        ],
       });
-      const result = await verifyPrepared(signer);
+      const prepared = await signer.prepareCommitment(TOKEN_ADDRESS_STR, CLIENT_ADDRESS_STR);
+      const result = await signer.verifyPayment(
+        TX_HASH,
+        TOKEN_ADDRESS_STR,
+        150_000n,
+        prepared.commitment,
+      );
       expect(result.isValid).toBe(true);
+      expect(result.amountFound).toBe(175_000n);
     });
 
-    it("rejects transaction with notes but no nullifiers", async () => {
-      const signer = createSigner({
-        status: "success",
-        txEffect: {
-          noteHashes: VALID_TX_EFFECT.noteHashes,
-          nullifiers: [],
-        },
-      });
-      const result = await verifyPrepared(signer);
+    it("rejects when no completion log is found on either channel", async () => {
+      const signer = createSigner({ privateLogs: [], publicLogs: [] });
+      const prepared = await signer.prepareCommitment(TOKEN_ADDRESS_STR, CLIENT_ADDRESS_STR);
+      const result = await signer.verifyPayment(
+        TX_HASH,
+        TOKEN_ADDRESS_STR,
+        REQUIRED_AMOUNT,
+        prepared.commitment,
+      );
       expect(result.isValid).toBe(false);
-      expect(result.error).toContain("no nullifiers");
+      expect(result.error).toContain("no completion log found");
     });
 
-    it("rejects transaction with only one nullifier", async () => {
+    it("rejects when the completion log txHash does not match the buyer's tx", async () => {
       const signer = createSigner({
-        status: "success",
-        txEffect: {
-          noteHashes: VALID_TX_EFFECT.noteHashes,
-          nullifiers: [VALID_TX_EFFECT.nullifiers[0]],
-        },
+        privateLogs: [
+          {
+            txHash: TxHash.fromString(OTHER_TX_HASH),
+            storageSlot: Fr.fromString(MOCK_STORAGE_SLOT),
+            value: REQUIRED_AMOUNT,
+          },
+        ],
       });
-      const result = await verifyPrepared(signer);
+      const prepared = await signer.prepareCommitment(TOKEN_ADDRESS_STR, CLIENT_ADDRESS_STR);
+      const result = await signer.verifyPayment(
+        TX_HASH,
+        TOKEN_ADDRESS_STR,
+        REQUIRED_AMOUNT,
+        prepared.commitment,
+      );
       expect(result.isValid).toBe(false);
-      expect(result.error).toContain("expected at least 2");
+      expect(result.error).toContain("completion log belongs to tx");
     });
 
-    it("rejects when getTxEffect is not available", async () => {
-      const signer = createSigner({
-        status: "success",
-        txEffectError: true,
-      });
-      const result = await verifyPrepared(signer);
+    it("rejects when more than one completion log matches (commitment ambiguity)", async () => {
+      const log = {
+        txHash: TxHash.fromString(TX_HASH),
+        storageSlot: Fr.fromString(MOCK_STORAGE_SLOT),
+        value: REQUIRED_AMOUNT,
+      };
+      const signer = createSigner({ privateLogs: [log, log] });
+      const prepared = await signer.prepareCommitment(TOKEN_ADDRESS_STR, CLIENT_ADDRESS_STR);
+      const result = await signer.verifyPayment(
+        TX_HASH,
+        TOKEN_ADDRESS_STR,
+        REQUIRED_AMOUNT,
+        prepared.commitment,
+      );
       expect(result.isValid).toBe(false);
-      expect(result.error).toContain("effects unavailable");
-    });
-
-    it("rejects when getTxEffect returns null", async () => {
-      const signer = createSigner({
-        status: "success",
-        txEffect: null,
-      });
-      const result = await verifyPrepared(signer);
-      expect(result.isValid).toBe(false);
-      expect(result.error).toContain("effects unavailable");
+      expect(result.error).toContain("no completion log found");
     });
   });
 
   describe("verifyPayment — amount verification", () => {
-    it("verifies actual amount via balance difference (keyed by commitment)", async () => {
-      const token = createMockToken({ balances: [500_000n, 600_000n] });
-      const signer = new RealFacilitatorAztecSigner(createMockAccount(), createMockNode("success"), token);
-      // prepareCommitment snapshots balance (500_000), keyed by commitment
+    it("returns the recovered amount when value >= required", async () => {
+      const signer = createSigner({
+        privateLogs: [
+          {
+            txHash: TxHash.fromString(TX_HASH),
+            storageSlot: Fr.fromString(MOCK_STORAGE_SLOT),
+            value: 200_000n,
+          },
+        ],
+      });
       const prepared = await signer.prepareCommitment(TOKEN_ADDRESS_STR, CLIENT_ADDRESS_STR);
-      // verifyPayment checks balance again (600_000), diff = 100_000
-      const result = await signer.verifyPayment(TX_HASH, TOKEN_ADDRESS_STR, 100_000n, prepared.commitment);
+      const result = await signer.verifyPayment(
+        TX_HASH,
+        TOKEN_ADDRESS_STR,
+        100_000n,
+        prepared.commitment,
+      );
       expect(result.isValid).toBe(true);
-      expect(result.amountFound).toBe(100_000n);
+      expect(result.amountFound).toBe(200_000n);
     });
 
-    it("rejects when actual amount is less than required", async () => {
-      const token = createMockToken({ balances: [500_000n, 550_000n] });
-      const signer = new RealFacilitatorAztecSigner(createMockAccount(), createMockNode("success"), token);
+    it("rejects when the recovered value is less than required, exposing what was received", async () => {
+      const signer = createSigner({
+        privateLogs: [
+          {
+            txHash: TxHash.fromString(TX_HASH),
+            storageSlot: Fr.fromString(MOCK_STORAGE_SLOT),
+            value: 50_000n,
+          },
+        ],
+      });
       const prepared = await signer.prepareCommitment(TOKEN_ADDRESS_STR, CLIENT_ADDRESS_STR);
-      const result = await signer.verifyPayment(TX_HASH, TOKEN_ADDRESS_STR, 100_000n, prepared.commitment);
+      const result = await signer.verifyPayment(
+        TX_HASH,
+        TOKEN_ADDRESS_STR,
+        100_000n,
+        prepared.commitment,
+      );
       expect(result.isValid).toBe(false);
       expect(result.amountFound).toBe(50_000n);
       expect(result.error).toContain("insufficient payment");
     });
 
-    it("accepts when actual amount exceeds required", async () => {
-      const token = createMockToken({ balances: [500_000n, 700_000n] });
-      const signer = new RealFacilitatorAztecSigner(createMockAccount(), createMockNode("success"), token);
-      const prepared = await signer.prepareCommitment(TOKEN_ADDRESS_STR, CLIENT_ADDRESS_STR);
-      const result = await signer.verifyPayment(TX_HASH, TOKEN_ADDRESS_STR, 100_000n, prepared.commitment);
-      expect(result.isValid).toBe(true);
-      expect(result.amountFound).toBe(200_000n);
-    });
-
-    it("rejects when balance_of_private is unavailable", async () => {
-      const token = createMockToken({ balanceError: true });
-      const signer = new RealFacilitatorAztecSigner(createMockAccount(), createMockNode("success"), token);
-      const prepared = await signer.prepareCommitment(TOKEN_ADDRESS_STR, CLIENT_ADDRESS_STR);
-      const result = await signer.verifyPayment(TX_HASH, TOKEN_ADDRESS_STR, 100_000n, prepared.commitment);
-      expect(result.isValid).toBe(false);
-      expect(result.error).toContain("amount snapshot unavailable");
-    });
-
-    it("keeps amount snapshot when after-balance check fails so the proof can be retried", async () => {
-      const token = createMockToken({
-        balanceResults: [
-          500_000n,
-          new Error("temporary PXE failure"),
-          600_000n,
+    it("accepts when the recovered value exactly equals required", async () => {
+      const signer = createSigner({
+        privateLogs: [
+          {
+            txHash: TxHash.fromString(TX_HASH),
+            storageSlot: Fr.fromString(MOCK_STORAGE_SLOT),
+            value: 100_000n,
+          },
         ],
       });
-      const signer = new RealFacilitatorAztecSigner(createMockAccount(), createMockNode("success"), token);
       const prepared = await signer.prepareCommitment(TOKEN_ADDRESS_STR, CLIENT_ADDRESS_STR);
-
-      const first = await signer.verifyPayment(
+      const result = await signer.verifyPayment(
         TX_HASH,
         TOKEN_ADDRESS_STR,
         100_000n,
         prepared.commitment,
       );
-      expect(first.isValid).toBe(false);
-      expect(first.error).toContain("amount verification failed");
-
-      const retry = await signer.verifyPayment(
-        TX_HASH,
-        TOKEN_ADDRESS_STR,
-        100_000n,
-        prepared.commitment,
-      );
-      expect(retry.isValid).toBe(true);
-      expect(retry.amountFound).toBe(100_000n);
+      expect(result.isValid).toBe(true);
+      expect(result.amountFound).toBe(100_000n);
     });
 
     it("rejects when no commitment provided", async () => {
-      const result = await createSigner("success").verifyPayment(TX_HASH, TOKEN_ADDRESS_STR, 100_000n);
+      const result = await createSigner("success").verifyPayment(
+        TX_HASH,
+        TOKEN_ADDRESS_STR,
+        100_000n,
+      );
       expect(result.isValid).toBe(false);
       expect(result.error).toContain("commitment");
+    });
+
+    it("rejects a commitment that is structurally non-zero but exceeds the field modulus", async () => {
+      const invalidCommitment = "0x" + "ff".repeat(32);
+      const result = await createSigner("success").verifyPayment(
+        TX_HASH,
+        TOKEN_ADDRESS_STR,
+        REQUIRED_AMOUNT,
+        invalidCommitment,
+      );
+      expect(result.isValid).toBe(false);
+      expect(result.error).toContain("invalid commitment");
     });
 
     it("rejects wrong token address when the contract address is known", async () => {
@@ -472,7 +475,7 @@ describe("RealFacilitatorAztecSigner", () => {
     });
 
     it("handles raw Field simulate result (no wrapper)", async () => {
-      const rawCommitment = "0x" + "12".repeat(32);
+      const rawCommitment = "0x" + "12".repeat(31) + "01";
       const signer = createSigner("success", {
         simulateResult: rawCommitment,
       });
