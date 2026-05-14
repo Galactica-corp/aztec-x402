@@ -11,7 +11,9 @@
     "lint": "oxlint --config .oxlintrc.json packages/",
     "clean": "bun run --filter '*' clean",
     "setup": "NODE_URL=https://rpc.testnet.aztec-labs.com AZTEC_NETWORK=aztec:testnet USE_SPONSORED_FPC=true bun run ./packages/demo/src/aztec/setup.ts",
+    "setup:sandbox": "NODE_URL=http://localhost:8080 AZTEC_NETWORK=aztec:sandbox USE_SPONSORED_FPC=false bun run ./packages/demo/src/aztec/setup.ts",
     "demo": "bun run ./packages/demo/src/aztec/real-client.ts",
+    "demo:sandbox": "SERVER_URL=http://localhost:4402 bun run ./packages/demo/src/aztec/real-client.ts",
     "demo:replay": "bun run ./packages/demo/src/aztec/replay-test.ts"
   },
   "devDependencies": {
