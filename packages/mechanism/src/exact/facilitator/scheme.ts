@@ -62,6 +62,8 @@ function isNonZeroFieldString(value: string): boolean {
 
 function isRetryableVerificationError(reason: string): boolean {
   return (
+    reason.startsWith("completion log lookup failed") ||
+    reason.startsWith("no completion log found for commitment") ||
     reason.startsWith("transaction effects unavailable") ||
     reason.startsWith("amount verification failed") ||
     reason.startsWith("verification error:") ||
@@ -94,7 +96,6 @@ export class ExactAztecFacilitatorScheme implements SchemeNetworkFacilitator {
   private cachedAddresses: string[] = [];
   private consumedTxHashes = new Set<string>();
   private pendingCommitments = new Map<string, PendingCommitment>();
-  private prepareInFlight = false;
 
   constructor(
     private readonly signer: FacilitatorAztecSigner,
@@ -139,56 +140,45 @@ export class ExactAztecFacilitatorScheme implements SchemeNetworkFacilitator {
   ): Promise<Record<string, unknown>> {
     this.sweepExpiredCommitments();
 
-    if (this.prepareInFlight || this.pendingCommitments.size > 0) {
-      throw new Error(
-        "concurrent pending Aztec payments are not supported by this facilitator; retry after the current payment settles or expires",
-      );
+    const result = await this.signer.prepareCommitment(
+      tokenAddress,
+      completerAddress,
+    );
+
+    // Handle both v4.0.x (string) and v4.1.0+ (PrepareCommitmentResult) return types
+    let commitment: string;
+    let offchainMessage: string | undefined;
+    let prepareTxHash: string | undefined;
+
+    if (typeof result === "string") {
+      commitment = result;
+    } else {
+      commitment = result.commitment;
+      offchainMessage = result.offchainMessage;
+      prepareTxHash = result.prepareTxHash;
     }
 
-    this.prepareInFlight = true;
-    try {
-      const result = await this.signer.prepareCommitment(
-        tokenAddress,
-        completerAddress,
-      );
-
-      // Handle both v4.0.x (string) and v4.1.0+ (PrepareCommitmentResult) return types
-      let commitment: string;
-      let offchainMessage: string | undefined;
-      let prepareTxHash: string | undefined;
-
-      if (typeof result === "string") {
-        commitment = result;
-      } else {
-        commitment = result.commitment;
-        offchainMessage = result.offchainMessage;
-        prepareTxHash = result.prepareTxHash;
-      }
-
-      if (!isNonZeroFieldString(commitment)) {
-        throw new Error("facilitator returned an invalid commitment");
-      }
-
-      const createdAt = options.createdAt ?? Date.now();
-      const timeoutMs = options.timeoutMs ?? DEFAULT_COMMITMENT_TIMEOUT_MS;
-      this.pendingCommitments.set(commitment, {
-        senderAddress: normalizeAddress(completerAddress),
-        tokenAddress: normalizeAddress(tokenAddress),
-        nonce: options.nonce,
-        expiresAt: createdAt + timeoutMs,
-      });
-
-      const extra: Record<string, unknown> = { commitment };
-      if (offchainMessage) {
-        extra.offchainMessage = offchainMessage;
-      }
-      if (prepareTxHash) {
-        extra.prepareTxHash = prepareTxHash;
-      }
-      return extra;
-    } finally {
-      this.prepareInFlight = false;
+    if (!isNonZeroFieldString(commitment)) {
+      throw new Error("facilitator returned an invalid commitment");
     }
+
+    const createdAt = options.createdAt ?? Date.now();
+    const timeoutMs = options.timeoutMs ?? DEFAULT_COMMITMENT_TIMEOUT_MS;
+    this.pendingCommitments.set(commitment, {
+      senderAddress: normalizeAddress(completerAddress),
+      tokenAddress: normalizeAddress(tokenAddress),
+      nonce: options.nonce,
+      expiresAt: createdAt + timeoutMs,
+    });
+
+    const extra: Record<string, unknown> = { commitment };
+    if (offchainMessage) {
+      extra.offchainMessage = offchainMessage;
+    }
+    if (prepareTxHash) {
+      extra.prepareTxHash = prepareTxHash;
+    }
+    return extra;
   }
 
   async verify(

@@ -2,9 +2,15 @@
  * Concurrent verifyPayment test.
  *
  * Exercises the commitment-tagged completion-log lookup in
- * RealFacilitatorAztecSigner.verifyPayment by running two prepare + finalize
- * flows concurrently and then verifying both with the same facilitator
- * instance.
+ * RealFacilitatorAztecSigner.verifyPayment by preparing two payments
+ * concurrently, completing both commitments, and verifying both with the same
+ * facilitator instance.
+ *
+ * The finalize transactions use the same payer account in this demo, so they
+ * are sent sequentially on public testnet to avoid account/nullifier mempool
+ * replacement conflicts. The concurrency being tested here is facilitator-side:
+ * multiple pending commitments can coexist and verification is keyed by the
+ * unique completion log instead of a shared balance snapshot.
  *
  * Prerequisites: run `bun run setup` first to deploy accounts + the token
  * contract on the configured Aztec node, and mint some balance to Alice.
@@ -21,19 +27,27 @@ import { createPXEWallet } from "./pxe-wallet.js";
 import { loadKeys, loadAccount, setupSponsoredPayment } from "./wallet-manager.js";
 import { RealFacilitatorAztecSigner } from "./facilitator-signer.js";
 import { RealClientAztecSigner } from "./client-signer.js";
+import { z } from "zod";
 
 const USE_SPONSORED_FPC = process.env.USE_SPONSORED_FPC === "true";
+const DeployConfigSchema = z.object({
+  nodeUrl: z.string(),
+  network: z.string(),
+  tokenAddress: z.string(),
+});
 
 const __dirname = dirname(new URL(import.meta.url).pathname);
 const DATA_DIR = process.env.DATA_DIR ?? __dirname;
 const CONFIG_PATH = join(DATA_DIR, "deploy.json");
 const KEYS_PATH = join(DATA_DIR, "keys.json");
 
-const config = JSON.parse(readFileSync(CONFIG_PATH, "utf-8"));
-const NODE_URL = config.nodeUrl as string;
-const NETWORK = config.network as string;
-const TOKEN_ADDRESS = config.tokenAddress as string;
-const isDevnet = NETWORK !== "aztec:sandbox";
+const config = DeployConfigSchema.parse(
+  JSON.parse(readFileSync(CONFIG_PATH, "utf-8")),
+);
+const NODE_URL = config.nodeUrl;
+const NETWORK = config.network;
+const TOKEN_ADDRESS = config.tokenAddress;
+const isDevnet = USE_SPONSORED_FPC || NETWORK !== "aztec:sandbox";
 
 // Two distinct amounts so we can verify they aren't conflated.
 const AMOUNT_A = 11_111n;
@@ -81,7 +95,15 @@ interface FlowResult {
   offchainMessage?: string;
 }
 
-async function runFlow(label: string, amount: bigint): Promise<FlowResult> {
+interface PreparedFlow {
+  label: string;
+  amount: bigint;
+  commitment: string;
+  prepareTxHash: string;
+  offchainMessage?: string;
+}
+
+async function prepareFlow(label: string, amount: bigint): Promise<PreparedFlow> {
   console.log(`[${label}] prepareCommitment(amount=${amount})...`);
   const prepared = await facilitatorSigner.prepareCommitment(
     TOKEN_ADDRESS,
@@ -102,10 +124,21 @@ async function runFlow(label: string, amount: bigint): Promise<FlowResult> {
     );
   }
 
+  return {
+    label,
+    amount,
+    commitment: prepared.commitment,
+    prepareTxHash,
+    offchainMessage: prepared.offchainMessage,
+  };
+}
+
+async function finalizeFlow(flow: PreparedFlow): Promise<FlowResult> {
+  const { label, amount } = flow;
   console.log(`[${label}] finalizePayment(amount=${amount})...`);
   const finalizeTxHash = await clientSigner.finalizePayment(
     TOKEN_ADDRESS,
-    prepared.commitment,
+    flow.commitment,
     amount,
   );
   console.log(`[${label}]   finalizeTxHash:   ${finalizeTxHash}`);
@@ -113,23 +146,28 @@ async function runFlow(label: string, amount: bigint): Promise<FlowResult> {
   return {
     label,
     amount,
-    commitment: prepared.commitment,
+    commitment: flow.commitment,
     finalizeTxHash,
-    offchainMessage: prepared.offchainMessage,
+    offchainMessage: flow.offchainMessage,
   };
 }
 
-console.log("--- Running two prepare+finalize flows concurrently ---\n");
-const [flowA, flowB] = await Promise.all([
-  runFlow("A", AMOUNT_A),
-  runFlow("B", AMOUNT_B),
+console.log("--- Preparing two payments concurrently ---\n");
+const [preparedA, preparedB] = await Promise.all([
+  prepareFlow("A", AMOUNT_A),
+  prepareFlow("B", AMOUNT_B),
 ]);
 console.log("");
 
-if (flowA.commitment === flowB.commitment) {
+if (preparedA.commitment === preparedB.commitment) {
   console.error("❌ flowA and flowB produced the same commitment — test setup is broken");
   process.exit(1);
 }
+
+console.log("--- Finalizing both commitments with the same payer account ---\n");
+console.log("Finalizes are sequential to avoid same-account mempool nullifier replacement conflicts.\n");
+const flowA = await finalizeFlow(preparedA);
+const flowB = await finalizeFlow(preparedB);
 
 let failures = 0;
 
@@ -182,8 +220,10 @@ async function expectInvalid(
 }
 
 console.log("\n--- Positive cases: both flows must verify independently ---\n");
-await expectValid(flowA);
-await expectValid(flowB);
+await Promise.all([
+  expectValid(flowA),
+  expectValid(flowB),
+]);
 
 console.log("\n--- Negative case: swap commitment between flows ---\n");
 // flowA.txHash with flowB.commitment must be rejected because the log keyed by
