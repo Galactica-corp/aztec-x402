@@ -155,7 +155,10 @@ bun test
 # Defaults to public testnet and uses Sponsored FPC for fees
 bun run setup
 
-# Run the payment-gated client demo
+# Start the payment-gated API server
+bun run server
+
+# In another shell, run the payment-gated client demo
 bun run demo
 ```
 
@@ -163,7 +166,9 @@ bun run demo
 
 1. **`bun run setup`** — generates Schnorr key pairs (`keys.json`), deploys Alice and Bob accounts, deploys the AIP-20 token contract (oUSD), mints 1.0 oUSD to Alice, and writes config to `deploy.json`.
 
-2. **`bun run demo`** — Alice pays $0.01 oUSD for a weather resource. The 3-phase flow: (1) client gets 402 with nonce, (2) client sends prepare request with sender address, server creates commitment, (3) client finalizes transfer using commitment, sends txHash to server. Server verifies and returns weather data.
+2. **`bun run server`** — starts the local weather API and facilitator. The public hosted demo is not assumed to be current; run the local server against the same `deploy.json` you generated in setup.
+
+3. **`bun run demo`** — Alice pays $0.01 oUSD for a weather resource. The 3-phase flow: (1) client gets 402 with nonce, (2) client sends prepare request with sender address, server creates commitment, (3) client finalizes transfer using commitment, sends txHash to server. Server verifies and returns weather data.
 
 ## Known Issues and TODOs
 
@@ -223,7 +228,7 @@ bun run build   # Build all packages
 | `NODE_URL` | `http://localhost:8080` | Aztec node endpoint |
 | `AZTEC_NETWORK` | `aztec:sandbox` | CAIP-2 network id |
 | `USE_SPONSORED_FPC` | — | Set to `true` to use Sponsored FPC for gas fees on public networks |
-| `SERVER_URL` | `https://aztec-x402.unfazed.engineering` | x402 demo server endpoint (client only) |
+| `SERVER_URL` | `http://localhost:4402` | x402 demo server endpoint (client only) |
 
 ## Design Decisions
 

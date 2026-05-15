@@ -19,7 +19,7 @@ import { RealClientAztecSigner } from "./client-signer.js";
 import { loadKeys, loadAccount, setupSponsoredPayment } from "./wallet-manager.js";
 import { unwrapAztecSdkResult } from "@aztec-x402/core";
 
-const SERVER_URL = process.env.SERVER_URL ?? "https://aztec-x402.unfazed.engineering";
+const SERVER_URL = process.env.SERVER_URL ?? "http://localhost:4402";
 
 // Load deployment config
 const __dirname = dirname(new URL(import.meta.url).pathname);

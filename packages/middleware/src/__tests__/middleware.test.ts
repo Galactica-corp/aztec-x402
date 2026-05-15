@@ -272,7 +272,7 @@ describe("createPaymentMiddleware", () => {
     config.facilitator.verify = jest.fn()
       .mockResolvedValueOnce({
         isValid: false,
-        invalidReason: "amount verification failed: PXE timeout",
+        invalidReason: "completion log lookup failed: PXE timeout",
       })
       .mockResolvedValueOnce({
         isValid: true,

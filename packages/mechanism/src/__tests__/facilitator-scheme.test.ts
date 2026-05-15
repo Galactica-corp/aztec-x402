@@ -11,6 +11,7 @@ const SENDER_ADDRESS = "0x" + "aa".repeat(32);
 const TOKEN_ADDRESS = "0x" + "dd".repeat(32);
 const TX_HASH = "0x" + "cc".repeat(32);
 const MOCK_COMMITMENT = "0x" + "ff".repeat(32);
+const OTHER_COMMITMENT = "0x" + "ee".repeat(32);
 
 function createMockSigner(
   overrides?: Partial<FacilitatorAztecSigner>,
@@ -112,13 +113,30 @@ describe("ExactAztecFacilitatorScheme", () => {
       ).rejects.toThrow("invalid commitment");
     });
 
-    it("rejects a second pending commitment while amount verification is balance-diff based", async () => {
-      await scheme.preparePayment(TOKEN_ADDRESS, SENDER_ADDRESS);
+    it("allows multiple pending commitments for concurrent payments", async () => {
+      signer.prepareCommitment = jest.fn()
+        .mockResolvedValueOnce(MOCK_COMMITMENT)
+        .mockResolvedValueOnce(OTHER_COMMITMENT);
 
-      await expect(
+      const [first, second] = await Promise.all([
         scheme.preparePayment(TOKEN_ADDRESS, SENDER_ADDRESS),
-      ).rejects.toThrow("concurrent pending Aztec payments");
-      expect(signer.prepareCommitment).toHaveBeenCalledTimes(1);
+        scheme.preparePayment(TOKEN_ADDRESS, SENDER_ADDRESS),
+      ]);
+
+      expect(first).toEqual({ commitment: MOCK_COMMITMENT });
+      expect(second).toEqual({ commitment: OTHER_COMMITMENT });
+      expect(signer.prepareCommitment).toHaveBeenCalledTimes(2);
+
+      const firstResult = await scheme.verify(
+        createPayload(),
+        createRequirements({ extra: first }),
+      );
+      const secondResult = await scheme.verify(
+        createPayload({ payload: { ...createPayload().payload, txHash: "0x" + "ee".repeat(32) } }),
+        createRequirements({ extra: second }),
+      );
+      expect(firstResult.isValid).toBe(true);
+      expect(secondResult.isValid).toBe(true);
     });
   });
 
@@ -276,7 +294,7 @@ describe("ExactAztecFacilitatorScheme", () => {
         .mockResolvedValueOnce({
           isValid: false,
           amountFound: 0n,
-          error: "amount verification failed: PXE timeout",
+          error: "completion log lookup failed: PXE timeout",
         })
         .mockResolvedValueOnce({
           isValid: true,
@@ -285,7 +303,7 @@ describe("ExactAztecFacilitatorScheme", () => {
 
       const first = await scheme.verify(createPayload(), createRequirements());
       expect(first.isValid).toBe(false);
-      expect(first.invalidReason).toContain("amount verification failed");
+      expect(first.invalidReason).toContain("completion log lookup failed");
 
       const retry = await scheme.verify(createPayload(), createRequirements());
       expect(retry.isValid).toBe(true);
