@@ -61,7 +61,7 @@ const NODE_URL = config.nodeUrl;
 const NETWORK = parseAztecNetwork(config.network);
 const TOKEN_ADDRESS = config.tokenAddress;
 const SERVER_ADDRESS = config.bobAddress;
-const isDevnet = NETWORK !== "aztec:sandbox";
+const isDevnet = USE_SPONSORED_FPC || NETWORK !== "aztec:sandbox";
 
 // Connect to Aztec
 console.log(`Connecting to Aztec node at ${NODE_URL}...`);
@@ -85,7 +85,7 @@ if (tokenInstance) {
 }
 const token = await TokenContract.at(tokenAddress, wallet);
 
-// Set up fee payment (Sponsored FPC on devnet, none on sandbox)
+// Sponsored FPC when USE_SPONSORED_FPC=true (testnet + local 4.2 networks with non-zero fees)
 const paymentMethod = USE_SPONSORED_FPC ? await setupSponsoredPayment(wallet) : undefined;
 const sendOpts = paymentMethod ? { fee: { paymentMethod } } : undefined;
 

@@ -85,7 +85,7 @@ export async function ensureKeys(keysPath: string, wallet: PXEWallet): Promise<S
 
 /**
  * Register the Sponsored FPC contract and return a payment method.
- * On sandbox (no sponsoredFPC), returns undefined.
+ * Use when `USE_SPONSORED_FPC=true` (public testnet and local Aztec 4.2+ where fees are non-zero).
  */
 export async function setupSponsoredPayment(
   wallet: PXEWallet,
@@ -102,8 +102,9 @@ export async function setupSponsoredPayment(
  * Deploy (or reconnect to) both Alice and Bob accounts.
  * Checks on-chain (via the node) whether the account contract is already deployed.
  *
- * On devnet, pass a `paymentMethod` (Sponsored FPC) to pay deployment gas.
- * On sandbox, fees are zero — pass undefined.
+ * Pass `paymentMethod` (Sponsored FPC) when fees apply: public testnet and local
+ * Aztec 4.2+ (`aztec start --local-network` / sandbox). Account deploy uses `NO_FROM`
+ * and needs an explicit fee payer; without Sponsored FPC you get insufficient fee balance.
  */
 export async function deployAccounts(
   wallet: PXEWallet,

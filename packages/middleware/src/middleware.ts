@@ -309,6 +309,8 @@ function sweepExpiredPayments(payments: Map<string, PendingPayment>): void {
 
 function isRetryablePaymentFailure(reason: string): boolean {
   return (
+    reason.startsWith("completion log lookup failed") ||
+    reason.startsWith("no completion log found for commitment") ||
     reason.startsWith("transaction effects unavailable") ||
     reason.startsWith("amount verification failed") ||
     reason.startsWith("verification error:") ||

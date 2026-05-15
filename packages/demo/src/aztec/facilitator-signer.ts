@@ -13,25 +13,28 @@
  * The commitment is extracted from `simulate().result` on v4.1.0+ (returns Field directly).
  * Offchain messages are forwarded separately to the client for PXE note processing.
  *
- * ## Payment Verification
+ * ## Payment Verification — Commitment-Tagged Completion Log
  *
- * After the client calls `transfer_private_to_commitment(...)`, the facilitator verifies:
- * - Transaction succeeded (receipt status)
- * - Transaction produced private notes (tx effects)
- * - Transaction consumed nullifiers (commitment was used)
- * - Recipient correctness is guaranteed by the commitment pattern
- * - Token contract correctness is structurally guaranteed
+ * Every successful `transfer_*_to_commitment` call completes the partial note via
+ * `PartialUintNote::complete{_from_private}`, which emits a completion log keyed
+ * by a tag derived from the commitment:
  *
- * ## Amount Verification
+ *   log_tag    = poseidon2(commitment ; DOM_SEP__NOTE_COMPLETION_LOG_TAG)
+ *   siloedTag  = poseidon2(tokenAddr, log_tag ; PRIVATE_LOG_FIRST_FIELD)
+ *   logData    = [siloedTag, storage_slot, value, 0, 0, ...]
  *
- * The facilitator snapshots its private balance before `prepareCommitment()` and
- * checks `balance_of_private` again after the client's finalization tx settles.
- * The difference is the actual amount transferred. The facilitator scheme
- * serializes pending commitments so this balance-diff check is not used across
- * simultaneous in-flight payments. If the client underpays, verification rejects
- * the payment. If amount verification cannot be completed, verification fails
- * closed without consuming the local balance snapshot, so the same proof can be
- * retried after transient RPC/PXE failures.
+ * The facilitator recovers `(storage_slot, value)` by querying the node for the
+ * log with this tag — `complete_from_private` emits it via the private channel,
+ * `complete` via the public channel, so we try both. Because `commitment` is
+ * unique per partial note, the lookup is O(1) and immune to concurrent payments
+ * (no shared mutable state, no balance snapshots).
+ *
+ * Verification checks:
+ * - Tx receipt status is one of the accepted statuses.
+ * - Token address matches.
+ * - A completion log with the derived tag exists.
+ * - `log.txHash` matches the txHash supplied by the client (binds the proof).
+ * - Recovered `value >= requiredAmount`.
  */
 import type {
   FacilitatorAztecSigner,
@@ -40,36 +43,30 @@ import type {
 } from "@aztec-x402/core";
 import {
   AztecOffchainMessagesSchema,
-  getAztecTxEffectArray,
   unwrapAztecSdkResult,
 } from "@aztec-x402/core";
 import { AztecAddress } from "@aztec/aztec.js/addresses";
 import { toSendOptions } from "@aztec/aztec.js/contracts";
 import type { InteractionFeeOptions, SendInteractionOptions } from "@aztec/aztec.js/contracts";
+import { Fr } from "@aztec/aztec.js/fields";
 import { TxHash, TxStatus } from "@aztec/aztec.js/tx";
-
-const MIN_COMMITMENT_FINALIZATION_NULLIFIERS = 2;
-
-/** Minimal node interface — only the methods we use */
-interface AztecNode {
-  getTxReceipt(txHash: TxHash): Promise<{ status: string }>;
-  getTxEffect(txHash: TxHash): Promise<TxEffect | null>;
-}
+import { DomainSeparator } from "@aztec/constants";
+import { computeLogTag, computeSiloedPrivateLogFirstField } from "@aztec/stdlib/hash";
+import { SiloedTag, Tag, type TxScopedL2Log } from "@aztec/stdlib/logs";
 
 /**
- * Minimal shape of TxEffect returned by the node.
- *
- * The real Aztec SDK returns IndexedTxEffect which wraps TxEffect inside
- * a `data` property. We handle both shapes: direct `{ noteHashes }` and
- * wrapped `{ data: { noteHashes } }`.
+ * Subset of `@aztec/stdlib/interfaces/client`'s `AztecNode` that the facilitator
+ * uses. The real `AztecNode` client returned by `createAztecNodeClient(...)`
+ * satisfies this shape — we keep a narrowed local interface so this module
+ * stays decoupled from the rest of the SDK surface.
  */
-interface TxEffect {
-  noteHashes?: unknown[];
-  nullifiers?: unknown[];
-  data?: {
-    noteHashes?: unknown[];
-    nullifiers?: unknown[];
-  };
+interface AztecNode {
+  getTxReceipt(txHash: TxHash): Promise<{ status: string }>;
+  getPrivateLogsByTags(tags: SiloedTag[]): Promise<TxScopedL2Log[][]>;
+  getPublicLogsByTagsFromContract(
+    contractAddress: AztecAddress,
+    tags: Tag[],
+  ): Promise<TxScopedL2Log[][]>;
 }
 
 interface AztecAccount {
@@ -127,9 +124,6 @@ interface TokenContract {
         ): Promise<SendResult>;
       };
     };
-    balance_of_private(owner: AztecAddress): {
-      simulate(opts: { from: AztecAddress }): Promise<unknown>;
-    };
   };
 }
 
@@ -151,15 +145,6 @@ function extractCommitmentFromSendResult(sendResult: SendResult): string | undef
   const value = sendResult.appReturnValues?.[0];
   if (value == null) return undefined;
   return normalizeCommitment(value);
-}
-
-function extractSimulateValue(result: unknown): unknown {
-  return unwrapAztecSdkResult(result);
-}
-
-function bigintFromSimulate(result: unknown): bigint {
-  const value = extractSimulateValue(result);
-  return typeof value === "bigint" ? value : BigInt(String(value));
 }
 
 /**
@@ -214,15 +199,12 @@ function serializeOffchainMessage(messages: OffchainMessage[]): string | undefin
 }
 
 export class RealFacilitatorAztecSigner implements FacilitatorAztecSigner {
-  /** Balance snapshot taken before each prepareCommitment, keyed by commitment */
-  private balanceBefore = new Map<string, bigint>();
-
   constructor(
     private readonly account: AztecAccount,
     private readonly node: AztecNode,
     private readonly token: TokenContract,
     private readonly sendOpts?: { fee?: InteractionFeeOptions },
-  ) {}
+  ) { }
 
   async getAddresses(): Promise<string[]> {
     return [this.account.address.toString()];
@@ -234,17 +216,6 @@ export class RealFacilitatorAztecSigner implements FacilitatorAztecSigner {
   ): Promise<PrepareCommitmentResult> {
     const facilitatorAddr = this.account.address;
     const completerAddr = AztecAddress.fromString(completerAddress);
-
-    // Snapshot balance before preparing, so we can verify the actual amount later
-    let balanceBefore: bigint | undefined;
-    try {
-      const balResult = await this.token.methods
-        .balance_of_private(facilitatorAddr)
-        .simulate({ from: facilitatorAddr });
-      balanceBefore = bigintFromSimulate(balResult);
-    } catch {
-      // verifyPayment fails closed if this snapshot is unavailable.
-    }
 
     // Create partial note: to=facilitator (recipient), completer=client (who will finalize)
     const interaction =
@@ -277,10 +248,6 @@ export class RealFacilitatorAztecSigner implements FacilitatorAztecSigner {
     const finalCommitment =
       extractCommitmentFromSendResult(sendResult) ??
       extractCommitmentFromSimulate(simulateResult);
-
-    if (balanceBefore !== undefined) {
-      this.balanceBefore.set(finalCommitment, balanceBefore);
-    }
 
     const result: PrepareCommitmentResult = {
       commitment: finalCommitment,
@@ -318,7 +285,18 @@ export class RealFacilitatorAztecSigner implements FacilitatorAztecSigner {
         };
       }
 
-      // 1. Confirm the transaction succeeded via the node
+      let commitmentFr: Fr;
+      try {
+        commitmentFr = Fr.fromString(commitment);
+      } catch (error) {
+        const message = error instanceof Error ? error.message : String(error);
+        return {
+          isValid: false,
+          amountFound: 0n,
+          error: `invalid commitment: ${message}`,
+        };
+      }
+
       const receipt = await this.node.getTxReceipt(txHash);
       const validStatuses = [
         "success",
@@ -335,98 +313,48 @@ export class RealFacilitatorAztecSigner implements FacilitatorAztecSigner {
         };
       }
 
-      // 2. Check tx effects: notes created AND nullifiers consumed.
-      let txEffect: TxEffect | null;
+      // Look up the completion log emitted by the token contract when the
+      // buyer finalized the partial note. The log is keyed by a tag derived
+      // from `commitment` so this lookup is O(1) and immune to concurrent
+      // payments.
+      const tokenAddr = AztecAddress.fromString(tokenAddress);
+      let completion: CompletionLog | null;
       try {
-        txEffect = await this.node.getTxEffect(txHash);
+        completion = await this.findCompletionLog(tokenAddr, commitmentFr);
       } catch (error) {
         const message = error instanceof Error ? error.message : String(error);
         return {
           isValid: false,
           amountFound: 0n,
-          error: `transaction effects unavailable: ${message}`,
-        };
-      }
-      if (!txEffect) {
-        return {
-          isValid: false,
-          amountFound: 0n,
-          error: "transaction effects unavailable",
+          error: `completion log lookup failed: ${message}`,
         };
       }
 
-      const noteHashes = getAztecTxEffectArray(txEffect, "noteHashes");
-      const nonEmptyNotes = noteHashes.filter((h) => {
-        if (h == null) return false;
-        const str = String(h);
-        if (str === "" || str === "0") return false;
-        return !/^0x0+$/i.test(str);
-      });
-
-      if (nonEmptyNotes.length === 0) {
+      if (!completion) {
         return {
           isValid: false,
           amountFound: 0n,
-          error:
-            "transaction produced no private notes — not a valid private transfer",
+          error: "no completion log found for commitment",
         };
       }
 
-      const nullifiers = getAztecTxEffectArray(txEffect, "nullifiers");
-      const nonZeroNullifiers = nullifiers.filter((n) => {
-        if (n == null) return false;
-        const str = String(n);
-        if (str === "" || str === "0") return false;
-        return !/^0x0+$/i.test(str);
-      });
-
-      // Tx effects do not expose a stable commitment -> nullifier mapping yet.
-      // Require the finalization tx to consume enough nullifiers for both the
-      // payer-side spend and the prepared commitment consumption.
-      if (nonZeroNullifiers.length < MIN_COMMITMENT_FINALIZATION_NULLIFIERS) {
-        const error = nonZeroNullifiers.length === 0
-          ? "transaction consumed no nullifiers — commitment was not used"
-          : `transaction consumed ${nonZeroNullifiers.length} non-zero nullifier(s); expected at least ${MIN_COMMITMENT_FINALIZATION_NULLIFIERS}`;
+      if (!completion.txHash.equals(txHash)) {
         return {
           isValid: false,
           amountFound: 0n,
-          error,
+          error: `completion log belongs to tx ${completion.txHash.toString()}, not ${txHashStr}`,
         };
       }
 
-      // 3. Verify actual amount via balance difference (keyed by commitment)
-      const beforeBal = this.balanceBefore.get(commitment);
-      if (beforeBal === undefined) {
+      if (completion.value < requiredAmount) {
         return {
           isValid: false,
-          amountFound: 0n,
-          error: "amount snapshot unavailable for commitment",
+          amountFound: completion.value,
+          error: `insufficient payment: received ${completion.value}, required ${requiredAmount}`,
         };
       }
-      try {
-        const facilitatorAddr = this.account.address;
-        const afterResult = await this.token.methods
-          .balance_of_private(facilitatorAddr)
-          .simulate({ from: facilitatorAddr });
-        const afterBal = bigintFromSimulate(afterResult);
-        const actualAmount = afterBal - beforeBal;
-        this.balanceBefore.delete(commitment);
-        if (actualAmount < requiredAmount) {
-          return {
-            isValid: false,
-            amountFound: actualAmount,
-            error: `insufficient payment: received ${actualAmount}, required ${requiredAmount}`,
-          };
-        }
-        return { isValid: true, amountFound: actualAmount };
-      } catch (error) {
-        const message = error instanceof Error ? error.message : String(error);
-        return {
-          isValid: false,
-          amountFound: 0n,
-          error: `amount verification failed: ${message}`,
-        };
-      }
+
+      return { isValid: true, amountFound: completion.value };
     } catch (err) {
       const message = err instanceof Error ? err.message : String(err);
       return {
@@ -436,4 +364,65 @@ export class RealFacilitatorAztecSigner implements FacilitatorAztecSigner {
       };
     }
   }
+
+  /**
+   * Look up the partial-note completion log keyed by `commitment` for `tokenAddr`.
+   *
+   * Wonderland's `transfer_private_to_commitment` goes through
+   * `PartialUintNote::complete_from_private`, which emits a private log:
+   *
+   *   log_tag    = compute_log_tag(commitment, DOM_SEP__NOTE_COMPLETION_LOG_TAG)
+   *   on-chain   = compute_siloed_private_log_first_field(tokenAddr, log_tag)
+   *   logData    = [siloedTag, storage_slot, value, 0, ...]
+   *
+   * Public completion paths (`transfer_public_to_commitment`, `mint_to_commitment`)
+   * use `PartialUintNote::complete`, which emits the same payload on the public
+   * log channel (no siloing, raw `log_tag` is the on-chain key). We try the
+   * private channel first and fall back to the public one.
+   *
+   * Returns `null` if no log is found or if more than one matches (a
+   * well-formed contract emits exactly one completion log per commitment).
+   */
+  private async findCompletionLog(
+    tokenAddr: AztecAddress,
+    commitmentFr: Fr,
+  ): Promise<CompletionLog | null> {
+    const logTag = await computeLogTag(
+      commitmentFr,
+      DomainSeparator.NOTE_COMPLETION_LOG_TAG,
+    );
+    const siloedTag = await computeSiloedPrivateLogFirstField(tokenAddr, logTag);
+
+    const privateBuckets = await this.node.getPrivateLogsByTags([
+      new SiloedTag(siloedTag),
+    ]);
+    const candidates: TxScopedL2Log[] =
+      privateBuckets[0] && privateBuckets[0].length > 0
+        ? privateBuckets[0]
+        : (await this.node.getPublicLogsByTagsFromContract(tokenAddr, [
+            new Tag(logTag),
+          ]))[0] ?? [];
+
+    if (candidates.length === 0) return null;
+    if (candidates.length > 1) {
+      // Defensive: a well-formed contract emits exactly one completion log
+      // per commitment. Multiple matches indicate either a hash collision
+      // or contract misbehaviour — reject rather than guess.
+      return null;
+    }
+
+    const log = candidates[0];
+    // logData layout: [tag, storage_slot, value, ...trailing zero padding]
+    return {
+      txHash: log.txHash,
+      storageSlot: log.logData[1],
+      value: log.logData[2].toBigInt(),
+    };
+  }
+}
+
+interface CompletionLog {
+  txHash: TxHash;
+  storageSlot: Fr;
+  value: bigint;
 }
