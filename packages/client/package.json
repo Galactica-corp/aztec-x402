@@ -1,5 +1,5 @@
 {
-  "name": "@galactica-net/client",
+  "name": "@galactica-net/x402-client",
   "version": "1.0.0",
   "description": "Fetch wrapper for automatic x402 payment handling on Aztec",
   "author": "Galactica Network",
@@ -50,8 +50,8 @@
     "access": "public"
   },
   "dependencies": {
-    "@galactica-net/core": "workspace:*",
-    "@galactica-net/mechanism": "workspace:*"
+    "@galactica-net/x402-core": "workspace:*",
+    "@galactica-net/x402-mechanism": "workspace:*"
   },
   "devDependencies": {
     "typescript": "^5.5.0",

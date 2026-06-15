@@ -1,8 +1,8 @@
 import { describe, it, expect, jest, beforeEach } from "bun:test";
 import { createPaymentMiddleware } from "../middleware.js";
 import type { MiddlewareConfig, MiddlewareResponse, RouteConfig } from "../types.js";
-import { PaymentRequirementsSchema } from "@aztec-x402/mechanism";
-import { parseAztecPaymentExtra } from "@aztec-x402/core";
+import { PaymentRequirementsSchema } from "@galactica-net/x402-mechanism";
+import { parseAztecPaymentExtra } from "@galactica-net/x402-core";
 import { z } from "zod";
 
 const TOKEN_ADDRESS = "0x" + "dd".repeat(32);

@@ -1,7 +1,7 @@
 import { describe, it, expect, jest, beforeEach } from "bun:test";
 import { wrapFetchWithPayment } from "../client.js";
-import { PaymentRequirementsSchema, type PaymentRequirements } from "@aztec-x402/mechanism";
-import { parseAztecPaymentExtra } from "@aztec-x402/core";
+import { PaymentRequirementsSchema, type PaymentRequirements } from "@galactica-net/x402-mechanism";
+import { parseAztecPaymentExtra } from "@galactica-net/x402-core";
 import { z } from "zod";
 
 const SENDER_ADDRESS = "0x" + "aa".repeat(32);

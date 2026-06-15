@@ -1,4 +1,4 @@
-import type { SchemeNetworkFacilitator, Network } from "@aztec-x402/mechanism";
+import type { SchemeNetworkFacilitator, Network } from "@galactica-net/x402-mechanism";
 
 /** Configuration for a payment-gated route */
 export interface RouteConfig {

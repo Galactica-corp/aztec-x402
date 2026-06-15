@@ -3,7 +3,6 @@
 x402 payment protocol for Aztec private tokens — HTTP-native micropayments with full transaction privacy.
 
 This monorepo implements the [x402 protocol](https://www.x402.org) for [Aztec](https://aztec.network), allowing any HTTP API to be payment-gated using private stablecoin transfers. All payments use private transfers — sender, receiver, and amount are hidden on-chain.
-
 ## Protocol Flow
 
 The x402 protocol uses a 3-phase commitment-based payment flow:
@@ -111,16 +110,16 @@ The middleware uses a two-layer defense against payment replay attacks:
 ```mermaid
 graph LR
     subgraph Client Side
-        CL["@aztec-x402/client<br/><i>wrapFetchWithPayment()</i>"]
+        CL["@galactica-net/x402-client<br/><i>wrapFetchWithPayment()</i>"]
         MC["mechanism/client<br/><i>ExactAztecClientScheme</i>"]
     end
 
     subgraph Server Side
-        MW["@aztec-x402/middleware<br/><i>createPaymentMiddleware()</i><br/>3-phase flow + nonce lifecycle"]
+        MW["@galactica-net/x402-middleware<br/><i>createPaymentMiddleware()</i><br/>3-phase flow + nonce lifecycle"]
         MF["mechanism/facilitator<br/><i>ExactAztecFacilitatorScheme</i><br/>Commitment + txHash anti-replay"]
     end
 
-    CO["@aztec-x402/core<br/><i>Types, signer interfaces</i>"]
+    CO["@galactica-net/x402-core<br/><i>Types, signer interfaces</i>"]
 
     CL --> MC
     MW --> MF
@@ -137,11 +136,11 @@ graph LR
 
 | Package | Description |
 |---------|-------------|
-| `@aztec-x402/core` | Types, constants, signer abstractions (`ClientAztecSigner`, `FacilitatorAztecSigner`) |
-| `@aztec-x402/mechanism` | x402 mechanism plugin — client scheme (sign + transfer) and facilitator scheme (verify + settle) |
-| `@aztec-x402/middleware` | Express-compatible middleware — 3-phase 402 flow, nonce lifecycle, payment verification |
-| `@aztec-x402/client` | Fetch wrapper — automatic 402 detection, prepare, payment, and retry |
-| `@aztec-x402/demo` | Real Aztec demo + mock demo + replay attack test |
+| `@galactica-net/x402-core` | Types, constants, signer abstractions (`ClientAztecSigner`, `FacilitatorAztecSigner`) |
+| `@galactica-net/x402-mechanism` | x402 mechanism plugin — client scheme (sign + transfer) and facilitator scheme (verify + settle) |
+| `@galactica-net/x402-middleware` | Express-compatible middleware — 3-phase 402 flow, nonce lifecycle, payment verification |
+| `@galactica-net/x402-client` | Fetch wrapper — automatic 402 detection, prepare, payment, and retry |
+| `@galactica-net/x402-demo` | Real Aztec demo + mock demo + replay attack test |
 
 ## Quick Start
 

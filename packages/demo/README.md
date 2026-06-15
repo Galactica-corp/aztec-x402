@@ -1,4 +1,4 @@
-# @galactica-net/demo
+# @galactica-net/x402-demo
 
 Demo of x402 payment-gated API on Aztec — both mock (no blockchain needed) and real (against Aztec testnet or sandbox).
 

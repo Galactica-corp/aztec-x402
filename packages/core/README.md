@@ -1,4 +1,4 @@
-# @galactica-net/core
+# @galactica-net/x402-core
 
 Core types, constants, and signer abstractions for the [x402](https://www.x402.org) payment protocol on [Aztec](https://aztec.network).
 
@@ -7,7 +7,7 @@ Part of [aztec-x402](https://github.com/Galactica-corp/aztec-x402) — HTTP-nati
 ## Install
 
 ```bash
-npm install @galactica-net/core
+npm install @galactica-net/x402-core
 ```
 
 ## Usage
@@ -19,10 +19,10 @@ import {
   SCHEME,
   parsePrice,
   parseAztecPaymentExtra,
-} from "@galactica-net/core";
+} from "@galactica-net/x402-core";
 ```
 
-Provides shared types (`ClientAztecSigner`, `FacilitatorAztecSigner`), network constants, Zod schemas, and helpers used by the other `@galactica-net/*` packages.
+Provides shared types (`ClientAztecSigner`, `FacilitatorAztecSigner`), network constants, Zod schemas, and helpers used by the other `@galactica-net/x402-*` packages.
 
 ## License
 

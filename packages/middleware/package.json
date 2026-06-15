@@ -1,5 +1,5 @@
 {
-  "name": "@galactica-net/middleware",
+  "name": "@galactica-net/x402-middleware",
   "version": "1.0.0",
   "description": "Express middleware for x402 payment gating on Aztec",
   "author": "Galactica Network",
@@ -53,8 +53,8 @@
     "access": "public"
   },
   "dependencies": {
-    "@galactica-net/core": "workspace:*",
-    "@galactica-net/mechanism": "workspace:*",
+    "@galactica-net/x402-core": "workspace:*",
+    "@galactica-net/x402-mechanism": "workspace:*",
     "uuid": "^13.0.0"
   },
   "devDependencies": {

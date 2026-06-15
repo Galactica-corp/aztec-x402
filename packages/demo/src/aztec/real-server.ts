@@ -24,15 +24,15 @@ import { loadKeys, loadAccount, setupSponsoredPayment } from "./wallet-manager.j
 
 const USE_SPONSORED_FPC = process.env.USE_SPONSORED_FPC === "true";
 
-import { AztecNetworkSchema, type AztecNetwork } from "@aztec-x402/core";
-import { ExactAztecFacilitatorScheme } from "@aztec-x402/mechanism/exact/facilitator";
-import { createPaymentMiddleware } from "@aztec-x402/middleware";
+import { AztecNetworkSchema, type AztecNetwork } from "@galactica-net/x402-core";
+import { ExactAztecFacilitatorScheme } from "@galactica-net/x402-mechanism/exact/facilitator";
+import { createPaymentMiddleware } from "@galactica-net/x402-middleware";
 import type {
   MiddlewareRequest,
   MiddlewareResponse,
   NextFunction,
   RoutesConfig,
-} from "@aztec-x402/middleware";
+} from "@galactica-net/x402-middleware";
 import { RealFacilitatorAztecSigner } from "./facilitator-signer.js";
 
 const PORT = 4402;

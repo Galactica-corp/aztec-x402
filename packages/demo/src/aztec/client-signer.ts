@@ -13,7 +13,7 @@
  * 2. Client calls processOffchainMessage() → offchain_receive() on token contract
  * 3. Client calls finalizePayment() → transfer_private_to_commitment()
  */
-import type { ClientAztecSigner } from "@aztec-x402/core";
+import type { ClientAztecSigner } from "@galactica-net/x402-core";
 import { AztecAddress } from "@aztec/aztec.js/addresses";
 import { TxHash, TxStatus } from "@aztec/aztec.js/tx";
 
