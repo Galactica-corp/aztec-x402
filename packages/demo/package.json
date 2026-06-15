@@ -15,6 +15,9 @@
     "url": "https://github.com/Galactica-corp/aztec-x402/issues"
   },
   "type": "module",
+  "engines": {
+    "node": ">=22"
+  },
   "scripts": {
     "server": "bun run src/server.ts",
     "client": "bun run src/client.ts",
