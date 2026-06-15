@@ -1,7 +1,18 @@
 {
   "name": "aztec-x402",
   "private": true,
+  "version": "1.0.0",
   "description": "x402 HTTP 402 payment protocol for Aztec private stablecoins",
+  "author": "Galactica Network",
+  "license": "Apache-2.0",
+  "homepage": "https://overcast.fi/",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/Galactica-corp/aztec-x402.git"
+  },
+  "bugs": {
+    "url": "https://github.com/Galactica-corp/aztec-x402/issues"
+  },
   "workspaces": [
     "packages/*"
   ],

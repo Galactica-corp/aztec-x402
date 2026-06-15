@@ -1,10 +1,32 @@
 {
-  "name": "@aztec-x402/core",
-  "version": "0.1.0",
+  "name": "@galactica-net/core",
+  "version": "1.0.0",
   "description": "Core types, constants, and signer abstractions for x402 on Aztec",
+  "author": "Galactica Network",
+  "license": "Apache-2.0",
+  "homepage": "https://overcast.fi/",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/Galactica-corp/aztec-x402.git",
+    "directory": "packages/core"
+  },
+  "bugs": {
+    "url": "https://github.com/Galactica-corp/aztec-x402/issues"
+  },
+  "keywords": [
+    "aztec",
+    "x402",
+    "payments",
+    "micropayments",
+    "privacy",
+    "stablecoin"
+  ],
   "type": "module",
   "main": "./dist/index.js",
   "types": "./dist/index.d.ts",
+  "files": [
+    "dist"
+  ],
   "exports": {
     ".": {
       "bun": "./src/index.ts",
@@ -15,7 +37,12 @@
   "scripts": {
     "build": "tsup",
     "test": "bun test",
-    "clean": "rm -rf dist"
+    "clean": "rm -rf dist",
+    "prepublishOnly": "bun run build"
+  },
+  "publishConfig": {
+    "registry": "https://registry.npmjs.org/",
+    "access": "public"
   },
   "dependencies": {
     "zod": "^4.4.3"

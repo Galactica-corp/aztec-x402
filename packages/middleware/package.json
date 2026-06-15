@@ -1,10 +1,34 @@
 {
-  "name": "@aztec-x402/middleware",
-  "version": "0.1.0",
+  "name": "@galactica-net/middleware",
+  "version": "1.0.0",
   "description": "Express middleware for x402 payment gating on Aztec",
+  "author": "Galactica Network",
+  "license": "Apache-2.0",
+  "homepage": "https://overcast.fi/",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/Galactica-corp/aztec-x402.git",
+    "directory": "packages/middleware"
+  },
+  "bugs": {
+    "url": "https://github.com/Galactica-corp/aztec-x402/issues"
+  },
+  "keywords": [
+    "aztec",
+    "x402",
+    "payments",
+    "micropayments",
+    "privacy",
+    "stablecoin",
+    "express",
+    "middleware"
+  ],
   "type": "module",
   "main": "./dist/index.js",
   "types": "./dist/index.d.ts",
+  "files": [
+    "dist"
+  ],
   "exports": {
     ".": {
       "bun": "./src/index.ts",
@@ -15,11 +39,16 @@
   "scripts": {
     "build": "tsup",
     "test": "bun test",
-    "clean": "rm -rf dist"
+    "clean": "rm -rf dist",
+    "prepublishOnly": "bun run build"
+  },
+  "publishConfig": {
+    "registry": "https://registry.npmjs.org/",
+    "access": "public"
   },
   "dependencies": {
-    "@aztec-x402/core": "workspace:*",
-    "@aztec-x402/mechanism": "workspace:*",
+    "@galactica-net/core": "workspace:*",
+    "@galactica-net/mechanism": "workspace:*",
     "uuid": "^13.0.0"
   },
   "devDependencies": {

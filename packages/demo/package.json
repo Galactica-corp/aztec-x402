@@ -1,8 +1,19 @@
 {
-  "name": "@aztec-x402/demo",
-  "version": "0.1.0",
+  "name": "@galactica-net/demo",
+  "version": "1.0.0",
   "private": true,
   "description": "Demo server and client for x402 payment-gated API on Aztec",
+  "author": "Galactica Network",
+  "license": "Apache-2.0",
+  "homepage": "https://overcast.fi/",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/Galactica-corp/aztec-x402.git",
+    "directory": "packages/demo"
+  },
+  "bugs": {
+    "url": "https://github.com/Galactica-corp/aztec-x402/issues"
+  },
   "type": "module",
   "scripts": {
     "server": "bun run src/server.ts",
@@ -14,10 +25,10 @@
     "test:offchain": "bun run src/aztec/test-offchain-partial.ts"
   },
   "dependencies": {
-    "@aztec-x402/client": "workspace:*",
-    "@aztec-x402/core": "workspace:*",
-    "@aztec-x402/mechanism": "workspace:*",
-    "@aztec-x402/middleware": "workspace:*",
+    "@galactica-net/client": "workspace:*",
+    "@galactica-net/core": "workspace:*",
+    "@galactica-net/mechanism": "workspace:*",
+    "@galactica-net/middleware": "workspace:*",
     "@aztec/accounts": "4.2.0",
     "@aztec/aztec.js": "4.2.0",
     "@aztec/constants": "4.2.0",
