@@ -25,7 +25,17 @@
   "main": "./dist/index.js",
   "types": "./dist/index.d.ts",
   "files": [
-    "dist"
+    "dist",
+    "src/index.ts",
+    "src/schemas.ts",
+    "src/x402-types.ts",
+    "src/exact/index.ts",
+    "src/exact/client/index.ts",
+    "src/exact/client/scheme.ts",
+    "src/exact/server/index.ts",
+    "src/exact/server/scheme.ts",
+    "src/exact/facilitator/index.ts",
+    "src/exact/facilitator/scheme.ts"
   ],
   "exports": {
     ".": {

@@ -25,7 +25,12 @@
   "main": "./dist/index.js",
   "types": "./dist/index.d.ts",
   "files": [
-    "dist"
+    "dist",
+    "src/constants.ts",
+    "src/index.ts",
+    "src/schemas.ts",
+    "src/types.ts",
+    "src/utils.ts"
   ],
   "exports": {
     ".": {
