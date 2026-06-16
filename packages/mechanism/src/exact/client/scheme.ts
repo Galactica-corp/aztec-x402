@@ -3,7 +3,7 @@ import {
   SCHEME,
   generateCorrelationId,
   parseAztecPaymentExtra,
-} from "@aztec-x402/core";
+} from "@galactica-net/x402-core";
 import type {
   SchemeNetworkClient,
   PaymentRequirements,

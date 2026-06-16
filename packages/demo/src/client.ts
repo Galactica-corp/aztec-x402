@@ -1,6 +1,6 @@
-import type { ClientAztecSigner } from "@aztec-x402/core";
-import { ExactAztecClientScheme } from "@aztec-x402/mechanism/exact/client";
-import { wrapFetchWithPayment } from "@aztec-x402/client";
+import type { ClientAztecSigner } from "@galactica-net/x402-core";
+import { ExactAztecClientScheme } from "@galactica-net/x402-mechanism/exact/client";
+import { wrapFetchWithPayment } from "@galactica-net/x402-client";
 
 const SERVER_URL = process.env.SERVER_URL ?? "http://localhost:4402";
 const SENDER_ADDRESS = "0x" + "aa".repeat(32);

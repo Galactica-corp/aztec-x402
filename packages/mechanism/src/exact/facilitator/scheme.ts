@@ -6,7 +6,7 @@ import {
   CAIP_FAMILY,
   isValidAztecAddress,
   parseAztecPaymentExtra,
-} from "@aztec-x402/core";
+} from "@galactica-net/x402-core";
 import type {
   SchemeNetworkFacilitator,
   PaymentPayload,

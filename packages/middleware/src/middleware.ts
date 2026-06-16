@@ -1,11 +1,11 @@
 import { v7 as uuidv7 } from "uuid";
-import type { PaymentPayload, PaymentRequirements } from "@aztec-x402/mechanism";
-import { PaymentPayloadSchema } from "@aztec-x402/mechanism";
+import type { PaymentPayload, PaymentRequirements } from "@galactica-net/x402-mechanism";
+import { PaymentPayloadSchema } from "@galactica-net/x402-mechanism";
 import {
   AztecPrepareRequestSchema,
   parseAztecPaymentExtra,
   type AztecPrepareRequest,
-} from "@aztec-x402/core";
+} from "@galactica-net/x402-core";
 import type {
   RouteConfig,
   RoutesConfig,

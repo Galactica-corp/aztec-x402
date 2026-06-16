@@ -13,11 +13,11 @@ import { createPXEWallet } from "./pxe-wallet.js";
 import { readFileSync } from "fs";
 import { join, dirname } from "path";
 
-import { ExactAztecClientScheme } from "@aztec-x402/mechanism/exact/client";
-import { wrapFetchWithPayment } from "@aztec-x402/client";
+import { ExactAztecClientScheme } from "@galactica-net/x402-mechanism/exact/client";
+import { wrapFetchWithPayment } from "@galactica-net/x402-client";
 import { RealClientAztecSigner } from "./client-signer.js";
 import { loadKeys, loadAccount, setupSponsoredPayment } from "./wallet-manager.js";
-import { unwrapAztecSdkResult } from "@aztec-x402/core";
+import { unwrapAztecSdkResult } from "@galactica-net/x402-core";
 
 const SERVER_URL = process.env.SERVER_URL ?? "http://localhost:4402";
 

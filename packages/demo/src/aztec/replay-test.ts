@@ -8,7 +8,7 @@ import { TokenContract } from "@aztec/noir-contracts.js/Token";
 import { createPXEWallet } from "./pxe-wallet.js";
 import { readFileSync } from "fs";
 import { join, dirname } from "path";
-import { ExactAztecClientScheme } from "@aztec-x402/mechanism/exact/client";
+import { ExactAztecClientScheme } from "@galactica-net/x402-mechanism/exact/client";
 import { RealClientAztecSigner } from "./client-signer.js";
 import { loadKeys, loadAccount } from "./wallet-manager.js";
 

@@ -1,6 +1,8 @@
-# @aztec-x402/demo
+# @galactica-net/x402-demo
 
-Demo of x402 payment-gated API on Aztec — both mock (no blockchain needed) and real (against Aztec sandbox).
+Demo of x402 payment-gated API on Aztec — both mock (no blockchain needed) and real (against Aztec testnet or sandbox).
+
+Part of [aztec-x402](https://github.com/Galactica-corp/aztec-x402).
 
 ## Quick start (mock — no blockchain)
 
@@ -23,7 +25,7 @@ This runs actual private token transfers on a local Aztec network.
 ### Prerequisites
 
 - **Docker** — the Aztec sandbox runs in Docker
-- **Node.js v18+** — for the Aztec CLI
+- **Node.js v22+** — for the Aztec CLI
 - **bun** — for running the demo code
 
 ### Step 1: Install the Aztec sandbox

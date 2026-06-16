@@ -40,11 +40,11 @@ import type {
   FacilitatorAztecSigner,
   PaymentNoteVerification,
   PrepareCommitmentResult,
-} from "@aztec-x402/core";
+} from "@galactica-net/x402-core";
 import {
   AztecOffchainMessagesSchema,
   unwrapAztecSdkResult,
-} from "@aztec-x402/core";
+} from "@galactica-net/x402-core";
 import { AztecAddress } from "@aztec/aztec.js/addresses";
 import { toSendOptions } from "@aztec/aztec.js/contracts";
 import type { InteractionFeeOptions, SendInteractionOptions } from "@aztec/aztec.js/contracts";

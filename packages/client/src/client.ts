@@ -2,9 +2,9 @@ import type {
   SchemeNetworkClient,
   PaymentPayload,
   ParsedPaymentRequired,
-} from "@aztec-x402/mechanism";
-import { PaymentRequiredSchema } from "@aztec-x402/mechanism";
-import { parseAztecPaymentExtra } from "@aztec-x402/core";
+} from "@galactica-net/x402-mechanism";
+import { PaymentRequiredSchema } from "@galactica-net/x402-mechanism";
+import { parseAztecPaymentExtra } from "@galactica-net/x402-core";
 
 type FetchFunction = typeof fetch;
 

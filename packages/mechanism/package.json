@@ -1,10 +1,45 @@
 {
-  "name": "@aztec-x402/mechanism",
-  "version": "0.1.0",
+  "name": "@galactica-net/x402-mechanism",
+  "version": "1.0.0",
   "description": "x402 mechanism plugin for Aztec — client, facilitator, and server schemes",
+  "author": "Galactica Network",
+  "license": "Apache-2.0",
+  "homepage": "https://overcast.fi/",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/Galactica-corp/aztec-x402.git",
+    "directory": "packages/mechanism"
+  },
+  "bugs": {
+    "url": "https://github.com/Galactica-corp/aztec-x402/issues"
+  },
+  "keywords": [
+    "aztec",
+    "x402",
+    "payments",
+    "micropayments",
+    "privacy",
+    "stablecoin"
+  ],
   "type": "module",
+  "engines": {
+    "node": ">=22"
+  },
   "main": "./dist/index.js",
   "types": "./dist/index.d.ts",
+  "files": [
+    "dist",
+    "src/index.ts",
+    "src/schemas.ts",
+    "src/x402-types.ts",
+    "src/exact/index.ts",
+    "src/exact/client/index.ts",
+    "src/exact/client/scheme.ts",
+    "src/exact/server/index.ts",
+    "src/exact/server/scheme.ts",
+    "src/exact/facilitator/index.ts",
+    "src/exact/facilitator/scheme.ts"
+  ],
   "exports": {
     ".": {
       "bun": "./src/index.ts",
@@ -30,10 +65,15 @@
   "scripts": {
     "build": "tsup",
     "test": "bun test",
-    "clean": "rm -rf dist"
+    "clean": "rm -rf dist",
+    "prepublishOnly": "bun run build"
+  },
+  "publishConfig": {
+    "registry": "https://registry.npmjs.org/",
+    "access": "public"
   },
   "dependencies": {
-    "@aztec-x402/core": "workspace:*",
+    "@galactica-net/x402-core": "workspace:*",
     "zod": "^4.4.3"
   },
   "devDependencies": {
