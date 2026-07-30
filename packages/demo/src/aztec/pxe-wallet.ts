@@ -43,11 +43,11 @@
  * @see https://github.com/AztecProtocol/aztec-packages/issues/15753
  */
 import { CallAuthorizationRequest } from "@aztec/aztec.js/authorization";
-import {
-  extractOffchainOutput,
-  getGasLimits,
-  NO_WAIT,
-} from "@aztec/aztec.js/contracts";
+import { extractOffchainOutput, NO_WAIT } from "@aztec/aztec.js/contracts";
+import type { OffchainMessage } from "@aztec/aztec.js/contracts";
+// v5 moved getGasLimits out of aztec.js and changed its signature: it now takes
+// the simulated gas usage plus the network's per-tx admission limit.
+import { getGasLimits } from "@aztec/wallet-sdk/base-wallet";
 import { waitForTx } from "@aztec/aztec.js/node";
 import { EmbeddedWallet as NodeEmbeddedWallet, type EmbeddedWalletOptions } from "@aztec/wallets/embedded";
 import type { AztecNode } from "@aztec/aztec.js/node";
@@ -62,7 +62,7 @@ interface SendTxWithAppReturnValuesResult {
   receipt?: { txHash?: { toString(): string }; debugLogs?: unknown[] };
   txHash?: { toString(): string };
   offchainEffects?: unknown[];
-  offchainMessages?: unknown[];
+  offchainMessages?: OffchainMessage[];
   appReturnValues?: unknown[];
 }
 
@@ -98,6 +98,7 @@ export class PXEWallet extends NodeEmbeddedWallet {
       feeOptions: estimationFeeOptions,
       additionalScopes: opts.additionalScopes,
       skipTxValidation: true,
+      sendMessagesAs: opts.sendMessagesAs,
     });
 
     const offchainEffects = collectOffchainEffects(simulationResult.privateExecutionResult);
@@ -120,7 +121,12 @@ export class PXEWallet extends NodeEmbeddedWallet {
       }
     }
 
-    const estimated = getGasLimits(simulationResult, this.estimatedGasPadding);
+    const maxTxGasLimits = await this.getMaxTxGasLimits();
+    const estimated = getGasLimits(
+      simulationResult.gasUsed,
+      maxTxGasLimits,
+      this.estimatedGasPadding,
+    );
     const gasSettings = GasSettings.from({
       ...opts.fee?.gasSettings,
       maxFeesPerGas: estimationFeeOptions.gasSettings.maxFeesPerGas,
@@ -140,10 +146,13 @@ export class PXEWallet extends NodeEmbeddedWallet {
       opts.from,
       feeOptions,
     );
-    const provenTx = await this.pxe.proveTx(
-      txRequest,
-      this.scopesFrom(opts.from, opts.additionalScopes),
-    );
+    // v5 takes an options bag and needs `senderForTags` — without it any private
+    // log this tx emits (including the partial-note completion log the payment
+    // verification reads) trips the "Sender for tags is not set" assertion.
+    const provenTx = await this.pxe.proveTx(txRequest, {
+      scopes: this.scopesFrom(opts.from, opts.additionalScopes),
+      senderForTags: this.senderForTagsFrom(opts.from, opts.sendMessagesAs),
+    });
     debugSend("proved tx");
     const offchainOutput = extractOffchainOutput(
       provenTx.getOffchainEffects(),
@@ -172,7 +181,8 @@ export class PXEWallet extends NodeEmbeddedWallet {
     const txHash = tx.getTxHash();
     debugSend(`built tx ${txHash.toString()}`);
     debugSend("checking duplicate tx effect");
-    if (await this.aztecNode.getTxEffect(txHash)) {
+    // v5: getTxEffect is deprecated; a mined receipt is the settled-tx signal.
+    if ((await this.aztecNode.getTxReceipt(txHash)).isMined()) {
       throw new Error(`A settled tx with equal hash ${txHash.toString()} exists.`);
     }
 
@@ -220,6 +230,7 @@ export class PXEWallet extends NodeEmbeddedWallet {
       skipTxValidation: opts.skipTxValidation,
       skipFeeEnforcement: opts.skipFeeEnforcement,
       scopes: this.scopesFrom(opts.from, opts.additionalScopes),
+      senderForTags: this.senderForTagsFrom(opts.from, opts.sendMessagesAs),
     });
     const appCallOffset = await this.computeAppCallOffset(opts.from, opts.feeOptions);
     return TxSimulationResultWithAppOffset.fromResultAndOffset(result, appCallOffset);

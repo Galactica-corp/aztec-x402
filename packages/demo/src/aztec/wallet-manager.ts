@@ -131,14 +131,11 @@ export async function deployAccounts(
       console.log(`  Deploying ${name} account...`);
       try {
         const deployMethod = await account.getDeployMethod();
-        const sendOpts: Record<string, unknown> = {
+        await deployMethod.send({
           from: NO_FROM,
           wait: { timeout, waitForStatus: TxStatus.CHECKPOINTED },
-        };
-        if (opts?.paymentMethod) {
-          sendOpts.fee = { paymentMethod: opts.paymentMethod };
-        }
-        await deployMethod.send(sendOpts);
+          fee: opts?.paymentMethod ? { paymentMethod: opts.paymentMethod } : undefined,
+        });
         console.log(`  ${name} deployed at ${account.address}`);
       } catch (err) {
         const msg = err instanceof Error ? err.message : String(err);

@@ -4,7 +4,7 @@
  */
 import { createAztecNodeClient } from "@aztec/aztec.js/node";
 import { AztecAddress } from "@aztec/aztec.js/addresses";
-import { TokenContract } from "@aztec/noir-contracts.js/Token";
+import { TokenContract } from "@defi-wonderland/aztec-standards/dist/src/artifacts/Token.js";
 import { createPXEWallet } from "./pxe-wallet.js";
 import { readFileSync } from "fs";
 import { join, dirname } from "path";
@@ -20,17 +20,17 @@ const KEYS_PATH = join(DATA_DIR, "keys.json");
 const config = JSON.parse(readFileSync(CONFIG_PATH, "utf-8"));
 
 const NODE_URL = config.nodeUrl;
-const isDevnet = config.network !== "aztec:sandbox";
+const isRemoteNetwork = config.network !== "aztec:sandbox";
 
 const node = createAztecNodeClient(NODE_URL);
 const wallet = await createPXEWallet(node, {
   ephemeral: true,
-  pxeConfig: { proverEnabled: isDevnet },
+  pxe: { proverEnabled: isRemoteNetwork },
 });
 
 const keys = loadKeys(KEYS_PATH);
 const aliceAccount = await loadAccount(wallet, keys, "alice");
-const tokenAddress = AztecAddress.fromString(config.tokenAddress);
+const tokenAddress = AztecAddress.fromStringUnsafe(config.tokenAddress);
 const tokenInstance = await node.getContract(tokenAddress);
 if (tokenInstance) {
   await wallet.registerContract(tokenInstance, TokenContract.artifact);

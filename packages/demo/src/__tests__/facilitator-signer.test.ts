@@ -13,7 +13,7 @@
  *
  * Verification flow:
  * - Verification looks up the completion log keyed by the commitment via
- *   the node's `getPrivateLogsByTags` / `getPublicLogsByTagsFromContract`
+ *   the node's `getPrivateLogsByTags` / `getPublicLogsByTags`
  *   methods. The recovered log binds the txHash to the commitment and
  *   yields the actual transferred amount.
  */
@@ -25,8 +25,12 @@ if (!Reflect.get(expect, "addEqualityTesters")) {
   Reflect.set(expect, "addEqualityTesters", () => {});
 }
 
+import type { Fr as FrType } from "@aztec/aztec.js/fields";
+import type { TxHash as TxHashType } from "@aztec/aztec.js/tx";
+
 const { Fr } = await import("@aztec/aztec.js/fields");
 const { TxHash } = await import("@aztec/aztec.js/tx");
+const { AztecAddress } = await import("@aztec/aztec.js/addresses");
 const { RealFacilitatorAztecSigner } = await import("../aztec/facilitator-signer.js");
 
 /** Valid Aztec address (within BN254 field modulus) */
@@ -46,13 +50,14 @@ const MOCK_STORAGE_SLOT =
   "0x0000000000000000000000000000000000000000000000000000000000000007";
 const REQUIRED_AMOUNT = 100_000n;
 
+/** Stringify-only stub — enough for values the signer merely formats. */
 function mockAztecAddress(addrStr: string) {
   return { toString: () => addrStr };
 }
 
 interface CompletionLogFixture {
-  txHash: TxHash;
-  storageSlot: Fr;
+  txHash: TxHashType;
+  storageSlot: FrType;
   value: bigint;
 }
 
@@ -66,7 +71,7 @@ interface MockNodeOptions {
   txReceiptError?: Error;
 }
 
-function logToTxScopedL2Log(log: CompletionLogFixture) {
+function logToLogResult(log: CompletionLogFixture) {
   // Mirrors the on-chain shape: logData[0] is the tag (unused here),
   // logData[1] is the storage slot, logData[2] is the value.
   return {
@@ -88,21 +93,26 @@ function createMockNode(opts?: string | MockNodeOptions) {
     typeof opts === "string" ? { status: opts } : opts ?? {};
 
   const privateLogs = (options.privateLogs ?? [defaultCompletionLog()]).map(
-    logToTxScopedL2Log,
+    logToLogResult,
   );
-  const publicLogs = (options.publicLogs ?? []).map(logToTxScopedL2Log);
+  const publicLogs = (options.publicLogs ?? []).map(logToLogResult);
 
   return {
     getTxReceipt: options.txReceiptError
       ? jest.fn().mockRejectedValue(options.txReceiptError)
-      : jest.fn().mockResolvedValue({ status: options.status ?? "success" }),
+      : jest.fn().mockResolvedValue({
+          status: options.status ?? "proposed",
+          executionResult: "success",
+        }),
     getPrivateLogsByTags: jest.fn().mockResolvedValue([privateLogs]),
-    getPublicLogsByTagsFromContract: jest.fn().mockResolvedValue([publicLogs]),
+    getPublicLogsByTags: jest.fn().mockResolvedValue([publicLogs]),
   };
 }
 
 function createMockAccount(addr = SERVER_ADDRESS_STR) {
-  return { address: mockAztecAddress(addr) };
+  // The signer passes this straight into the token ABI and into `from`,
+  // so it has to be a real AztecAddress, not a stringify-only stub.
+  return { address: AztecAddress.fromStringUnsafe(addr) };
 }
 
 interface MockTokenOptions {
@@ -190,7 +200,7 @@ describe("RealFacilitatorAztecSigner", () => {
 
   describe("verifyPayment — tx status checks", () => {
     it("accepts a successful transaction", async () => {
-      const result = await verifyPrepared(createSigner("success"));
+      const result = await verifyPrepared(createSigner("proposed"));
       expect(result.isValid).toBe(true);
     });
 
@@ -403,7 +413,7 @@ describe("RealFacilitatorAztecSigner", () => {
     });
 
     it("rejects when no commitment provided", async () => {
-      const result = await createSigner("success").verifyPayment(
+      const result = await createSigner("proposed").verifyPayment(
         TX_HASH,
         TOKEN_ADDRESS_STR,
         100_000n,
@@ -414,7 +424,7 @@ describe("RealFacilitatorAztecSigner", () => {
 
     it("rejects a commitment that is structurally non-zero but exceeds the field modulus", async () => {
       const invalidCommitment = "0x" + "ff".repeat(32);
-      const result = await createSigner("success").verifyPayment(
+      const result = await createSigner("proposed").verifyPayment(
         TX_HASH,
         TOKEN_ADDRESS_STR,
         REQUIRED_AMOUNT,
@@ -425,7 +435,7 @@ describe("RealFacilitatorAztecSigner", () => {
     });
 
     it("rejects wrong token address when the contract address is known", async () => {
-      const signer = createSigner("success");
+      const signer = createSigner("proposed");
       const prepared = await signer.prepareCommitment(TOKEN_ADDRESS_STR, CLIENT_ADDRESS_STR);
       const result = await signer.verifyPayment(
         TX_HASH,
@@ -441,21 +451,21 @@ describe("RealFacilitatorAztecSigner", () => {
   describe("prepareCommitment", () => {
     it("calls initialize_transfer_commitment with facilitator and completer addresses", async () => {
       const token = createMockToken();
-      const signer = new RealFacilitatorAztecSigner(createMockAccount(), createMockNode("success"), token);
+      const signer = new RealFacilitatorAztecSigner(createMockAccount(), createMockNode("proposed"), token);
       await signer.prepareCommitment(TOKEN_ADDRESS_STR, CLIENT_ADDRESS_STR);
       expect(token.methods.initialize_transfer_commitment).toHaveBeenCalled();
     });
 
     it("extracts commitment from v4.1.0 simulate result shape", async () => {
       // v4.1.0: simulate() returns { result: Field, offchainEffects, offchainMessages }
-      const signer = createSigner("success");
+      const signer = createSigner("proposed");
       const result = await signer.prepareCommitment(TOKEN_ADDRESS_STR, CLIENT_ADDRESS_STR);
       expect(result.commitment).toBe(MOCK_COMMITMENT);
       expect(result.prepareTxHash).toBe(TX_HASH);
     });
 
     it("forwards offchainMessages without using ciphertext as commitment", async () => {
-      const signer = createSigner("success", {
+      const signer = createSigner("proposed", {
         offchainMessages: [{ payload: "0xdeadbeef" }],
       });
       const result = await signer.prepareCommitment(TOKEN_ADDRESS_STR, CLIENT_ADDRESS_STR);
@@ -466,7 +476,7 @@ describe("RealFacilitatorAztecSigner", () => {
 
     it("falls back to simulate when offchainMessages is empty", async () => {
       // This is the current v4.1.0 behavior: offchainMessages: []
-      const signer = createSigner("success", {
+      const signer = createSigner("proposed", {
         offchainMessages: [],
       });
       const result = await signer.prepareCommitment(TOKEN_ADDRESS_STR, CLIENT_ADDRESS_STR);
@@ -476,7 +486,7 @@ describe("RealFacilitatorAztecSigner", () => {
 
     it("handles raw Field simulate result (no wrapper)", async () => {
       const rawCommitment = "0x" + "12".repeat(31) + "01";
-      const signer = createSigner("success", {
+      const signer = createSigner("proposed", {
         simulateResult: rawCommitment,
       });
       const result = await signer.prepareCommitment(TOKEN_ADDRESS_STR, CLIENT_ADDRESS_STR);
@@ -487,7 +497,7 @@ describe("RealFacilitatorAztecSigner", () => {
       const offchainMessages = [
         { payload: "0xcafe", recipient: SERVER_ADDRESS_STR, anchorBlockTimestamp: 12345 },
       ];
-      const signer = createSigner("success", { offchainMessages });
+      const signer = createSigner("proposed", { offchainMessages });
       const result = await signer.prepareCommitment(TOKEN_ADDRESS_STR, CLIENT_ADDRESS_STR);
       expect(result.commitment).toBe(MOCK_COMMITMENT);
       expect(result.offchainMessage).toBe(JSON.stringify(offchainMessages));
@@ -495,7 +505,7 @@ describe("RealFacilitatorAztecSigner", () => {
     });
 
     it("does not parse JSON payload in offchainMessages as a commitment", async () => {
-      const signer = createSigner("success", {
+      const signer = createSigner("proposed", {
         offchainMessages: [{ payload: JSON.stringify({ commitment: "0xjsoncommit" }) }],
       });
       const result = await signer.prepareCommitment(TOKEN_ADDRESS_STR, CLIENT_ADDRESS_STR);

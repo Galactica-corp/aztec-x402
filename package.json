@@ -24,7 +24,7 @@
     "test": "bun run --filter '*' test",
     "lint": "oxlint --config .oxlintrc.json packages/",
     "clean": "bun run --filter '*' clean",
-    "setup": "NODE_URL=https://rpc.testnet.aztec-labs.com AZTEC_NETWORK=aztec:testnet USE_SPONSORED_FPC=true bun run ./packages/demo/src/aztec/setup.ts",
+    "setup": "NODE_URL=https://v5.testnet.rpc.aztec-labs.com AZTEC_NETWORK=aztec:testnet USE_SPONSORED_FPC=true bun run ./packages/demo/src/aztec/setup.ts",
     "server": "USE_SPONSORED_FPC=true bun run ./packages/demo/src/aztec/real-server.ts",
     "setup:sandbox": "NODE_URL=http://localhost:8080 AZTEC_NETWORK=aztec:sandbox USE_SPONSORED_FPC=true bun run ./packages/demo/src/aztec/setup.ts",
     "demo": "bun run ./packages/demo/src/aztec/real-client.ts",

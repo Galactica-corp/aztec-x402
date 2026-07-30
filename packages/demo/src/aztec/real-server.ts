@@ -61,14 +61,14 @@ const NODE_URL = config.nodeUrl;
 const NETWORK = parseAztecNetwork(config.network);
 const TOKEN_ADDRESS = config.tokenAddress;
 const SERVER_ADDRESS = config.bobAddress;
-const isDevnet = USE_SPONSORED_FPC || NETWORK !== "aztec:sandbox";
+const isRemoteNetwork = USE_SPONSORED_FPC || NETWORK !== "aztec:sandbox";
 
 // Connect to Aztec
 console.log(`Connecting to Aztec node at ${NODE_URL}...`);
 const node = createAztecNodeClient(NODE_URL);
 const wallet = await createPXEWallet(node, {
   ephemeral: true,
-  pxeConfig: { proverEnabled: isDevnet },
+  pxe: { proverEnabled: isRemoteNetwork },
 });
 
 // Get Bob's wallet (the server/facilitator)
@@ -78,7 +78,7 @@ const bob = bobAccount.address;
 console.log(`Server address: ${bob}`);
 
 // Load the token contract for the facilitator (needed for commitment creation)
-const tokenAddress = AztecAddress.fromString(TOKEN_ADDRESS);
+const tokenAddress = AztecAddress.fromStringUnsafe(TOKEN_ADDRESS);
 const tokenInstance = await node.getContract(tokenAddress);
 if (tokenInstance) {
   await wallet.registerContract(tokenInstance, TokenContract.artifact);
@@ -90,7 +90,7 @@ const paymentMethod = USE_SPONSORED_FPC ? await setupSponsoredPayment(wallet) : 
 const sendOpts = paymentMethod ? { fee: { paymentMethod } } : undefined;
 
 // Create real facilitator signer
-const facilitatorSigner = new RealFacilitatorAztecSigner(bobAccount, node, token, sendOpts);
+const facilitatorSigner = new RealFacilitatorAztecSigner(bobAccount, node, token, sendOpts, wallet);
 const facilitator = new ExactAztecFacilitatorScheme(facilitatorSigner, [NETWORK]);
 await facilitator.initialize();
 

@@ -15,6 +15,7 @@
  */
 import { createAztecNodeClient } from "@aztec/aztec.js/node";
 import { Fr } from "@aztec/aztec.js/fields";
+import { AztecAddress } from "@aztec/aztec.js/addresses";
 import { TokenContract, TokenContractArtifact } from "@aztec/noir-contracts.js/Token";
 import { SponsoredFeePaymentMethod } from "@aztec/aztec.js/fee";
 import { getContractInstanceFromInstantiationParams } from "@aztec/aztec.js/contracts";
@@ -70,7 +71,7 @@ console.log(`Node version: ${info.nodeVersion}\n`);
 
 const wallet = await createPXEWallet(node, {
   ephemeral: true,
-  pxeConfig: { proverEnabled: true },
+  pxe: { proverEnabled: true },
 });
 
 // Set up sponsored fee payment
@@ -99,7 +100,7 @@ const bob = bobAccount.address;
 console.log(`Alice: ${alice}`);
 console.log(`Bob:   ${bob}\n`);
 
-const sendOpts = (from: unknown) => ({
+const sendOpts = (from: AztecAddress) => ({
   from,
   wait: { timeout: 120 },
   fee: { paymentMethod },
@@ -109,7 +110,8 @@ const sendOpts = (from: unknown) => ({
 console.log("Deploying official v4.1.0 TokenContract...");
 const tokenDeploy = TokenContract.deploy(wallet, alice, "TestUSD", "tUSD", 6);
 const deployResult = await tokenDeploy.send(sendOpts(alice));
-const tokenAddress = tokenDeploy.getInstance()?.address;
+// v5: getInstance() is async.
+const tokenAddress = (await tokenDeploy.getInstance())?.address;
 if (!tokenAddress) {
   console.log(`  deployResult keys: ${getKeys(deployResult)}`);
   console.error("Could not get token address");
@@ -133,7 +135,7 @@ await wallet.registerSender(alice, "alice");
 // 4. Mint tokens to Alice
 console.log(`Minting ${MINT_AMOUNT} to Alice...`);
 try {
-  const mintResult = await token.methods.mint_to_private(alice, alice, MINT_AMOUNT).send(sendOpts(alice));
+  const mintResult = await token.methods.mint_to_private(alice, MINT_AMOUNT).send(sendOpts(alice));
   console.log(`  Minted. send() keys: ${getKeys(mintResult)}`);
 } catch (err) {
   console.log(`  Mint failed: ${String(err).slice(0, 200)}`);
@@ -165,7 +167,7 @@ try {
 // 5. TEST: prepare_private_balance_increase — check for offchainMessages
 console.log("=== Test 1: prepare_private_balance_increase — check send() result ===\n");
 
-const interaction = token.methods.prepare_private_balance_increase(bob, alice);
+const interaction = token.methods.prepare_private_balance_increase(bob);
 const simResult = await interaction.simulate({ from: alice });
 console.log(`simulate() result: ${JSON.stringify(simResult, (_, v) => typeof v === "bigint" ? v.toString() : v)}`);
 

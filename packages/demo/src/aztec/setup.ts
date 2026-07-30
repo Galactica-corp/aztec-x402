@@ -17,6 +17,9 @@ import { createAztecNodeClient } from "@aztec/aztec.js/node";
 import { AztecAddress } from "@aztec/aztec.js/addresses";
 import { TxStatus } from "@aztec/aztec.js/tx";
 import { TokenContract } from "@defi-wonderland/aztec-standards/dist/src/artifacts/Token.js";
+// v5 demoted the auth registry from a protocol contract, so its address is no
+// longer a protocol constant — contracts must be told which registry to use.
+import { STANDARD_AUTH_REGISTRY_ADDRESS } from "@aztec/standard-contracts/auth-registry/constants";
 import { unwrapAztecSdkResult } from "@galactica-net/x402-core";
 import { createPXEWallet } from "./pxe-wallet.js";
 import { writeFileSync, existsSync, readFileSync } from "fs";
@@ -57,10 +60,10 @@ function extractSimulateValue(result: unknown): unknown {
 async function main() {
   console.log(`Connecting to Aztec node at ${NODE_URL}...`);
   const node = createAztecNodeClient(NODE_URL);
-  const isDevnet = USE_SPONSORED_FPC || NETWORK !== "aztec:sandbox";
+  const isRemoteNetwork = USE_SPONSORED_FPC || NETWORK !== "aztec:sandbox";
   const wallet = await createPXEWallet(node, {
     ephemeral: true,
-    pxeConfig: { proverEnabled: isDevnet },
+    pxe: { proverEnabled: isRemoteNetwork },
   });
   console.log("Connected.\n");
 
@@ -94,21 +97,16 @@ async function main() {
   console.log(`  Alice (payer):       ${alice}`);
   console.log(`  Bob   (server):      ${bob}\n`);
 
-  const sendOpts = (from: AztecAddress) => {
-    const opts: Record<string, unknown> = {
-      from,
-      wait: { timeout: TX_TIMEOUT, waitForStatus: TxStatus.CHECKPOINTED },
-    };
-    if (paymentMethod) {
-      opts.fee = { paymentMethod };
-    }
-    return opts;
-  };
+  const sendOpts = (from: AztecAddress) => ({
+    from,
+    wait: { timeout: TX_TIMEOUT, waitForStatus: TxStatus.CHECKPOINTED },
+    fee: paymentMethod ? { paymentMethod } : undefined,
+  });
 
   // Step 3: Deploy token (skip if already recorded and exists on-chain)
   let tokenAddress: AztecAddress | undefined;
   if (config.tokenAddress) {
-    const existing = AztecAddress.fromString(config.tokenAddress);
+    const existing = AztecAddress.fromStringUnsafe(config.tokenAddress);
     const onChain = await node.getContract(existing);
     if (onChain) {
       console.log(`Token already deployed at ${existing} — skipping.\n`);
@@ -128,6 +126,7 @@ async function main() {
       TOKEN_SYMBOL,
       TOKEN_DECIMALS,
       alice,
+      STANDARD_AUTH_REGISTRY_ADDRESS,
     );
     await tokenDeploy.simulate({ from: alice });
     const deployResult = await tokenDeploy.send(sendOpts(alice));

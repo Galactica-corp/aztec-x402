@@ -47,27 +47,41 @@ import {
 } from "@galactica-net/x402-core";
 import { AztecAddress } from "@aztec/aztec.js/addresses";
 import { toSendOptions } from "@aztec/aztec.js/contracts";
-import type { InteractionFeeOptions, SendInteractionOptions } from "@aztec/aztec.js/contracts";
+import type {
+  InteractionFeeOptions,
+  SendInteractionOptions,
+  WaitOpts,
+} from "@aztec/aztec.js/contracts";
 import { Fr } from "@aztec/aztec.js/fields";
 import { TxHash, TxStatus } from "@aztec/aztec.js/tx";
 import { DomainSeparator } from "@aztec/constants";
 import { computeLogTag, computeSiloedPrivateLogFirstField } from "@aztec/stdlib/hash";
-import { SiloedTag, Tag, type TxScopedL2Log } from "@aztec/stdlib/logs";
+import { SiloedTag, Tag, type LogResult } from "@aztec/stdlib/logs";
 
 /**
  * Subset of `@aztec/stdlib/interfaces/client`'s `AztecNode` that the facilitator
  * uses. The real `AztecNode` client returned by `createAztecNodeClient(...)`
  * satisfies this shape — we keep a narrowed local interface so this module
  * stays decoupled from the rest of the SDK surface.
+ *
+ * v5 reshaped both halves of this surface:
+ * - receipts split block lifecycle (`status`) from execution outcome
+ *   (`executionResult`); `"success"` is no longer a status value.
+ * - the four tag-based log lookups collapsed into `getPrivateLogsByTags` and
+ *   `getPublicLogsByTags`, both taking a query object and returning
+ *   `LogResult[][]` (one bucket per requested tag). `TxScopedL2Log` is gone.
  */
 interface AztecNode {
-  getTxReceipt(txHash: TxHash): Promise<{ status: string }>;
-  getPrivateLogsByTags(tags: SiloedTag[]): Promise<TxScopedL2Log[][]>;
-  getPublicLogsByTagsFromContract(
-    contractAddress: AztecAddress,
-    tags: Tag[],
-  ): Promise<TxScopedL2Log[][]>;
+  getTxReceipt(txHash: TxHash): Promise<{ status: string; executionResult?: string }>;
+  getPrivateLogsByTags(query: { tags: SiloedTag[] }): Promise<LogResult[][]>;
+  getPublicLogsByTags(query: {
+    contractAddress: AztecAddress;
+    tags: Tag[];
+  }): Promise<LogResult[][]>;
 }
+
+/** v5 `TxStatus` values that mean the tx made it into a block. */
+const MINED_STATUSES = ["proposed", "checkpointed", "proven", "finalized"];
 
 interface AztecAccount {
   address: AztecAddress;
@@ -76,7 +90,8 @@ interface AztecAccount {
 interface OffchainMessage {
   payload: unknown;
   recipient?: unknown;
-  anchorBlockTimestamp?: number;
+  /** v5 reports this as a bigint; the core schema coerces it to a number. */
+  anchorBlockTimestamp?: number | bigint;
 }
 
 /**
@@ -117,14 +132,22 @@ interface TokenContract {
       simulate(opts: { from: AztecAddress }): Promise<SimulateResult | unknown>;
       request?(opts: Record<string, unknown>): Promise<unknown>;
       send(opts: Record<string, unknown>): Promise<SendResult>;
-      wallet?: {
-        sendTxWithAppReturnValues?(
-          executionPayload: unknown,
-          opts: unknown,
-        ): Promise<SendResult>;
-      };
     };
   };
+}
+
+/**
+ * Wallet able to surface the proven tx's private app return values.
+ *
+ * v4 let us reach this off `interaction.wallet`, but v5 made that member
+ * protected on `ContractFunctionInteraction`, so the wallet is now handed to the
+ * signer explicitly. {@link PXEWallet} implements it.
+ */
+interface AppReturnValuesWallet {
+  sendTxWithAppReturnValues(
+    executionPayload: unknown,
+    opts: unknown,
+  ): Promise<SendResult>;
 }
 
 /**
@@ -204,6 +227,7 @@ export class RealFacilitatorAztecSigner implements FacilitatorAztecSigner {
     private readonly node: AztecNode,
     private readonly token: TokenContract,
     private readonly sendOpts?: { fee?: InteractionFeeOptions },
+    private readonly wallet?: AppReturnValuesWallet,
   ) { }
 
   async getAddresses(): Promise<string[]> {
@@ -215,13 +239,13 @@ export class RealFacilitatorAztecSigner implements FacilitatorAztecSigner {
     completerAddress: string,
   ): Promise<PrepareCommitmentResult> {
     const facilitatorAddr = this.account.address;
-    const completerAddr = AztecAddress.fromString(completerAddress);
+    const completerAddr = AztecAddress.fromStringUnsafe(completerAddress);
 
     // Create partial note: to=facilitator (recipient), completer=client (who will finalize)
     const interaction =
       this.token.methods.initialize_transfer_commitment(facilitatorAddr, completerAddr);
 
-    const opts: SendInteractionOptions = {
+    const opts: SendInteractionOptions<WaitOpts> = {
       from: facilitatorAddr,
       wait: { timeout: 240, waitForStatus: TxStatus.CHECKPOINTED },
     };
@@ -230,11 +254,10 @@ export class RealFacilitatorAztecSigner implements FacilitatorAztecSigner {
     }
     let simulateResult: unknown;
     let sendResult: SendResult;
-    const walletSend = interaction.wallet?.sendTxWithAppReturnValues;
-    if (interaction.request && walletSend) {
+    const wallet = this.wallet;
+    if (interaction.request && wallet) {
       const executionPayload = await interaction.request(opts);
-      sendResult = await walletSend.call(
-        interaction.wallet,
+      sendResult = await wallet.sendTxWithAppReturnValues(
         executionPayload,
         toSendOptions(opts),
       );
@@ -298,18 +321,18 @@ export class RealFacilitatorAztecSigner implements FacilitatorAztecSigner {
       }
 
       const receipt = await this.node.getTxReceipt(txHash);
-      const validStatuses = [
-        "success",
-        "proposed",
-        "checkpointed",
-        "proven",
-        "finalized",
-      ];
-      if (!validStatuses.includes(receipt.status)) {
+      if (!MINED_STATUSES.includes(receipt.status)) {
         return {
           isValid: false,
           amountFound: 0n,
           error: `transaction status is '${receipt.status}'`,
+        };
+      }
+      if (receipt.executionResult && receipt.executionResult !== "success") {
+        return {
+          isValid: false,
+          amountFound: 0n,
+          error: `transaction execution ${receipt.executionResult}`,
         };
       }
 
@@ -317,7 +340,7 @@ export class RealFacilitatorAztecSigner implements FacilitatorAztecSigner {
       // buyer finalized the partial note. The log is keyed by a tag derived
       // from `commitment` so this lookup is O(1) and immune to concurrent
       // payments.
-      const tokenAddr = AztecAddress.fromString(tokenAddress);
+      const tokenAddr = AztecAddress.fromStringUnsafe(tokenAddress);
       let completion: CompletionLog | null;
       try {
         completion = await this.findCompletionLog(tokenAddr, commitmentFr);
@@ -393,15 +416,18 @@ export class RealFacilitatorAztecSigner implements FacilitatorAztecSigner {
     );
     const siloedTag = await computeSiloedPrivateLogFirstField(tokenAddr, logTag);
 
-    const privateBuckets = await this.node.getPrivateLogsByTags([
-      new SiloedTag(siloedTag),
-    ]);
-    const candidates: TxScopedL2Log[] =
+    const privateBuckets = await this.node.getPrivateLogsByTags({
+      tags: [new SiloedTag(siloedTag)],
+    });
+    const candidates: LogResult[] =
       privateBuckets[0] && privateBuckets[0].length > 0
         ? privateBuckets[0]
-        : (await this.node.getPublicLogsByTagsFromContract(tokenAddr, [
-            new Tag(logTag),
-          ]))[0] ?? [];
+        : (
+            await this.node.getPublicLogsByTags({
+              contractAddress: tokenAddr,
+              tags: [new Tag(logTag)],
+            })
+          )[0] ?? [];
 
     if (candidates.length === 0) return null;
     if (candidates.length > 1) {
