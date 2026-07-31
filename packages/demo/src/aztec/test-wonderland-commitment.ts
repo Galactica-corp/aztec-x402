@@ -10,7 +10,8 @@
  */
 import { createAztecNodeClient } from "@aztec/aztec.js/node";
 import { AztecAddress } from "@aztec/aztec.js/addresses";
-import { TokenContract } from "@defi-wonderland/aztec-standards/dist/src/artifacts/Token.js";
+import { Fr } from "@aztec/aztec.js/fields";
+import { TokenContract } from "@aztec-foundation/aztec-standards/dist/src/artifacts/Token.js";
 import { getAztecTxEffectArray, unwrapAztecSdkResult } from "@galactica-net/x402-core";
 import { createPXEWallet } from "./pxe-wallet.js";
 import { readFileSync } from "fs";
@@ -34,7 +35,7 @@ try {
 
 const NODE_URL = config.nodeUrl;
 const NETWORK = config.network;
-const isDevnet = USE_SPONSORED_FPC || NETWORK !== "aztec:sandbox";
+const isRemoteNetwork = USE_SPONSORED_FPC || NETWORK !== "aztec:sandbox";
 const TRANSFER_AMOUNT = 10000n;
 
 function getConstructorName(value: unknown): string | undefined {
@@ -50,7 +51,7 @@ console.log(`Connecting to Aztec node at ${NODE_URL}...`);
 const node = createAztecNodeClient(NODE_URL);
 const wallet = await createPXEWallet(node, {
   ephemeral: true,
-  pxeConfig: { proverEnabled: isDevnet },
+  pxe: { proverEnabled: isRemoteNetwork },
 });
 
 // 2. Load Alice (payer) and Bob (facilitator) accounts
@@ -63,7 +64,7 @@ console.log(`Alice (payer):      ${alice}`);
 console.log(`Bob (facilitator):  ${bob}`);
 
 // 3. Load TokenContract
-const tokenAddress = AztecAddress.fromString(config.tokenAddress);
+const tokenAddress = AztecAddress.fromStringUnsafe(config.tokenAddress);
 const tokenInstance = await node.getContract(tokenAddress);
 if (tokenInstance) {
   await wallet.registerContract(tokenInstance, TokenContract.artifact);
@@ -76,7 +77,7 @@ await wallet.registerSender(bob, "bob");
 await wallet.registerSender(alice, "alice");
 
 // Set up fee payment if needed
-const paymentMethod = isDevnet ? await setupSponsoredPayment(wallet) : undefined;
+const paymentMethod = isRemoteNetwork ? await setupSponsoredPayment(wallet) : undefined;
 const feeOpts = paymentMethod ? { fee: { paymentMethod } } : {};
 
 // 4. Check Alice's balance before
@@ -102,8 +103,7 @@ try {
   const commitment = unwrapAztecSdkResult(commitmentResult);
   console.log(`  Commitment: ${String(commitment)}`);
 
-  const sendOpts: Record<string, unknown> = { from: alice, wait: { timeout: 120 }, ...feeOpts };
-  const receipt = await interaction.send(sendOpts);
+  const { receipt } = await interaction.send({ from: alice, wait: { timeout: 120 }, ...feeOpts });
   console.log(`  Tx mined: ${receipt.txHash}`);
 
   // Debug: Check what nullifiers the prepare tx created
@@ -131,10 +131,11 @@ try {
 
   // 6. Alice calls: transfer_private_to_commitment(aliceAddr, {commitment}, amount, 0)
   console.log(`\nStep 2: Alice completes transfer (transfer_private_to_commitment, amount=${TRANSFER_AMOUNT})...`);
-  // Try passing commitmentResult directly instead of re-wrapping
+  // simulate() returns a SimulationResult wrapper, so pass the unwrapped
+  // commitment field rather than the whole result object.
   const transferInteraction = token.methods.transfer_private_to_commitment(
     alice,
-    commitmentResult,
+    Fr.fromString(String(commitment)),
     TRANSFER_AMOUNT,
     0,
   );
@@ -142,8 +143,11 @@ try {
   const transferSimResult = await transferInteraction.simulate({ from: alice });
   console.log(`  simulate() succeeded: ${String(transferSimResult)}`);
 
-  const transferOpts: Record<string, unknown> = { from: alice, wait: { timeout: 120 }, ...feeOpts };
-  const transferReceipt = await transferInteraction.send(transferOpts);
+  const { receipt: transferReceipt } = await transferInteraction.send({
+    from: alice,
+    wait: { timeout: 120 },
+    ...feeOpts,
+  });
   console.log(`  Tx mined: ${transferReceipt.txHash}`);
 
   // 7. Verify tx receipt

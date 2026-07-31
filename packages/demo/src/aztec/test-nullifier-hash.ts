@@ -5,7 +5,7 @@
 import { createAztecNodeClient } from "@aztec/aztec.js/node";
 import { AztecAddress } from "@aztec/aztec.js/addresses";
 import { Fr } from "@aztec/aztec.js/fields";
-import { TokenContract } from "@defi-wonderland/aztec-standards/dist/src/artifacts/Token.js";
+import { TokenContract } from "@aztec-foundation/aztec-standards/dist/src/artifacts/Token.js";
 import { getAztecTxEffectArray, unwrapAztecSdkResult } from "@galactica-net/x402-core";
 import { createPXEWallet } from "./pxe-wallet.js";
 import { readFileSync } from "fs";
@@ -20,21 +20,21 @@ const KEYS_PATH = join(DATA_DIR, "keys.json");
 const config = JSON.parse(readFileSync(CONFIG_PATH, "utf-8"));
 const NODE_URL = config.nodeUrl;
 const NETWORK = config.network;
-const isDevnet = process.env.USE_SPONSORED_FPC === "true" || NETWORK !== "aztec:sandbox";
+const isRemoteNetwork = process.env.USE_SPONSORED_FPC === "true" || NETWORK !== "aztec:sandbox";
 
 console.log("=== Nullifier Hash Comparison ===\n");
 
 const node = createAztecNodeClient(NODE_URL);
 const wallet = await createPXEWallet(node, {
   ephemeral: true,
-  pxeConfig: { proverEnabled: isDevnet },
+  pxe: { proverEnabled: isRemoteNetwork },
 });
 
 const keys = loadKeys(KEYS_PATH);
 const aliceAccount = await loadAccount(wallet, keys, "alice");
 const alice = aliceAccount.address;
 
-const tokenAddress = AztecAddress.fromString(config.tokenAddress);
+const tokenAddress = AztecAddress.fromStringUnsafe(config.tokenAddress);
 const tokenInstance = await node.getContract(tokenAddress);
 if (tokenInstance) {
   await wallet.registerContract(tokenInstance, TokenContract.artifact);
@@ -42,7 +42,7 @@ if (tokenInstance) {
 const token = await TokenContract.at(tokenAddress, wallet);
 await wallet.registerSender(alice, "alice");
 
-const paymentMethod = isDevnet ? await setupSponsoredPayment(wallet) : undefined;
+const paymentMethod = isRemoteNetwork ? await setupSponsoredPayment(wallet) : undefined;
 const feeOpts = paymentMethod ? { fee: { paymentMethod } } : {};
 
 // Step 1: Prepare
@@ -62,11 +62,9 @@ console.log(`  Token address: ${tokenAddress.toString()}`);
 
 // Step 2: Compute validity commitment
 // validity_commitment = poseidon2_hash_with_separator([commitment, completer], DOM_SEP__PARTIAL_NOTE_VALIDITY_COMMITMENT)
-// Then siloed = poseidon2_hash_with_separator([contract_address, validity_commitment], SILOED_NULLIFIER_SEPARATOR)
 
-// Try to import poseidon2 and the constants
 try {
-  const { SILOED_NULLIFIER_SEPARATOR } = await import("@aztec/constants");
+  const { siloNullifier } = await import("@aztec/stdlib/hash");
 
   console.log("\nStep 2: Computing expected nullifier hashes...");
   console.log(`  DOM_SEP for partial note validity: looking up...`);
@@ -77,8 +75,9 @@ try {
   const constKeys = Object.keys(constants).filter(k => k.includes("PARTIAL") || k.includes("VALIDITY") || k.includes("DOM_SEP"));
   console.log(`  Relevant constants: ${constKeys.join(", ")}`);
 
-  // Try to compute siloed nullifier
-  console.log(`\n  SILOED_NULLIFIER_SEPARATOR: ${SILOED_NULLIFIER_SEPARATOR}`);
+  // Silo the commitment the way the protocol does.
+  const siloed = await siloNullifier(tokenAddress, commitmentFr);
+  console.log(`\n  Siloed nullifier for commitment: ${siloed.toString()}`);
 
 } catch (err) {
   console.log(`  Import error: ${String(err).substring(0, 200)}`);
@@ -86,7 +85,7 @@ try {
 
 // Step 3: Send prepare and get actual nullifiers
 console.log("\nStep 3: Sending prepare tx...");
-const receipt = await interaction.send({ from: alice, wait: { timeout: 120 }, ...feeOpts });
+const { receipt } = await interaction.send({ from: alice, wait: { timeout: 120 }, ...feeOpts });
 console.log(`  Tx mined: ${receipt.txHash}`);
 
 const txEffect = await node.getTxEffect(receipt.txHash);
@@ -106,7 +105,7 @@ console.log("\nStep 4: Simulating finalize to see what nullifier it computes..."
 try {
   const finalizeInteraction = token.methods.transfer_private_to_commitment(
     alice,
-    commitment,
+    commitmentFr,
     10000n,
     0,
   );

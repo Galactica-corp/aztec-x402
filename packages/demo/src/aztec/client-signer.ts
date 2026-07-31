@@ -15,17 +15,26 @@
  */
 import type { ClientAztecSigner } from "@galactica-net/x402-core";
 import { AztecAddress } from "@aztec/aztec.js/addresses";
+import type { AztecAddressLike, FieldLike, OptionLike } from "@aztec/aztec.js/abi";
+import { Fr } from "@aztec/aztec.js/fields";
 import { TxHash, TxStatus } from "@aztec/aztec.js/tx";
 
 interface AztecAccount {
   address: AztecAddress;
 }
 
+/**
+ * Mirrors the token artifact's `offchain_receive` parameter struct.
+ *
+ * Fields are `FieldLike`/`AztecAddressLike` rather than anything stringy, so the
+ * values are converted at this boundary instead of being handed over as the raw
+ * hex strings that come off the wire.
+ */
 interface OffchainReceiveInput {
-  ciphertext: unknown[];
-  recipient: string;
-  tx_hash: unknown;
-  anchor_block_timestamp: number;
+  ciphertext: FieldLike[];
+  recipient: AztecAddressLike;
+  tx_hash: OptionLike<FieldLike>;
+  anchor_block_timestamp: number | bigint;
 }
 
 interface SendResult {
@@ -52,21 +61,32 @@ interface TokenContract {
   };
 }
 
-function toFieldLike(value: unknown): unknown {
+function hasToField(value: unknown): value is { toField: () => Fr } {
+  return typeof value === "object" && value !== null && "toField" in value;
+}
+
+function toFieldLike(value: unknown): FieldLike {
   if (typeof value === "bigint" || typeof value === "number" || Buffer.isBuffer(value)) {
     return value;
   }
-  if (value != null && typeof value === "object" && "toField" in value) {
+  if (hasToField(value)) {
     return value;
   }
-  return String(value);
+  // Serialized payloads arrive as hex strings; the encoder needs real fields.
+  return Fr.fromString(String(value));
 }
 
-function normalizeCiphertext(payload: unknown): unknown[] {
+function normalizeCiphertext(payload: unknown): FieldLike[] {
   if (Array.isArray(payload)) return payload.map(toFieldLike);
   if (typeof payload === "string") {
-    if (payload.includes(",")) return payload.split(",").map((field) => field.trim()).filter(Boolean);
-    return payload ? [payload] : [];
+    if (payload.includes(",")) {
+      return payload
+        .split(",")
+        .map((field) => field.trim())
+        .filter(Boolean)
+        .map(toFieldLike);
+    }
+    return payload ? [toFieldLike(payload)] : [];
   }
   return payload == null ? [] : [toFieldLike(payload)];
 }
@@ -126,7 +146,7 @@ export class RealClientAztecSigner implements ClientAztecSigner {
     // Build offchain_receive input
     const receiveInputs: OffchainReceiveInput[] = messages.map((msg) => ({
       ciphertext: normalizeCiphertext(msg.payload ?? msg.ciphertext),
-      recipient: msg.recipient ?? clientAddr.toString(),
+      recipient: msg.recipient ? AztecAddress.fromStringUnsafe(msg.recipient) : clientAddr,
       tx_hash: TxHash.fromString(prepareTxHash).hash,
       anchor_block_timestamp: msg.anchorBlockTimestamp ?? 0,
     }));

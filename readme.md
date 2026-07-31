@@ -41,7 +41,7 @@ sequenceDiagram
 
 ### Commitment Pattern — Structural Recipient Verification
 
-The server creates the commitment via `initialize_transfer_commitment(serverAddr, clientAddr)` on the [AIP-20 standard token contract](https://github.com/defi-wonderland/aztec-standards). This provides two guarantees:
+The server creates the commitment via `initialize_transfer_commitment(serverAddr, clientAddr)` on the [AIP-20 standard token contract](https://github.com/AztecProtocol/aztec-standards). This provides two guarantees:
 
 1. **Recipient is bound**: the partial note's `to` = server's address — the client can only complete the transfer TO the server
 2. **Completer is bound**: only the specified client address can call `transfer_private_to_commitment` for this commitment
@@ -54,26 +54,28 @@ In this demo the API provider runs the facilitator inside its own server process
 
 ## Token Contract
 
-This project uses the **AIP-20 standard token** from [`@defi-wonderland/aztec-standards`](https://github.com/defi-wonderland/aztec-standards). AIP-20 natively supports the `completer` parameter in `initialize_transfer_commitment(to, completer)`, enabling cross-party commitment flows where the server prepares and the client finalizes.
+This project uses the **AIP-20 standard token** from [`@aztec-foundation/aztec-standards`](https://github.com/AztecProtocol/aztec-standards). AIP-20 natively supports the `completer` parameter in `initialize_transfer_commitment(to, completer)`, enabling cross-party commitment flows where the server prepares and the client finalizes.
 
-The demo consumes the published `@defi-wonderland/aztec-standards@4.2.0` token wrapper and artifact directly. There is no checked-in local token artifact or Noir source copy in this repo.
+The demo consumes the published `@aztec-foundation/aztec-standards@5.0.1` token wrapper and artifact directly. There is no checked-in local token artifact or Noir source copy in this repo.
 
 ## Aztec Version Compatibility
 
 | Component | Version | Notes |
 |-----------|---------|-------|
-| SDK (`@aztec/aztec.js` etc.) | `4.2.0` | Matches the current testnet generation |
-| AIP-20 token artifact | `@defi-wonderland/aztec-standards@4.2.0` | Published token wrapper and artifact |
-| Public testnet | `4.2.0` | RPC: `https://rpc.testnet.aztec-labs.com` |
-| Local network | `4.2.0` | Use Aztec 4.2.x tooling |
+| SDK (`@aztec/aztec.js` etc.) | `5.0.1` | Aztec advise against `5.0.0` for production |
+| AIP-20 token artifact | `@aztec-foundation/aztec-standards@5.0.1` | Built against the same release |
+| Public testnet | `5.0.x` | RPC: `https://v5.testnet.rpc.aztec-labs.com` |
+| Local network | `5.0.1` | Use Aztec 5.0.x tooling |
 
-### v4.2.x API Notes
+### API Notes
 
-The code handles the post-v4.1 Aztec.js send/simulate shapes:
+Notable points about the Aztec SDK surface this code relies on:
 
 - **`send()`** returns `{ receipt, offchainEffects, offchainMessages }` — txHash is on `receipt.txHash`, not top-level
 - **`simulate()`** returns `{ result: Field, offchainEffects, offchainMessages }` — the AIP-20 `initialize_transfer_commitment` returns a raw `Field` (commitment)
 - **`offchainMessages`** is preferred when populated; the current fallback still extracts the commitment from `simulate()`
+- **Receipts** are a lifecycle union: `status` is block inclusion (`proposed`/`checkpointed`/`proven`/`finalized`), `executionResult` is success/revert — `"success"` is not a status
+- **Log lookups** go through `getPrivateLogsByTags` / `getPublicLogsByTags`, which take a query object and return `LogResult[][]`
 - **Contract artifacts** must match the SDK/network generation
 
 ### Testnet Status
@@ -81,7 +83,7 @@ The code handles the post-v4.1 Aztec.js send/simulate shapes:
 The old devnet blocker is no longer the active target. The demo defaults to Aztec public testnet:
 
 ```bash
-NODE_URL=https://rpc.testnet.aztec-labs.com \
+NODE_URL=https://v5.testnet.rpc.aztec-labs.com \
 AZTEC_NETWORK=aztec:testnet \
 USE_SPONSORED_FPC=true \
 bun run ./packages/demo/src/aztec/setup.ts
@@ -90,8 +92,8 @@ bun run ./packages/demo/src/aztec/setup.ts
 ### Running a Local Network
 
 ```bash
-# Install Aztec 4.2.x tooling
-VERSION=4.2.0 bash -i <(curl -sL https://install.aztec.network/4.2.0)
+# Install Aztec 5.0.x tooling
+VERSION=5.0.1 bash -i <(curl -sL https://install.aztec.network/5.0.1)
 
 # Start a local Aztec network
 aztec start --local-network
@@ -232,7 +234,7 @@ bun run build   # Build all packages
 ## Design Decisions
 
 - **Commitment-based transfers** — server creates commitment (partial note) binding the recipient, client completes the transfer. Provides structural recipient verification.
-- **AIP-20 standard token** — uses the [`@defi-wonderland/aztec-standards`](https://github.com/defi-wonderland/aztec-standards) token which natively supports the `completer` parameter for cross-party commitment flows.
+- **AIP-20 standard token** — uses the [`@aztec-foundation/aztec-standards`](https://github.com/AztecProtocol/aztec-standards) token which natively supports the `completer` parameter for cross-party commitment flows.
 - **3-phase HTTP flow** — initial 402 → prepare (server creates commitment) → payment (client finalizes + proves)
 - **Commitment-tagged completion log** — server verifies the buyer's payment by looking up the unique completion log emitted by `PartialUintNote::complete{_from_private}`, keyed by the commitment. Concurrent payments are safe.
 - **Server = facilitator** — no separate facilitator service; the server verifies and settles payments directly

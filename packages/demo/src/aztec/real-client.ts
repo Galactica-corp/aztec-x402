@@ -8,7 +8,7 @@
  */
 import { createAztecNodeClient } from "@aztec/aztec.js/node";
 import { AztecAddress } from "@aztec/aztec.js/addresses";
-import { TokenContract } from "@defi-wonderland/aztec-standards/dist/src/artifacts/Token.js";
+import { TokenContract } from "@aztec-foundation/aztec-standards/dist/src/artifacts/Token.js";
 import { createPXEWallet } from "./pxe-wallet.js";
 import { readFileSync } from "fs";
 import { join, dirname } from "path";
@@ -38,7 +38,7 @@ try {
 const NODE_URL = config.nodeUrl;
 const NETWORK = config.network;
 const USE_SPONSORED_FPC = process.env.USE_SPONSORED_FPC === "true";
-const isDevnet = USE_SPONSORED_FPC || NETWORK !== "aztec:sandbox";
+const isRemoteNetwork = USE_SPONSORED_FPC || NETWORK !== "aztec:sandbox";
 
 function extractSimulateValue(result: unknown): unknown {
   return unwrapAztecSdkResult(result);
@@ -54,7 +54,7 @@ console.log(`Connecting to Aztec node at ${NODE_URL}...`);
 const node = createAztecNodeClient(NODE_URL);
 const wallet = await createPXEWallet(node, {
   ephemeral: true,
-  pxeConfig: { proverEnabled: isDevnet },
+  pxe: { proverEnabled: isRemoteNetwork },
 });
 
 // Get Alice's wallet (the payer)
@@ -64,7 +64,7 @@ const alice = aliceAccount.address;
 console.log(`Payer address: ${alice}`);
 
 // Get the deployed token contract
-const tokenAddress = AztecAddress.fromString(config.tokenAddress);
+const tokenAddress = AztecAddress.fromStringUnsafe(config.tokenAddress);
 const tokenInstance = await node.getContract(tokenAddress);
 if (tokenInstance) {
   await wallet.registerContract(tokenInstance, TokenContract.artifact);
@@ -72,7 +72,7 @@ if (tokenInstance) {
 const token = await TokenContract.at(tokenAddress, wallet);
 
 // Register Bob as sender so we can discover notes from him
-const bob = AztecAddress.fromString(config.bobAddress);
+const bob = AztecAddress.fromStringUnsafe(config.bobAddress);
 await wallet.registerSender(bob, "bob");
 
 // Check balance before
@@ -82,7 +82,7 @@ const balanceBefore = await token.methods
 console.log(`Balance before: ${extractSimulateValue(balanceBefore)}\n`);
 
 // Set up fee payment (Sponsored FPC on devnet, none on sandbox)
-const paymentMethod = isDevnet ? await setupSponsoredPayment(wallet) : undefined;
+const paymentMethod = isRemoteNetwork ? await setupSponsoredPayment(wallet) : undefined;
 const feeOpts = paymentMethod ? { fee: { paymentMethod } } : undefined;
 
 // Create real client signer and x402 payment-aware fetch

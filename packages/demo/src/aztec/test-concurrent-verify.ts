@@ -20,7 +20,7 @@
  */
 import { createAztecNodeClient } from "@aztec/aztec.js/node";
 import { AztecAddress } from "@aztec/aztec.js/addresses";
-import { TokenContract } from "@defi-wonderland/aztec-standards/dist/src/artifacts/Token.js";
+import { TokenContract } from "@aztec-foundation/aztec-standards/dist/src/artifacts/Token.js";
 import { readFileSync } from "fs";
 import { join, dirname } from "path";
 import { createPXEWallet } from "./pxe-wallet.js";
@@ -47,7 +47,7 @@ const config = DeployConfigSchema.parse(
 const NODE_URL = config.nodeUrl;
 const NETWORK = config.network;
 const TOKEN_ADDRESS = config.tokenAddress;
-const isDevnet = USE_SPONSORED_FPC || NETWORK !== "aztec:sandbox";
+const isRemoteNetwork = USE_SPONSORED_FPC || NETWORK !== "aztec:sandbox";
 
 // Two distinct amounts so we can verify they aren't conflated.
 const AMOUNT_A = 11_111n;
@@ -61,7 +61,7 @@ console.log("Connecting...");
 const node = createAztecNodeClient(NODE_URL);
 const wallet = await createPXEWallet(node, {
   ephemeral: true,
-  pxeConfig: { proverEnabled: isDevnet },
+  pxe: { proverEnabled: isRemoteNetwork },
 });
 
 const paymentMethod = USE_SPONSORED_FPC ? await setupSponsoredPayment(wallet) : undefined;
@@ -75,7 +75,7 @@ const bob = bobAccount.address;
 console.log(`Alice (buyer):       ${alice}`);
 console.log(`Bob   (facilitator): ${bob}\n`);
 
-const tokenAddress = AztecAddress.fromString(TOKEN_ADDRESS);
+const tokenAddress = AztecAddress.fromStringUnsafe(TOKEN_ADDRESS);
 const tokenInstance = await node.getContract(tokenAddress);
 if (tokenInstance) {
   await wallet.registerContract(tokenInstance, TokenContract.artifact);
@@ -84,7 +84,7 @@ await wallet.registerSender(bob, "bob");
 await wallet.registerSender(alice, "alice");
 const token = await TokenContract.at(tokenAddress, wallet);
 
-const facilitatorSigner = new RealFacilitatorAztecSigner(bobAccount, node, token, sendOpts);
+const facilitatorSigner = new RealFacilitatorAztecSigner(bobAccount, node, token, sendOpts, wallet);
 const clientSigner = new RealClientAztecSigner(aliceAccount, token, sendOpts);
 
 interface FlowResult {
