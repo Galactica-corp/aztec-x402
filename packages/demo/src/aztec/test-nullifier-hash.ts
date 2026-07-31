@@ -5,7 +5,7 @@
 import { createAztecNodeClient } from "@aztec/aztec.js/node";
 import { AztecAddress } from "@aztec/aztec.js/addresses";
 import { Fr } from "@aztec/aztec.js/fields";
-import { TokenContract } from "../contracts/token/Token.js";
+import { TokenContract } from "@aztec-foundation/aztec-standards/dist/src/artifacts/Token.js";
 import { getAztecTxEffectArray, unwrapAztecSdkResult } from "@galactica-net/x402-core";
 import { createPXEWallet } from "./pxe-wallet.js";
 import { readFileSync } from "fs";
@@ -62,8 +62,6 @@ console.log(`  Token address: ${tokenAddress.toString()}`);
 
 // Step 2: Compute validity commitment
 // validity_commitment = poseidon2_hash_with_separator([commitment, completer], DOM_SEP__PARTIAL_NOTE_VALIDITY_COMMITMENT)
-// v5 removed SILOED_NULLIFIER_SEPARATOR from @aztec/constants; siloing now goes
-// through the siloNullifier() helper in @aztec/stdlib/hash.
 
 try {
   const { siloNullifier } = await import("@aztec/stdlib/hash");
@@ -77,7 +75,7 @@ try {
   const constKeys = Object.keys(constants).filter(k => k.includes("PARTIAL") || k.includes("VALIDITY") || k.includes("DOM_SEP"));
   console.log(`  Relevant constants: ${constKeys.join(", ")}`);
 
-  // Silo the commitment the way the protocol does, via the v5 helper.
+  // Silo the commitment the way the protocol does.
   const siloed = await siloNullifier(tokenAddress, commitmentFr);
   console.log(`\n  Siloed nullifier for commitment: ${siloed.toString()}`);
 
@@ -87,7 +85,6 @@ try {
 
 // Step 3: Send prepare and get actual nullifiers
 console.log("\nStep 3: Sending prepare tx...");
-// v5: a waited send resolves to { receipt, ... } — the tx hash is on the receipt.
 const { receipt } = await interaction.send({ from: alice, wait: { timeout: 120 }, ...feeOpts });
 console.log(`  Tx mined: ${receipt.txHash}`);
 

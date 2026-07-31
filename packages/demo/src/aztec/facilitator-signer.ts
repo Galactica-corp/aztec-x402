@@ -64,12 +64,9 @@ import { SiloedTag, Tag, type LogResult } from "@aztec/stdlib/logs";
  * satisfies this shape — we keep a narrowed local interface so this module
  * stays decoupled from the rest of the SDK surface.
  *
- * v5 reshaped both halves of this surface:
- * - receipts split block lifecycle (`status`) from execution outcome
- *   (`executionResult`); `"success"` is no longer a status value.
- * - the four tag-based log lookups collapsed into `getPrivateLogsByTags` and
- *   `getPublicLogsByTags`, both taking a query object and returning
- *   `LogResult[][]` (one bucket per requested tag). `TxScopedL2Log` is gone.
+ * Receipts split block lifecycle (`status`) from execution outcome
+ * (`executionResult`), and the tag-based log lookups take a query object and
+ * return `LogResult[][]` — one bucket per requested tag.
  */
 interface AztecNode {
   getTxReceipt(txHash: TxHash): Promise<{ status: string; executionResult?: string }>;
@@ -80,7 +77,7 @@ interface AztecNode {
   }): Promise<LogResult[][]>;
 }
 
-/** v5 `TxStatus` values that mean the tx made it into a block. */
+/** `TxStatus` values that mean the tx made it into a block. */
 const MINED_STATUSES = ["proposed", "checkpointed", "proven", "finalized"];
 
 interface AztecAccount {
@@ -90,7 +87,7 @@ interface AztecAccount {
 interface OffchainMessage {
   payload: unknown;
   recipient?: unknown;
-  /** v5 reports this as a bigint; the core schema coerces it to a number. */
+  /** Reported as a bigint; the core schema coerces it to a number. */
   anchorBlockTimestamp?: number | bigint;
 }
 
@@ -139,9 +136,8 @@ interface TokenContract {
 /**
  * Wallet able to surface the proven tx's private app return values.
  *
- * v4 let us reach this off `interaction.wallet`, but v5 made that member
- * protected on `ContractFunctionInteraction`, so the wallet is now handed to the
- * signer explicitly. {@link PXEWallet} implements it.
+ * `ContractFunctionInteraction.wallet` is protected, so the wallet is handed to
+ * the signer explicitly. {@link PXEWallet} implements this.
  */
 interface AppReturnValuesWallet {
   sendTxWithAppReturnValues(

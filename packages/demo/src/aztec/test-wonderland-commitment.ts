@@ -11,7 +11,7 @@
 import { createAztecNodeClient } from "@aztec/aztec.js/node";
 import { AztecAddress } from "@aztec/aztec.js/addresses";
 import { Fr } from "@aztec/aztec.js/fields";
-import { TokenContract } from "../contracts/token/Token.js";
+import { TokenContract } from "@aztec-foundation/aztec-standards/dist/src/artifacts/Token.js";
 import { getAztecTxEffectArray, unwrapAztecSdkResult } from "@galactica-net/x402-core";
 import { createPXEWallet } from "./pxe-wallet.js";
 import { readFileSync } from "fs";
@@ -103,7 +103,6 @@ try {
   const commitment = unwrapAztecSdkResult(commitmentResult);
   console.log(`  Commitment: ${String(commitment)}`);
 
-  // v5: a waited send resolves to { receipt, ... } — the tx hash is on the receipt.
   const { receipt } = await interaction.send({ from: alice, wait: { timeout: 120 }, ...feeOpts });
   console.log(`  Tx mined: ${receipt.txHash}`);
 
@@ -132,8 +131,8 @@ try {
 
   // 6. Alice calls: transfer_private_to_commitment(aliceAddr, {commitment}, amount, 0)
   console.log(`\nStep 2: Alice completes transfer (transfer_private_to_commitment, amount=${TRANSFER_AMOUNT})...`);
-  // v5 simulate() always returns a SimulationResult wrapper, so pass the
-  // unwrapped commitment field rather than the whole result object.
+  // simulate() returns a SimulationResult wrapper, so pass the unwrapped
+  // commitment field rather than the whole result object.
   const transferInteraction = token.methods.transfer_private_to_commitment(
     alice,
     Fr.fromString(String(commitment)),

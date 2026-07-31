@@ -26,9 +26,9 @@ interface AztecAccount {
 /**
  * Mirrors the token artifact's `offchain_receive` parameter struct.
  *
- * The generated types tightened in v5 — fields are `FieldLike`/`AztecAddressLike`
- * rather than anything stringy — so the values are converted at this boundary
- * instead of being handed over as the raw hex strings that come off the wire.
+ * Fields are `FieldLike`/`AztecAddressLike` rather than anything stringy, so the
+ * values are converted at this boundary instead of being handed over as the raw
+ * hex strings that come off the wire.
  */
 interface OffchainReceiveInput {
   ciphertext: FieldLike[];

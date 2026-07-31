@@ -110,7 +110,6 @@ const sendOpts = (from: AztecAddress) => ({
 console.log("Deploying official v4.1.0 TokenContract...");
 const tokenDeploy = TokenContract.deploy(wallet, alice, "TestUSD", "tUSD", 6);
 const deployResult = await tokenDeploy.send(sendOpts(alice));
-// v5: getInstance() is async.
 const tokenAddress = (await tokenDeploy.getInstance())?.address;
 if (!tokenAddress) {
   console.log(`  deployResult keys: ${getKeys(deployResult)}`);

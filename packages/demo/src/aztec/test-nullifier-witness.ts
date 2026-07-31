@@ -10,7 +10,7 @@ import { createAztecNodeClient } from "@aztec/aztec.js/node";
 import { BlockNumber } from "@aztec/aztec.js/fields";
 import { AztecAddress } from "@aztec/aztec.js/addresses";
 import { Fr } from "@aztec/aztec.js/fields";
-import { TokenContract } from "../contracts/token/Token.js";
+import { TokenContract } from "@aztec-foundation/aztec-standards/dist/src/artifacts/Token.js";
 import { getAztecTxEffectArray, unwrapAztecSdkResult } from "@galactica-net/x402-core";
 import { createPXEWallet } from "./pxe-wallet.js";
 import { readFileSync } from "fs";
@@ -62,7 +62,6 @@ const simResult = await interaction.simulate({ from: alice });
 const commitment = unwrapAztecSdkResult(simResult);
 console.log(`  Commitment: ${String(commitment)}`);
 
-// v5: a waited send resolves to { receipt, ... } — the tx hash is on the receipt.
 const { receipt } = await interaction.send({ from: alice, wait: { timeout: 120 }, ...feeOpts });
 console.log(`  Tx mined: ${receipt.txHash}`);
 
@@ -86,7 +85,7 @@ for (const n of nonZero) {
 
 // Step 3: Get block info
 const txReceipt = await node.getTxReceipt(receipt.txHash);
-// v5 receipts are a lifecycle union — block fields only exist once mined.
+// Block fields only exist once the tx is mined.
 if (!txReceipt.isMined()) {
   console.error(`Tx is not mined (status ${txReceipt.status})!`);
   process.exit(1);
@@ -97,7 +96,6 @@ console.log(`\n  Block number: ${blockNumber}`);
 // Step 4: Try to get nullifier membership witness from node
 console.log("\nStep 3: Query node for nullifier membership witnesses...");
 
-// v5 unified the block lookups into getBlock, whose response carries the hash.
 const block = await node.getBlock(blockNumber);
 if (!block) {
   console.error("No block found!");

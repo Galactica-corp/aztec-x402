@@ -31,9 +31,9 @@ export const AztecOffchainMessageSchema = z
   .object({
     payload: z.unknown(),
     recipient: z.unknown().optional(),
-    // Aztec v5 hands this over as a bigint. Coerce so the serialized message
-    // stays a plain JSON number for the client, which feeds it straight into
-    // the token ABI's `anchor_block_timestamp`.
+    // Aztec hands this over as a bigint. Coerce so the serialized message stays
+    // a plain JSON number for the client, which feeds it straight into the token
+    // ABI's `anchor_block_timestamp`.
     anchorBlockTimestamp: z.coerce.number().optional(),
   })
   .catchall(z.unknown());

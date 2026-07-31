@@ -27,16 +27,13 @@
  * This is equivalent to what Aztec's own `TestWallet` does in their e2e tests
  * (see yarn-project/end-to-end/src/test-wallet/test_wallet.ts).
  *
- * ## v4.1.0: simulate/send mismatch resolved
+ * ## Commitment consistency
  *
- * On v4.1.0+, `send()` returns `{ receipt, offchainMessages }` where
- * offchainMessages are extracted from the **proven tx**. The commitment
- * now comes from the same execution that went on-chain, fixing the
- * simulate/send randomness mismatch.
- *
- * PXEWallet is still useful for ensuring consistent simulation behavior
- * (real account entrypoint instead of stubs), but the commitment extraction
- * no longer depends on simulate() matching send().
+ * `send()` returns `{ receipt, offchainMessages }` with the offchain messages
+ * extracted from the **proven tx**, so the commitment comes from the same
+ * execution that went on-chain. PXEWallet remains useful for consistent
+ * simulation behaviour (real account entrypoint instead of stubs), but the
+ * commitment extraction no longer depends on simulate() matching send().
  *
  * @see https://github.com/AztecProtocol/aztec-packages/pull/15642
  * @see https://github.com/AztecProtocol/aztec-packages/pull/10613
@@ -45,8 +42,6 @@
 import { CallAuthorizationRequest } from "@aztec/aztec.js/authorization";
 import { extractOffchainOutput, NO_WAIT } from "@aztec/aztec.js/contracts";
 import type { OffchainMessage } from "@aztec/aztec.js/contracts";
-// v5 moved getGasLimits out of aztec.js and changed its signature: it now takes
-// the simulated gas usage plus the network's per-tx admission limit.
 import { getGasLimits } from "@aztec/wallet-sdk/base-wallet";
 import { waitForTx } from "@aztec/aztec.js/node";
 import { EmbeddedWallet as NodeEmbeddedWallet, type EmbeddedWalletOptions } from "@aztec/wallets/embedded";
@@ -86,10 +81,10 @@ export class PXEWallet extends NodeEmbeddedWallet {
     executionPayload: ExecutionPayload,
     opts: SendOptions<any>,
   ): Promise<SendTxWithAppReturnValuesResult> {
-    // v5 disables autoSync on the embedded wallet's PXE and syncs explicitly in
-    // sendTx instead. This method bypasses sendTx and calls simulateViaEntrypoint
-    // directly, so it has to drive the sync itself — otherwise the first
-    // simulation hits "Trying to get block header with a not-yet-synchronized PXE".
+    // The embedded wallet's PXE has autoSync disabled and sendTx normally drives
+    // the sync. This method bypasses sendTx and calls simulateViaEntrypoint
+    // directly, so it must sync itself — otherwise the first simulation fails
+    // with "Trying to get block header with a not-yet-synchronized PXE".
     await this.pxe.sync();
 
     const estimationFeeOptions = await this.completeFeeOptions({
@@ -152,9 +147,9 @@ export class PXEWallet extends NodeEmbeddedWallet {
       opts.from,
       feeOptions,
     );
-    // v5 takes an options bag and needs `senderForTags` — without it any private
-    // log this tx emits (including the partial-note completion log the payment
-    // verification reads) trips the "Sender for tags is not set" assertion.
+    // `senderForTags` is required: without it any private log this tx emits —
+    // including the partial-note completion log the payment verification reads —
+    // trips the "Sender for tags is not set" assertion.
     const provenTx = await this.pxe.proveTx(txRequest, {
       scopes: this.scopesFrom(opts.from, opts.additionalScopes),
       senderForTags: this.senderForTagsFrom(opts.from, opts.sendMessagesAs),
@@ -187,7 +182,6 @@ export class PXEWallet extends NodeEmbeddedWallet {
     const txHash = tx.getTxHash();
     debugSend(`built tx ${txHash.toString()}`);
     debugSend("checking duplicate tx effect");
-    // v5: getTxEffect is deprecated; a mined receipt is the settled-tx signal.
     if ((await this.aztecNode.getTxReceipt(txHash)).isMined()) {
       throw new Error(`A settled tx with equal hash ${txHash.toString()} exists.`);
     }
