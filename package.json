@@ -1,7 +1,7 @@
 {
-  "name": "aztec-x402",
+  "name": "@galactica-net/aztec-x402",
   "private": true,
-  "version": "1.0.0",
+  "version": "1.1.0",
   "description": "x402 HTTP 402 payment protocol for Aztec private stablecoins",
   "author": "Galactica Network",
   "license": "Apache-2.0",

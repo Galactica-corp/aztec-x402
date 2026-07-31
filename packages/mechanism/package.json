@@ -1,6 +1,6 @@
 {
   "name": "@galactica-net/x402-mechanism",
-  "version": "1.0.0",
+  "version": "1.1.0",
   "description": "x402 mechanism plugin for Aztec — client, facilitator, and server schemes",
   "author": "Galactica Network",
   "license": "Apache-2.0",
