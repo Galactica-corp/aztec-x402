@@ -67,17 +67,28 @@ The demo consumes the published `@defi-wonderland/aztec-standards@5.0.0-rc.2` to
 | Public testnet | `5.0.0` | RPC: `https://v5.testnet.rpc.aztec-labs.com` — `aztec_getNodeInfo` reports `5.0.0`, though the docs say `5.0.1` |
 | Local network | `5.0.0` | Use Aztec 5.0.x tooling |
 
-> **Known blocker.** The Wonderland artifact does not load on any published Aztec v5
-> SDK. Computing its contract class fails in barretenberg with
-> `verification key has wrong size: expected 5216, got 4576` — its verification keys
-> were built against a different circuit generation. Verified against both `5.0.0`
-> and `5.0.1`, with identical numbers; Aztec's own artifacts (Token, SponsoredFPC)
-> compute fine on the same SDK, so the mismatch is in the `5.0.0-rc.2` package.
+> **Known blocker — no working version combination exists today.**
 >
-> Account deployment, fee payment and every node API this repo uses work on testnet
-> today. Token deployment — and therefore the payment flow — is blocked until
-> Wonderland publishes a stable v5 artifact, or until the artifact is rebuilt from
-> source with 5.0.x tooling.
+> The Wonderland package declares `config.aztecVersion: "5.0.0-rc.2"`, and its
+> artifact is built against that release candidate. Aztec changed the circuits
+> between the RC and the `5.0.0` release (verification key size went 4576 -> 5216),
+> and Wonderland has not rebuilt since.
+>
+> | Stack | Result |
+> |-------|--------|
+> | SDK `5.0.0` / `5.0.1` + artifact `5.0.0-rc.2` | Artifact will not load: `verification key has wrong size: expected 5216, got 4576` |
+> | SDK `5.0.0-rc.2` + artifact `5.0.0-rc.2` | Artifact loads, but the live testnet rejects the RC prover output: `proof_compression: BN254 scalar out of range` — fails at account deployment, before the token |
+>
+> Aztec's own `Token` and `SponsoredFPC` artifacts compute fine on the released SDK,
+> so the mismatch is specific to the Wonderland package, not to the SDK pin or to
+> this migration. The package ships three copies of the artifact
+> (`target/`, `artifacts/target/`, `dist/target/`); two of them differ, and all
+> three fail identically on the released SDK.
+>
+> Account deployment, fee payment and every node API this repo uses are verified
+> working on testnet with the `5.0.0` pin. Token deployment — and therefore the
+> payment flow — needs Wonderland to publish an artifact built against released
+> `5.0.x`, or the artifact rebuilt from their source with `5.0.x` tooling.
 
 ### v5 API Notes
 
