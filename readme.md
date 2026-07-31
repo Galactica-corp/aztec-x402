@@ -63,32 +63,29 @@ The demo consumes the published `@defi-wonderland/aztec-standards@5.0.0-rc.2` to
 | Component | Version | Notes |
 |-----------|---------|-------|
 | SDK (`@aztec/aztec.js` etc.) | `5.0.0` | Matches the version the testnet node reports |
-| AIP-20 token artifact | `@defi-wonderland/aztec-standards@5.0.0-rc.2` | **Release candidate** — no stable v5 is published yet |
+| AIP-20 token artifact | built from Wonderland source, vendored | The npm build targets `5.0.0-rc.2` and will not load — see below |
 | Public testnet | `5.0.0` | RPC: `https://v5.testnet.rpc.aztec-labs.com` — `aztec_getNodeInfo` reports `5.0.0`, though the docs say `5.0.1` |
 | Local network | `5.0.0` | Use Aztec 5.0.x tooling |
 
-> **Known blocker — no working version combination exists today.**
+> **The token artifact is built from source, not taken from npm.**
 >
-> The Wonderland package declares `config.aztecVersion: "5.0.0-rc.2"`, and its
-> artifact is built against that release candidate. Aztec changed the circuits
-> between the RC and the `5.0.0` release (verification key size went 4576 -> 5216),
-> and Wonderland has not rebuilt since.
+> `@defi-wonderland/aztec-standards` is published built against Aztec
+> `5.0.0-rc.2` (see its `package.json` `config.aztecVersion`). Aztec changed the
+> circuits between that release candidate and the `5.0.0` release — the
+> verification key grew from 4576 to 5216 bytes — and the package has not been
+> rebuilt, so the published artifact cannot be loaded by a released SDK.
 >
-> | Stack | Result |
-> |-------|--------|
-> | SDK `5.0.0` / `5.0.1` + artifact `5.0.0-rc.2` | Artifact will not load: `verification key has wrong size: expected 5216, got 4576` |
-> | SDK `5.0.0-rc.2` + artifact `5.0.0-rc.2` | Artifact loads, but the live testnet rejects the RC prover output: `proof_compression: BN254 scalar out of range` — fails at account deployment, before the token |
+> Downgrading the SDK to the RC does not work either: the RC prover's output is
+> rejected by the live network with `proof_compression: BN254 scalar out of range`.
 >
-> Aztec's own `Token` and `SponsoredFPC` artifacts compute fine on the released SDK,
-> so the mismatch is specific to the Wonderland package, not to the SDK pin or to
-> this migration. The package ships three copies of the artifact
-> (`target/`, `artifacts/target/`, `dist/target/`); two of them differ, and all
-> three fail identically on the released SDK.
+> The Noir sources compile against released `aztec-nr` unchanged — only the built
+> verification keys differed. So the artifact and its TypeScript wrapper are built
+> from Wonderland's source and vendored into `packages/demo/src/contracts/token/`.
+> Rebuild with:
 >
-> Account deployment, fee payment and every node API this repo uses are verified
-> working on testnet with the `5.0.0` pin. Token deployment — and therefore the
-> payment flow — needs Wonderland to publish an artifact built against released
-> `5.0.x`, or the artifact rebuilt from their source with `5.0.x` tooling.
+> ```bash
+> ./scripts/build-token-artifact.sh 5.0.0
+> ```
 
 ### v5 API Notes
 

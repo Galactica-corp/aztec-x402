@@ -16,10 +16,7 @@
 import { createAztecNodeClient } from "@aztec/aztec.js/node";
 import { AztecAddress } from "@aztec/aztec.js/addresses";
 import { TxStatus } from "@aztec/aztec.js/tx";
-import { TokenContract } from "@defi-wonderland/aztec-standards/dist/src/artifacts/Token.js";
-// v5 demoted the auth registry from a protocol contract, so its address is no
-// longer a protocol constant — contracts must be told which registry to use.
-import { STANDARD_AUTH_REGISTRY_ADDRESS } from "@aztec/standard-contracts/auth-registry/constants";
+import { TokenContract } from "../contracts/token/Token.js";
 import { unwrapAztecSdkResult } from "@galactica-net/x402-core";
 import { createPXEWallet } from "./pxe-wallet.js";
 import { writeFileSync, existsSync, readFileSync } from "fs";
@@ -126,7 +123,10 @@ async function main() {
       TOKEN_SYMBOL,
       TOKEN_DECIMALS,
       alice,
-      STANDARD_AUTH_REGISTRY_ADDRESS,
+      // auth_contract: the token's optional authorization hook, which must
+      // implement Wonderland's own interface. Zero disables it — this demo has
+      // no authorization policy to enforce.
+      AztecAddress.ZERO,
     );
     await tokenDeploy.simulate({ from: alice });
     const deployResult = await tokenDeploy.send(sendOpts(alice));

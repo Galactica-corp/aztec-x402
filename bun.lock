@@ -44,7 +44,6 @@
         "@aztec/stdlib": "5.0.0",
         "@aztec/wallet-sdk": "5.0.0",
         "@aztec/wallets": "5.0.0",
-        "@defi-wonderland/aztec-standards": "5.0.0-rc.2",
         "@galactica-net/x402-client": "workspace:*",
         "@galactica-net/x402-core": "workspace:*",
         "@galactica-net/x402-mechanism": "workspace:*",
@@ -235,8 +234,6 @@
     "@crate-crypto/node-eth-kzg-win32-arm64-msvc": ["@crate-crypto/node-eth-kzg-win32-arm64-msvc@0.10.0", "", { "os": "win32", "cpu": "arm64" }, "sha512-tFKv02TG/JYsD4gvV0gTvjLqd09/4g/B37fCPXIuEFzq5LgIuWHu37hhQ6K8eIfoXZOTY3wqqkY1jTXYhs2sTA=="],
 
     "@crate-crypto/node-eth-kzg-win32-x64-msvc": ["@crate-crypto/node-eth-kzg-win32-x64-msvc@0.10.0", "", { "os": "win32", "cpu": "x64" }, "sha512-mYieW1mBesbLFRB2j4LdodpCkwIxZ8ZHZzzwV+MXqapI61B2SbH+FyMYQ5lJYqQeMHCY0ojq5ScW1zZj1uNGjA=="],
-
-    "@defi-wonderland/aztec-standards": ["@defi-wonderland/aztec-standards@5.0.0-rc.2", "", {}, "sha512-zQ7lO7rehKDccU7Gw9kwydomQnL2vnyT9RHauP7IJlEJTTKY2hQHFWMTGB0R9Y89mDW9Lh5w8sfam+mrAm87nA=="],
 
     "@esbuild/aix-ppc64": ["@esbuild/aix-ppc64@0.27.7", "", { "os": "aix", "cpu": "ppc64" }, "sha512-EKX3Qwmhz1eMdEJokhALr0YiD0lhQNwDqkPYyPhiSwKrh7/4KRjQc04sZ8db+5DVVnZ1LmbNDI1uAMPEUBnQPg=="],
 

@@ -20,7 +20,7 @@
  */
 import { createAztecNodeClient } from "@aztec/aztec.js/node";
 import { AztecAddress } from "@aztec/aztec.js/addresses";
-import { TokenContract } from "@defi-wonderland/aztec-standards/dist/src/artifacts/Token.js";
+import { TokenContract } from "../contracts/token/Token.js";
 import { readFileSync } from "fs";
 import { join, dirname } from "path";
 import { createPXEWallet } from "./pxe-wallet.js";

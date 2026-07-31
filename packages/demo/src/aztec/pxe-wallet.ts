@@ -86,6 +86,12 @@ export class PXEWallet extends NodeEmbeddedWallet {
     executionPayload: ExecutionPayload,
     opts: SendOptions<any>,
   ): Promise<SendTxWithAppReturnValuesResult> {
+    // v5 disables autoSync on the embedded wallet's PXE and syncs explicitly in
+    // sendTx instead. This method bypasses sendTx and calls simulateViaEntrypoint
+    // directly, so it has to drive the sync itself — otherwise the first
+    // simulation hits "Trying to get block header with a not-yet-synchronized PXE".
+    await this.pxe.sync();
+
     const estimationFeeOptions = await this.completeFeeOptions({
       from: opts.from,
       feePayer: executionPayload.feePayer,
