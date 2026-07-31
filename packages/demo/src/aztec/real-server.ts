@@ -1,6 +1,6 @@
 /**
  * Real x402 demo server — connects to Aztec node,
- * gates /api/weather behind a private token payment.
+ * gates /api/weather and /api/buy-x402-achievement behind private token payments.
  *
  * Prerequisites: run setup.ts first to deploy the token contract.
  *
@@ -34,9 +34,14 @@ import type {
   RoutesConfig,
 } from "@galactica-net/x402-middleware";
 import { RealFacilitatorAztecSigner } from "./facilitator-signer.js";
+import {
+  X402_ACHIEVEMENT_CONTENT_TYPE,
+  X402_ACHIEVEMENT_SKILL,
+} from "../skills/x402-achievement.js";
 
 const PORT = 4402;
 const PRICE_AMOUNT = "10000"; // $0.01 with 6 decimals
+const ACHIEVEMENT_PATH = "/api/buy-x402-achievement";
 
 // Load deployment config
 const __dirname = dirname(new URL(import.meta.url).pathname);
@@ -104,6 +109,15 @@ const routes: RoutesConfig = {
     maxTimeoutSeconds: 600,
     description: "Current weather data — costs $0.01 per resource (real Aztec payment)",
   },
+  [ACHIEVEMENT_PATH]: {
+    network: NETWORK,
+    asset: TOKEN_ADDRESS,
+    amount: PRICE_AMOUNT,
+    payTo: SERVER_ADDRESS,
+    maxTimeoutSeconds: 600,
+    description:
+      "x402 Private Payments achievement skill (markdown) — costs $0.01 per unlock",
+  },
 };
 
 const middleware = createPaymentMiddleware(routes, { facilitator });
@@ -166,6 +180,19 @@ async function handleRequest(req: Request): Promise<Response> {
     };
 
     const next: NextFunction = () => {
+      if (url.pathname === ACHIEVEMENT_PATH) {
+        resolve(
+          new Response(X402_ACHIEVEMENT_SKILL, {
+            status: 200,
+            headers: {
+              "content-type": X402_ACHIEVEMENT_CONTENT_TYPE,
+              ...responseHeaders,
+            },
+          }),
+        );
+        return;
+      }
+
       const resourceId = url.pathname.split("/").pop();
       resolve(
         new Response(
@@ -200,5 +227,6 @@ const server = Bun.serve({
 });
 
 console.log(`\nx402 demo server (REAL AZTEC) running on http://localhost:${server.port}`);
-console.log(`  GET /health          — server info`);
-console.log(`  GET /api/weather/:id — payment-gated ($0.01 oUSD per resource)`);
+console.log(`  GET /health                      — server info`);
+console.log(`  GET /api/weather/:id             — payment-gated ($0.01 oUSD per resource)`);
+console.log(`  GET /api/buy-x402-achievement    — payment-gated skill unlock ($0.01 oUSD)`);
