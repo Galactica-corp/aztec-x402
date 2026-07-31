@@ -222,6 +222,37 @@ bun test        # Run all tests
 bun run build   # Build all packages
 ```
 
+## Publishing to npm
+
+Public packages live under `packages/` (`x402-core`, `x402-mechanism`, `x402-client`, `x402-middleware`). They depend on each other via `workspace:*`. **Use `bun publish`, not `npm publish`** — npm leaves `workspace:*` in the published `package.json`, which breaks installs for consumers.
+
+`bun publish` / `bun pm pack` resolve `workspace:*` from **`bun.lock`**, not from the current `package.json` versions. After bumping versions, refresh the lockfile or you will publish stale dependency versions.
+
+```bash
+# 1. Bump version in each public package's package.json (and optionally the root)
+
+# 2. Sync lockfile workspace versions (required after every bump)
+bun update
+bun install
+
+# 3. Build
+bun run build
+
+# 4. Verify rewritten deps before publishing (optional)
+cd packages/client
+bun pm pack
+tar -xOf galactica-net-x402-client-<version>.tgz package/package.json
+# dependencies should be concrete semver (e.g. "1.1.2"), not "workspace:*"
+
+# 5. Publish each public package with Bun
+cd packages/core && bun publish
+cd ../mechanism && bun publish
+cd ../client && bun publish
+cd ../middleware && bun publish
+```
+
+Commit the updated `bun.lock` with the version bump. npm versions are immutable — if a release is broken, bump and publish a new version.
+
 ## Environment Variables
 
 | Variable | Default | Description |

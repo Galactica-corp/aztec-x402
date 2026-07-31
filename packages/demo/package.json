@@ -1,6 +1,6 @@
 {
   "name": "@galactica-net/x402-demo",
-  "version": "1.1.0",
+  "version": "1.1.2",
   "private": true,
   "description": "Demo server and client for x402 payment-gated API on Aztec",
   "author": "Galactica Network",
