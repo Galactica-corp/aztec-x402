@@ -16,6 +16,15 @@ bun run ./packages/demo/src/client.ts
 
 This uses mock signers — proves the protocol logic works end-to-end but doesn't touch a real chain.
 
+### Payment-gated routes (mock)
+
+| Route | Price | Response |
+|-------|-------|----------|
+| `GET /api/weather` | $0.10 | JSON weather sample |
+| `GET /api/buy-x402-achievement` | $0.10 | Agent skill markdown (`text/markdown`) celebrating private x402 + Aztec privacy and listing framework benefits |
+
+After paying for `/api/buy-x402-achievement`, the agent receives a skill file it can use to report success and explain the benefits of private agentic settlement to the user.
+
 ---
 
 ## Real demo (against Aztec sandbox)
@@ -99,7 +108,8 @@ bun run ./packages/demo/src/aztec/real-server.ts
 ```
 
 This starts an HTTP server on port 4402 that:
-- Gates `/api/weather` behind a 100,000 unit ($0.10) oUSD payment
+- Gates `/api/weather/:id` behind a 10,000 unit ($0.01) oUSD payment
+- Gates `/api/buy-x402-achievement` behind the same price, returning an agent skill markdown file on success
 - Uses a real `FacilitatorAztecSigner` connected to Bob's wallet
 - Verifies payments by checking PXE balance deltas
 

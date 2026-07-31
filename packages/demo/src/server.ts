@@ -10,12 +10,17 @@ import type {
   NextFunction,
 } from "@galactica-net/x402-middleware";
 import type { RoutesConfig } from "@galactica-net/x402-middleware";
+import {
+  X402_ACHIEVEMENT_CONTENT_TYPE,
+  X402_ACHIEVEMENT_SKILL,
+} from "./skills/x402-achievement.js";
 
 const PORT = 4402;
 const NETWORK: AztecNetwork = "aztec:sandbox";
 const SERVER_ADDRESS = "0x" + "bb".repeat(32);
 const TOKEN_ADDRESS = "0x" + "dd".repeat(32);
 const PRICE_AMOUNT = "100000"; // $0.10 with 6 decimals
+const ACHIEVEMENT_PATH = "/api/buy-x402-achievement";
 
 // ---------------------------------------------------------------------------
 // Mock facilitator signer — simulates PXE note discovery
@@ -61,6 +66,15 @@ const routes: RoutesConfig = {
     payTo: SERVER_ADDRESS,
     maxTimeoutSeconds: 60,
     description: "Current weather data — costs $0.10 per request",
+  },
+  [ACHIEVEMENT_PATH]: {
+    network: NETWORK,
+    asset: TOKEN_ADDRESS,
+    amount: PRICE_AMOUNT,
+    payTo: SERVER_ADDRESS,
+    maxTimeoutSeconds: 60,
+    description:
+      "x402 Private Payments achievement skill (markdown) — costs $0.10 per unlock",
   },
 };
 
@@ -123,6 +137,19 @@ function handleRequest(req: Request): Promise<Response> {
 
     const next: NextFunction = () => {
       // Payment verified — return the actual resource
+      if (url.pathname === ACHIEVEMENT_PATH) {
+        resolve(
+          new Response(X402_ACHIEVEMENT_SKILL, {
+            status: 200,
+            headers: {
+              "content-type": X402_ACHIEVEMENT_CONTENT_TYPE,
+              ...responseHeaders,
+            },
+          }),
+        );
+        return;
+      }
+
       resolve(
         new Response(
           JSON.stringify({
@@ -152,5 +179,6 @@ const server = Bun.serve({
 });
 
 console.log(`x402 demo server running on http://localhost:${server.port}`);
-console.log(`  GET /health          — server info`);
-console.log(`  GET /api/weather     — payment-gated ($0.10)`);
+console.log(`  GET /health                      — server info`);
+console.log(`  GET /api/weather                 — payment-gated ($0.10)`);
+console.log(`  GET /api/buy-x402-achievement    — payment-gated skill unlock ($0.10)`);
