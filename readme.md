@@ -62,14 +62,22 @@ The demo consumes the published `@defi-wonderland/aztec-standards@5.0.0-rc.2` to
 
 | Component | Version | Notes |
 |-----------|---------|-------|
-| SDK (`@aztec/aztec.js` etc.) | `5.0.1` | Matches the current testnet and mainnet generation |
+| SDK (`@aztec/aztec.js` etc.) | `5.0.0` | Matches the version the testnet node reports |
 | AIP-20 token artifact | `@defi-wonderland/aztec-standards@5.0.0-rc.2` | **Release candidate** — no stable v5 is published yet |
-| Public testnet | `5.0.1` | RPC: `https://v5.testnet.rpc.aztec-labs.com` |
-| Local network | `5.0.1` | Use Aztec 5.0.x tooling |
+| Public testnet | `5.0.0` | RPC: `https://v5.testnet.rpc.aztec-labs.com` — `aztec_getNodeInfo` reports `5.0.0`, though the docs say `5.0.1` |
+| Local network | `5.0.0` | Use Aztec 5.0.x tooling |
 
-> The token artifact is one patch generation behind the node (`5.0.0-rc.2` vs `5.0.1`)
-> because Wonderland has not cut a stable v5 release. Watch for artifact/ABI drift
-> until they do.
+> **Known blocker.** The Wonderland artifact does not load on any published Aztec v5
+> SDK. Computing its contract class fails in barretenberg with
+> `verification key has wrong size: expected 5216, got 4576` — its verification keys
+> were built against a different circuit generation. Verified against both `5.0.0`
+> and `5.0.1`, with identical numbers; Aztec's own artifacts (Token, SponsoredFPC)
+> compute fine on the same SDK, so the mismatch is in the `5.0.0-rc.2` package.
+>
+> Account deployment, fee payment and every node API this repo uses work on testnet
+> today. Token deployment — and therefore the payment flow — is blocked until
+> Wonderland publishes a stable v5 artifact, or until the artifact is rebuilt from
+> source with 5.0.x tooling.
 
 ### v5 API Notes
 
@@ -97,7 +105,7 @@ bun run ./packages/demo/src/aztec/setup.ts
 
 ```bash
 # Install Aztec 5.0.x tooling
-VERSION=5.0.1 bash -i <(curl -sL https://install.aztec.network/5.0.1)
+VERSION=5.0.0 bash -i <(curl -sL https://install.aztec.network/5.0.0)
 
 # Start a local Aztec network
 aztec start --local-network
