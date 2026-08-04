@@ -27,6 +27,7 @@ import { createPXEWallet } from "./pxe-wallet.js";
 import { loadKeys, loadAccount, setupSponsoredPayment } from "./wallet-manager.js";
 import { RealFacilitatorAztecSigner } from "./facilitator-signer.js";
 import { RealClientAztecSigner } from "./client-signer.js";
+import { shouldEnableProver } from "./network-config.js";
 import { z } from "zod";
 
 const USE_SPONSORED_FPC = process.env.USE_SPONSORED_FPC === "true";
@@ -47,7 +48,7 @@ const config = DeployConfigSchema.parse(
 const NODE_URL = config.nodeUrl;
 const NETWORK = config.network;
 const TOKEN_ADDRESS = config.tokenAddress;
-const isRemoteNetwork = USE_SPONSORED_FPC || NETWORK !== "aztec:sandbox";
+const proverEnabled = shouldEnableProver(NETWORK);
 
 // Two distinct amounts so we can verify they aren't conflated.
 const AMOUNT_A = 11_111n;
@@ -61,10 +62,12 @@ console.log("Connecting...");
 const node = createAztecNodeClient(NODE_URL);
 const wallet = await createPXEWallet(node, {
   ephemeral: true,
-  pxe: { proverEnabled: isRemoteNetwork },
+  pxe: { proverEnabled },
 });
 
-const paymentMethod = USE_SPONSORED_FPC ? await setupSponsoredPayment(wallet) : undefined;
+const paymentMethod = USE_SPONSORED_FPC
+  ? await setupSponsoredPayment(wallet)
+  : undefined;
 const sendOpts = paymentMethod ? { fee: { paymentMethod } } : undefined;
 
 const keys = loadKeys(KEYS_PATH);

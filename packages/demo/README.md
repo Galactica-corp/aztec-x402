@@ -77,7 +77,7 @@ bun run ./packages/demo/src/aztec/setup.ts
 
 This will:
 1. Connect to the sandbox PXE at `localhost:8080`
-2. Load the pre-deployed test accounts (Alice = payer, Bob = server)
+2. Register the local network's genesis-funded Alice/Bob test accounts (no account-deploy tx)
 3. Deploy a `Dripper` faucet contract
 4. Deploy an `Overcast USD` (oUSD) token contract with 6 decimals, using the dripper as minter
 5. Have Alice drip 1,000,000 units (1.0 oUSD) into her private balance via `drip_to_private`

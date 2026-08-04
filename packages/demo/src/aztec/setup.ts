@@ -12,7 +12,8 @@
  * Environment variables:
  *   NODE_URL  — Aztec node URL (default: http://localhost:8080)
  *   AZTEC_NETWORK — CAIP-2 network id (default: aztec:sandbox)
- *   USE_SPONSORED_FPC — set to "true" for Sponsored FPC (public testnet; required for local 4.2+ where fees are non-zero)
+ *   USE_SPONSORED_FPC — set to "true" to pay fees via the canonical Sponsored FPC
+ *                       (local-network prints its address at startup; same on testnet).
  */
 import { createAztecNodeClient } from "@aztec/aztec.js/node";
 import { AztecAddress } from "@aztec/aztec.js/addresses";
@@ -28,7 +29,7 @@ import {
   dripToPrivate,
   tokenConstructorWithDripperArgs,
 } from "./token-faucet.js";
-
+import { isSandboxNetwork, shouldEnableProver } from "./network-config.js";
 
 const NODE_URL = process.env.NODE_URL ?? "http://localhost:8080";
 const NETWORK = process.env.AZTEC_NETWORK ?? "aztec:sandbox";
@@ -64,10 +65,10 @@ function extractSimulateValue(result: unknown): unknown {
 async function main() {
   console.log(`Connecting to Aztec node at ${NODE_URL}...`);
   const node = createAztecNodeClient(NODE_URL);
-  const isRemoteNetwork = USE_SPONSORED_FPC || NETWORK !== "aztec:sandbox";
+  const proverEnabled = shouldEnableProver(NETWORK);
   const wallet = await createPXEWallet(node, {
     ephemeral: true,
-    pxe: { proverEnabled: isRemoteNetwork },
+    pxe: { proverEnabled },
   });
   console.log("Connected.\n");
 
@@ -84,20 +85,33 @@ async function main() {
   config.nodeUrl = NODE_URL;
   config.network = NETWORK;
 
-  // Step 1: Ensure keys
-  const keys = await ensureKeys(KEYS_PATH, wallet);
+  // Step 1: Ensure keys (sandbox → genesis test accounts; remote → deployable Schnorr)
+  const keys = await ensureKeys(KEYS_PATH, wallet, {
+    useSandboxTestAccounts: isSandboxNetwork(NETWORK),
+  });
   config.aliceAddress = keys.alice.address;
   config.bobAddress = keys.bob.address;
   saveConfig(config);
 
-  // Step 2: Deploy accounts
-  console.log("Deploying accounts...");
+  // Step 2: Register (sandbox) or deploy (remote) accounts
+  console.log(
+    isSandboxNetwork(NETWORK)
+      ? "Registering genesis test accounts..."
+      : "Deploying accounts...",
+  );
   const { aliceAccount, bobAccount } = await deployAccounts(wallet, node, keys, {
     paymentMethod,
     timeout: TX_TIMEOUT,
   });
   const alice = aliceAccount.address;
   const bob = bobAccount.address;
+  // Persist any address corrections from deployAccounts (derived vs keys.json).
+  keys.alice.address = alice.toString();
+  keys.bob.address = bob.toString();
+  writeFileSync(KEYS_PATH, JSON.stringify(keys, null, 2));
+  config.aliceAddress = keys.alice.address;
+  config.bobAddress = keys.bob.address;
+  saveConfig(config);
   console.log(`  Alice (payer):       ${alice}`);
   console.log(`  Bob   (server):      ${bob}\n`);
 
