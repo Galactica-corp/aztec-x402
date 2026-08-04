@@ -29,6 +29,7 @@ import {
   tokenConstructorWithDripperArgs,
 } from "./token-faucet.js";
 
+
 const NODE_URL = process.env.NODE_URL ?? "http://localhost:8080";
 const NETWORK = process.env.AZTEC_NETWORK ?? "aztec:sandbox";
 const USE_SPONSORED_FPC = process.env.USE_SPONSORED_FPC === "true";

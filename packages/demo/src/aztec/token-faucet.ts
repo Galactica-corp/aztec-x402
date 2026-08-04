@@ -18,30 +18,30 @@ export function tokenConstructorWithDripperArgs(
   return [name, symbol, decimals, dripper, AztecAddress.ZERO] as const;
 }
 
-export type DripInteraction = {
-  simulate: (opts: { from: AztecAddress }) => Promise<unknown>;
-  send: (opts: unknown) => Promise<unknown>;
-};
-
-export type DripperLike = {
-  methods: {
-    drip_to_private: (
-      tokenAddress: AztecAddress,
-      amount: bigint,
-    ) => DripInteraction;
-  };
-};
-
 /**
  * Mint `amount` into `from`'s private balance via the Dripper faucet.
  * The Dripper must already be the token's minter.
+ *
+ * `TSendOpts` is inferred from the caller so setup's `{ from, wait, fee }`
+ * options type-check. Method syntax on `simulate`/`send` stays bivariant under
+ * `--strictFunctionTypes`, so real `DripperContract` instances are assignable.
  */
-export async function dripToPrivate(
-  dripper: DripperLike,
+export async function dripToPrivate<TSendOpts extends { from: AztecAddress }>(
+  dripper: {
+    methods: {
+      drip_to_private(
+        tokenAddress: AztecAddress,
+        amount: bigint,
+      ): {
+        simulate(opts: { from: AztecAddress }): Promise<unknown>;
+        send(opts: TSendOpts): Promise<unknown>;
+      };
+    };
+  },
   tokenAddress: AztecAddress,
   amount: bigint,
   from: AztecAddress,
-  sendOpts: unknown,
+  sendOpts: TSendOpts,
 ): Promise<void> {
   await dripper.methods
     .drip_to_private(tokenAddress, amount)
