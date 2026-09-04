@@ -77,11 +77,12 @@ bun run ./packages/demo/src/aztec/setup.ts
 
 This will:
 1. Connect to the sandbox PXE at `localhost:8080`
-2. Load the pre-deployed test accounts (Alice = payer, Bob = server)
-3. Deploy an `Overcast USD` (oUSD) token contract with 6 decimals
-4. Mint 1,000,000 units (1.0 oUSD) to Alice's private balance
-5. Register cross-party senders for note discovery
-6. Write deployment info to `packages/demo/src/aztec/deploy.json`
+2. Register the local network's genesis-funded Alice/Bob test accounts (no account-deploy tx)
+3. Deploy a `Dripper` faucet contract
+4. Deploy an `Overcast USD` (oUSD) token contract with 6 decimals, using the dripper as minter
+5. Have Alice drip 1,000,000 units (1.0 oUSD) into her private balance via `drip_to_private`
+6. Register cross-party senders for note discovery
+7. Write deployment info (including `dripperAddress`) to `packages/demo/src/aztec/deploy.json`
 
 Expected output:
 ```
@@ -92,14 +93,19 @@ Loading test accounts...
   Alice (payer):       0x1234...
   Bob   (server):      0x5678...
 
-Deploying Overcast USD (oUSD)...
+Deploying Dripper (faucet)...
+  Dripper deployed at: 0xfeed...
+
+Deploying Overcast USD (oUSD) with dripper as minter...
   Token deployed at:   0xabcd...
 
-Minting 1000000 to Alice's private balance...
+Dripping 1000000 to Alice's private balance via faucet...
   Alice's balance:     1000000
 
 Setup complete!
 ```
+
+Anyone with the dripper address can later mint more test tokens by calling `drip_to_private(token, amount)` — Alice does not need to be the token minter.
 
 ### Step 5: Start the real server
 
@@ -175,9 +181,9 @@ Spent: 100000
     │  Setup     │   │  Server   │   │   Client    │
     │  script    │   │  (Bob)    │   │   (Alice)   │
     │            │   │           │   │             │
-    │ Deploy oUSD│   │ Facilitator│   │ Client     │
-    │ Mint tokens│   │ Signer    │   │ Signer     │
-    │            │   │ Middleware │   │ payFetch() │
+    │ Deploy dripper│   │ Facilitator│   │ Client     │
+    │ Deploy oUSD   │   │ Signer    │   │ Signer     │
+    │ Drip tokens   │   │ Middleware │   │ payFetch() │
     └────────────┘   └─────┬─────┘   └──────┬─────┘
                            │                 │
                            │  HTTP (4402)    │

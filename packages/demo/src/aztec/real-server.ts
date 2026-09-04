@@ -21,6 +21,7 @@ import { createPXEWallet } from "./pxe-wallet.js";
 import { readFileSync } from "fs";
 import { join, dirname } from "path";
 import { loadKeys, loadAccount, setupSponsoredPayment } from "./wallet-manager.js";
+import { shouldEnableProver } from "./network-config.js";
 
 const USE_SPONSORED_FPC = process.env.USE_SPONSORED_FPC === "true";
 
@@ -66,14 +67,14 @@ const NODE_URL = config.nodeUrl;
 const NETWORK = parseAztecNetwork(config.network);
 const TOKEN_ADDRESS = config.tokenAddress;
 const SERVER_ADDRESS = config.bobAddress;
-const isRemoteNetwork = USE_SPONSORED_FPC || NETWORK !== "aztec:sandbox";
+const proverEnabled = shouldEnableProver(NETWORK);
 
 // Connect to Aztec
 console.log(`Connecting to Aztec node at ${NODE_URL}...`);
 const node = createAztecNodeClient(NODE_URL);
 const wallet = await createPXEWallet(node, {
   ephemeral: true,
-  pxe: { proverEnabled: isRemoteNetwork },
+  pxe: { proverEnabled },
 });
 
 // Get Bob's wallet (the server/facilitator)
@@ -90,8 +91,9 @@ if (tokenInstance) {
 }
 const token = await TokenContract.at(tokenAddress, wallet);
 
-// Sponsored FPC when USE_SPONSORED_FPC=true (testnet + local 4.2 networks with non-zero fees)
-const paymentMethod = USE_SPONSORED_FPC ? await setupSponsoredPayment(wallet) : undefined;
+const paymentMethod = USE_SPONSORED_FPC
+  ? await setupSponsoredPayment(wallet)
+  : undefined;
 const sendOpts = paymentMethod ? { fee: { paymentMethod } } : undefined;
 
 // Create real facilitator signer

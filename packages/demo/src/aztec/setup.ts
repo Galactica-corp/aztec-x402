@@ -1,8 +1,9 @@
 /**
  * Setup script for the real Aztec demo.
  *
- * Connects to an Aztec node (sandbox or devnet), deploys accounts and a token contract,
- * mints tokens to the payer, and writes deployment info to a config file.
+ * Connects to an Aztec node (sandbox or devnet), deploys accounts, a Dripper
+ * faucet, and a token contract (with the dripper as minter), drips private
+ * tokens to the payer, and writes deployment info to a config file.
  *
  * Resumable: saves progress to deploy.json after each step. Safe to restart.
  *
@@ -11,17 +12,24 @@
  * Environment variables:
  *   NODE_URL  — Aztec node URL (default: http://localhost:8080)
  *   AZTEC_NETWORK — CAIP-2 network id (default: aztec:sandbox)
- *   USE_SPONSORED_FPC — set to "true" for Sponsored FPC (public testnet; required for local 4.2+ where fees are non-zero)
+ *   USE_SPONSORED_FPC — set to "true" to pay fees via the canonical Sponsored FPC
+ *                       (local-network prints its address at startup; same on testnet).
  */
 import { createAztecNodeClient } from "@aztec/aztec.js/node";
 import { AztecAddress } from "@aztec/aztec.js/addresses";
 import { TxStatus } from "@aztec/aztec.js/tx";
 import { TokenContract } from "@aztec-foundation/aztec-standards/dist/src/artifacts/Token.js";
+import { DripperContract } from "@aztec-foundation/aztec-standards/dist/src/artifacts/Dripper.js";
 import { unwrapAztecSdkResult } from "@galactica-net/x402-core";
 import { createPXEWallet } from "./pxe-wallet.js";
 import { writeFileSync, existsSync, readFileSync } from "fs";
 import { join, dirname } from "path";
 import { ensureKeys, deployAccounts, setupSponsoredPayment } from "./wallet-manager.js";
+import {
+  dripToPrivate,
+  tokenConstructorWithDripperArgs,
+} from "./token-faucet.js";
+import { isSandboxNetwork, shouldEnableProver } from "./network-config.js";
 
 const NODE_URL = process.env.NODE_URL ?? "http://localhost:8080";
 const NETWORK = process.env.AZTEC_NETWORK ?? "aztec:sandbox";
@@ -57,10 +65,10 @@ function extractSimulateValue(result: unknown): unknown {
 async function main() {
   console.log(`Connecting to Aztec node at ${NODE_URL}...`);
   const node = createAztecNodeClient(NODE_URL);
-  const isRemoteNetwork = USE_SPONSORED_FPC || NETWORK !== "aztec:sandbox";
+  const proverEnabled = shouldEnableProver(NETWORK);
   const wallet = await createPXEWallet(node, {
     ephemeral: true,
-    pxe: { proverEnabled: isRemoteNetwork },
+    pxe: { proverEnabled },
   });
   console.log("Connected.\n");
 
@@ -77,20 +85,33 @@ async function main() {
   config.nodeUrl = NODE_URL;
   config.network = NETWORK;
 
-  // Step 1: Ensure keys
-  const keys = await ensureKeys(KEYS_PATH, wallet);
+  // Step 1: Ensure keys (sandbox → genesis test accounts; remote → deployable Schnorr)
+  const keys = await ensureKeys(KEYS_PATH, wallet, {
+    useSandboxTestAccounts: isSandboxNetwork(NETWORK),
+  });
   config.aliceAddress = keys.alice.address;
   config.bobAddress = keys.bob.address;
   saveConfig(config);
 
-  // Step 2: Deploy accounts
-  console.log("Deploying accounts...");
+  // Step 2: Register (sandbox) or deploy (remote) accounts
+  console.log(
+    isSandboxNetwork(NETWORK)
+      ? "Registering genesis test accounts..."
+      : "Deploying accounts...",
+  );
   const { aliceAccount, bobAccount } = await deployAccounts(wallet, node, keys, {
     paymentMethod,
     timeout: TX_TIMEOUT,
   });
   const alice = aliceAccount.address;
   const bob = bobAccount.address;
+  // Persist any address corrections from deployAccounts (derived vs keys.json).
+  keys.alice.address = alice.toString();
+  keys.bob.address = bob.toString();
+  writeFileSync(KEYS_PATH, JSON.stringify(keys, null, 2));
+  config.aliceAddress = keys.alice.address;
+  config.bobAddress = keys.bob.address;
+  saveConfig(config);
   console.log(`  Alice (payer):       ${alice}`);
   console.log(`  Bob   (server):      ${bob}\n`);
 
@@ -100,7 +121,55 @@ async function main() {
     fee: paymentMethod ? { paymentMethod } : undefined,
   });
 
-  // Step 3: Deploy token (skip if already recorded and exists on-chain)
+  // Older setups minted with Alice as minter (no dripper). Redeploy so the
+  // faucet is the authorized minter and anyone can drip private tokens.
+  if (config.tokenAddress && !config.dripperAddress) {
+    console.log(
+      "Existing token has no dripper — redeploying with dripper as minter.\n",
+    );
+    config.tokenAddress = "";
+    config.minted = "";
+    saveConfig(config);
+  }
+
+  // Step 3: Deploy dripper faucet (skip if already recorded and exists on-chain)
+  let dripperAddress: AztecAddress | undefined;
+  if (config.dripperAddress) {
+    const existing = AztecAddress.fromStringUnsafe(config.dripperAddress);
+    const onChain = await node.getContract(existing);
+    if (onChain) {
+      console.log(`Dripper already deployed at ${existing} — skipping.\n`);
+      dripperAddress = existing;
+    } else {
+      console.log(
+        `Dripper address ${existing} recorded but not found on-chain — redeploying.\n`,
+      );
+      config.dripperAddress = "";
+      config.tokenAddress = "";
+      config.minted = "";
+    }
+  }
+
+  if (!config.dripperAddress) {
+    console.log("Deploying Dripper (faucet)...");
+    const dripperDeploy = DripperContract.deploy(wallet);
+    await dripperDeploy.simulate({ from: alice });
+    const dripperResult = await dripperDeploy.send(sendOpts(alice));
+    dripperAddress = dripperResult.contract.address;
+    if (!dripperAddress) {
+      throw new Error("Could not determine dripper address after deployment");
+    }
+    console.log(`  Dripper deployed at: ${dripperAddress}\n`);
+
+    config.dripperAddress = dripperAddress.toString();
+    saveConfig(config);
+  }
+
+  if (!dripperAddress) {
+    throw new Error("Dripper address was not set after setup");
+  }
+
+  // Step 4: Deploy token with dripper as minter (skip if already on-chain)
   let tokenAddress: AztecAddress | undefined;
   if (config.tokenAddress) {
     const existing = AztecAddress.fromStringUnsafe(config.tokenAddress);
@@ -116,17 +185,21 @@ async function main() {
   }
 
   if (!config.tokenAddress) {
-    console.log(`Deploying ${TOKEN_NAME} (${TOKEN_SYMBOL})...`);
+    console.log(`Deploying ${TOKEN_NAME} (${TOKEN_SYMBOL}) with dripper as minter...`);
+    const [name, symbol, decimals, minter, authContract] =
+      tokenConstructorWithDripperArgs(
+        TOKEN_NAME,
+        TOKEN_SYMBOL,
+        TOKEN_DECIMALS,
+        dripperAddress,
+      );
     const tokenDeploy = TokenContract.deployWithOpts(
       { wallet, method: "constructor_with_minter" },
-      TOKEN_NAME,
-      TOKEN_SYMBOL,
-      TOKEN_DECIMALS,
-      alice,
-      // auth_contract: the token's optional authorization hook, which must
-      // implement Wonderland's own interface. Zero disables it — this demo has
-      // no authorization policy to enforce.
-      AztecAddress.ZERO,
+      name,
+      symbol,
+      decimals,
+      minter,
+      authContract,
     );
     await tokenDeploy.simulate({ from: alice });
     const deployResult = await tokenDeploy.send(sendOpts(alice));
@@ -147,21 +220,29 @@ async function main() {
     throw new Error("Token address was not set after setup");
   }
 
-  // Step 4: Mint tokens (skip if already done)
+  // Step 5: Drip private tokens to Alice via the faucet (skip if already done)
   if (config.minted !== "true") {
+    const dripperInstance = await node.getContract(dripperAddress);
+    if (dripperInstance) {
+      await wallet.registerContract(dripperInstance, DripperContract.artifact);
+    }
     const tokenInstance = await node.getContract(tokenAddress);
     if (tokenInstance) {
       await wallet.registerContract(tokenInstance, TokenContract.artifact);
     }
+    const dripper = await DripperContract.at(dripperAddress, wallet);
     const token = await TokenContract.at(tokenAddress, wallet);
 
-    console.log(`Minting ${MINT_AMOUNT} to Alice's private balance...`);
-    await token.methods
-      .mint_to_private(alice, MINT_AMOUNT)
-      .simulate({ from: alice });
-    await token.methods
-      .mint_to_private(alice, MINT_AMOUNT)
-      .send(sendOpts(alice));
+    console.log(
+      `Dripping ${MINT_AMOUNT} to Alice's private balance via faucet...`,
+    );
+    await dripToPrivate(
+      dripper,
+      tokenAddress,
+      MINT_AMOUNT,
+      alice,
+      sendOpts(alice),
+    );
 
     try {
       const aliceBalance = await token.methods
@@ -179,7 +260,7 @@ async function main() {
     console.log("Tokens already minted — skipping.\n");
   }
 
-  // Step 5: Register cross-party senders
+  // Step 6: Register cross-party senders
   console.log("Registering cross-party senders...");
   await wallet.registerSender(bob, "bob");
   await wallet.registerSender(alice, "alice");

@@ -17,6 +17,7 @@ import { createPXEWallet } from "./pxe-wallet.js";
 import { readFileSync } from "fs";
 import { join, dirname } from "path";
 import { loadKeys, loadAccount, setupSponsoredPayment } from "./wallet-manager.js";
+import { shouldEnableProver } from "./network-config.js";
 
 const __dirname = dirname(new URL(import.meta.url).pathname);
 const DATA_DIR = process.env.DATA_DIR ?? __dirname;
@@ -35,7 +36,7 @@ try {
 
 const NODE_URL = config.nodeUrl;
 const NETWORK = config.network;
-const isRemoteNetwork = USE_SPONSORED_FPC || NETWORK !== "aztec:sandbox";
+const proverEnabled = shouldEnableProver(NETWORK);
 const TRANSFER_AMOUNT = 10000n;
 
 function getConstructorName(value: unknown): string | undefined {
@@ -51,7 +52,7 @@ console.log(`Connecting to Aztec node at ${NODE_URL}...`);
 const node = createAztecNodeClient(NODE_URL);
 const wallet = await createPXEWallet(node, {
   ephemeral: true,
-  pxe: { proverEnabled: isRemoteNetwork },
+  pxe: { proverEnabled },
 });
 
 // 2. Load Alice (payer) and Bob (facilitator) accounts
@@ -77,7 +78,9 @@ await wallet.registerSender(bob, "bob");
 await wallet.registerSender(alice, "alice");
 
 // Set up fee payment if needed
-const paymentMethod = isRemoteNetwork ? await setupSponsoredPayment(wallet) : undefined;
+const paymentMethod = USE_SPONSORED_FPC
+  ? await setupSponsoredPayment(wallet)
+  : undefined;
 const feeOpts = paymentMethod ? { fee: { paymentMethod } } : {};
 
 // 4. Check Alice's balance before

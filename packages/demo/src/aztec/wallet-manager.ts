@@ -1,8 +1,9 @@
 /**
  * Wallet management — key generation, persistence, account deployment, and wallet loading.
  *
- * Replaces sandbox-only `getDeployedTestAccountsWallets` with programmatic
- * Schnorr wallet creation that works on sandbox, devnet, and testnet.
+ * Sandbox / local-network: prefer Aztec's genesis-funded test accounts (no account-deploy
+ * tx). Testnet / remote: generate Schnorr keys and deploy account contracts, paying fees
+ * with Sponsored FPC when configured.
  *
  * Uses PXEWallet (see pxe-wallet.ts) instead of EmbeddedWallet directly.
  * EmbeddedWallet's stub-account simulation causes commitment mismatches
@@ -15,6 +16,7 @@ import { SponsoredFPCContractArtifact } from "@aztec/noir-contracts.js/Sponsored
 import { SPONSORED_FPC_SALT } from "@aztec/constants";
 import { NO_FROM } from "@aztec/aztec.js/account";
 import { TxStatus } from "@aztec/aztec.js/tx";
+import { getInitialTestAccountsData } from "@aztec/accounts/testing";
 import type { AztecNode } from "@aztec/aztec.js/node";
 import type { PXEWallet } from "./pxe-wallet.js";
 import type { AccountManager } from "@aztec/aztec.js/wallet";
@@ -51,6 +53,31 @@ async function createKeySet(
   };
 }
 
+function keySetFromTestAccount(account: {
+  secret: Fr;
+  signingKey: GrumpkinScalar;
+  salt: Fr;
+  address: { toString(): string };
+}): KeySet {
+  return {
+    secretKey: account.secret.toString(),
+    signingKey: account.signingKey.toString(),
+    salt: account.salt.toString(),
+    address: account.address.toString(),
+  };
+}
+
+/** True when keys match a local-network genesis test account (initializerless). */
+async function isGenesisTestAccount(k: KeySet): Promise<boolean> {
+  const accounts = await getInitialTestAccountsData();
+  return accounts.some(
+    (a) =>
+      a.secret.toString() === k.secretKey &&
+      a.salt.toString() === k.salt &&
+      a.signingKey.toString() === k.signingKey,
+  );
+}
+
 /**
  * Load keys.json synchronously. Throws with a clear error if missing.
  */
@@ -64,9 +91,33 @@ export function loadKeys(keysPath: string): StoredKeys {
 }
 
 /**
- * If keys.json exists, load it. Otherwise generate fresh keys, save, and return.
+ * Ensure Alice/Bob keys exist.
+ *
+ * - Sandbox: always use the local network's genesis test accounts.
+ * - Remote: load keys.json or generate fresh deployable Schnorr keys.
  */
-export async function ensureKeys(keysPath: string, wallet: PXEWallet): Promise<StoredKeys> {
+export async function ensureKeys(
+  keysPath: string,
+  wallet: PXEWallet,
+  opts?: { useSandboxTestAccounts?: boolean },
+): Promise<StoredKeys> {
+  if (opts?.useSandboxTestAccounts) {
+    console.log("Using local-network genesis test accounts...");
+    const [aliceData, bobData] = await getInitialTestAccountsData();
+    if (!aliceData || !bobData) {
+      throw new Error("Expected at least 2 initial test accounts from @aztec/accounts/testing");
+    }
+    const keys: StoredKeys = {
+      alice: keySetFromTestAccount(aliceData),
+      bob: keySetFromTestAccount(bobData),
+    };
+    writeFileSync(keysPath, JSON.stringify(keys, null, 2));
+    console.log(`  Alice: ${keys.alice.address}`);
+    console.log(`  Bob:   ${keys.bob.address}`);
+    console.log(`Keys saved to ${keysPath}\n`);
+    return keys;
+  }
+
   if (existsSync(keysPath)) {
     console.log("Loading existing keys from keys.json...");
     return loadKeys(keysPath);
@@ -84,8 +135,11 @@ export async function ensureKeys(keysPath: string, wallet: PXEWallet): Promise<S
 }
 
 /**
- * Register the Sponsored FPC contract and return a payment method.
- * Use when `USE_SPONSORED_FPC=true` (public testnet and local Aztec 4.2+ where fees are non-zero).
+ * Register the canonical Sponsored FPC in the wallet and return a payment method.
+ *
+ * Same address local-network prints at startup (`SponsoredFPC: 0x1441…`) and that
+ * `@aztec/aztec`'s `registerDeployedSponsoredFPCInWalletAndGetAddress` derives via
+ * `SPONSORED_FPC_SALT`. Use when `USE_SPONSORED_FPC=true`.
  */
 export async function setupSponsoredPayment(
   wallet: PXEWallet,
@@ -98,13 +152,27 @@ export async function setupSponsoredPayment(
   return new SponsoredFeePaymentMethod(sponsoredFPC.address);
 }
 
+async function createAccountFromKeys(
+  wallet: PXEWallet,
+  keys: StoredKeys,
+  who: "alice" | "bob",
+): Promise<AccountManager> {
+  const k = keys[who];
+  const secretKey = Fr.fromString(k.secretKey);
+  const signingKey = GrumpkinScalar.fromString(k.signingKey);
+  const salt = Fr.fromString(k.salt);
+  // Genesis test accounts use the initializerless Schnorr contract; same keys with
+  // createSchnorrAccount would derive a different address.
+  if (await isGenesisTestAccount(k)) {
+    return wallet.createSchnorrInitializerlessAccount(secretKey, salt, signingKey);
+  }
+  return wallet.createSchnorrAccount(secretKey, salt, signingKey);
+}
+
 /**
- * Deploy (or reconnect to) both Alice and Bob accounts.
- * Checks on-chain (via the node) whether the account contract is already deployed.
+ * Register genesis test accounts (sandbox) or deploy Schnorr accounts (remote).
  *
- * Pass `paymentMethod` (Sponsored FPC) when fees apply: public testnet and local
- * Aztec 4.2+ (`aztec start --local-network` / sandbox). Account deploy uses `NO_FROM`
- * and needs an explicit fee payer; without Sponsored FPC you get insufficient fee balance.
+ * Genesis accounts need no deploy tx. Remote deploys use `NO_FROM` + Sponsored FPC.
  */
 export async function deployAccounts(
   wallet: PXEWallet,
@@ -118,31 +186,39 @@ export async function deployAccounts(
 
   for (const name of ["alice", "bob"] as const) {
     const k = keys[name];
-    const secretKey = Fr.fromString(k.secretKey);
-    const signingKey = GrumpkinScalar.fromString(k.signingKey);
-    const salt = Fr.fromString(k.salt);
-    const account = await wallet.createSchnorrAccount(secretKey, salt, signingKey);
+    const account = await createAccountFromKeys(wallet, keys, name);
+    const genesis = await isGenesisTestAccount(k);
 
-    // Check if the account contract is deployed on-chain
-    const onChain = await node.getContract(account.address);
-    if (onChain) {
-      console.log(`  ${name} already deployed on-chain — skipping.`);
+    if (account.address.toString() !== k.address) {
+      console.log(
+        `  ${name}: keys.json address ${k.address} != derived ${account.address} — updating keys.`,
+      );
+      k.address = account.address.toString();
+    }
+
+    if (genesis) {
+      console.log(`  ${name} registered (genesis-funded) at ${account.address}`);
     } else {
-      console.log(`  Deploying ${name} account...`);
-      try {
-        const deployMethod = await account.getDeployMethod();
-        await deployMethod.send({
-          from: NO_FROM,
-          wait: { timeout, waitForStatus: TxStatus.CHECKPOINTED },
-          fee: opts?.paymentMethod ? { paymentMethod: opts.paymentMethod } : undefined,
-        });
-        console.log(`  ${name} deployed at ${account.address}`);
-      } catch (err) {
-        const msg = err instanceof Error ? err.message : String(err);
-        if (msg.includes("nullifier") || msg.includes("already deployed")) {
-          console.log(`  ${name} already deployed (caught duplicate) — continuing.`);
-        } else {
-          throw err;
+      const onChain = await node.getContract(account.address);
+      if (onChain) {
+        console.log(`  ${name} already deployed on-chain — skipping.`);
+      } else {
+        console.log(`  Deploying ${name} account...`);
+        try {
+          const deployMethod = await account.getDeployMethod();
+          await deployMethod.send({
+            from: NO_FROM,
+            wait: { timeout, waitForStatus: TxStatus.CHECKPOINTED },
+            fee: opts?.paymentMethod ? { paymentMethod: opts.paymentMethod } : undefined,
+          });
+          console.log(`  ${name} deployed at ${account.address}`);
+        } catch (err) {
+          const msg = err instanceof Error ? err.message : String(err);
+          if (msg.includes("nullifier") || msg.includes("already deployed")) {
+            console.log(`  ${name} already deployed (caught duplicate) — continuing.`);
+          } else {
+            throw err;
+          }
         }
       }
     }
@@ -169,9 +245,5 @@ export async function loadAccount(
   keys: StoredKeys,
   who: "alice" | "bob",
 ): Promise<AccountManager> {
-  const k = keys[who];
-  const secretKey = Fr.fromString(k.secretKey);
-  const signingKey = GrumpkinScalar.fromString(k.signingKey);
-  const salt = Fr.fromString(k.salt);
-  return wallet.createSchnorrAccount(secretKey, salt, signingKey);
+  return createAccountFromKeys(wallet, keys, who);
 }
