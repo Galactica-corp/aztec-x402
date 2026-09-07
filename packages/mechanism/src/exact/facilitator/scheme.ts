@@ -95,6 +95,7 @@ export class ExactAztecFacilitatorScheme implements SchemeNetworkFacilitator {
 
   private cachedAddresses: string[] = [];
   private consumedTxHashes = new Set<string>();
+  private inFlightTxHashes = new Set<string>();
   private pendingCommitments = new Map<string, PendingCommitment>();
 
   constructor(
@@ -217,11 +218,16 @@ export class ExactAztecFacilitatorScheme implements SchemeNetworkFacilitator {
       );
     }
 
-    // 2. Reject replayed payments
-    if (aztecPayload.txHash && this.consumedTxHashes.has(aztecPayload.txHash)) {
+    // 2. Reject replayed or in-flight payments (claim before the first await)
+    if (
+      aztecPayload.txHash &&
+      (this.consumedTxHashes.has(aztecPayload.txHash) ||
+        this.inFlightTxHashes.has(aztecPayload.txHash))
+    ) {
       return fail(
         "payment already used",
         "This payment has already been consumed.",
+        false,
       );
     }
 
@@ -269,10 +275,20 @@ export class ExactAztecFacilitatorScheme implements SchemeNetworkFacilitator {
       );
     }
 
+    const txHash = aztecPayload.txHash;
+    this.inFlightTxHashes.add(txHash);
+
+    const releaseInFlight = (consume: boolean): void => {
+      this.inFlightTxHashes.delete(txHash);
+      if (consume) {
+        this.consumedTxHashes.add(txHash);
+      }
+    };
+
     try {
       // 4. Verify the finalized transfer via the facilitator's node
       const verification = await this.signer.verifyPayment(
-        aztecPayload.txHash,
+        txHash,
         requirements.asset,
         BigInt(requirements.amount),
         commitment,
@@ -280,19 +296,23 @@ export class ExactAztecFacilitatorScheme implements SchemeNetworkFacilitator {
 
       if (!verification.isValid) {
         const error = verification.error ?? "payment verification failed";
+        const retryable = isRetryableVerificationError(error);
+        releaseInFlight(false);
         return fail(
           error,
           `Payment verification failed: ${error}`,
-          !isRetryableVerificationError(error),
+          !retryable,
         );
       }
 
+      releaseInFlight(true);
       return {
         isValid: true,
         payer: aztecPayload.senderAddress,
       };
     } catch (error) {
       const message = error instanceof Error ? error.message : String(error);
+      releaseInFlight(false);
       return fail(
         `verification error: ${message}`,
         `Failed to verify payment: ${message}`,

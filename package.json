@@ -30,7 +30,7 @@
     "demo": "bun run ./packages/demo/src/aztec/real-client.ts",
     "demo:sandbox": "SERVER_URL=http://localhost:4402 USE_SPONSORED_FPC=true bun run ./packages/demo/src/aztec/real-client.ts",
     "server:sandbox": "USE_SPONSORED_FPC=true bun run ./packages/demo/src/aztec/real-server.ts",
-    "demo:replay": "bun run ./packages/demo/src/aztec/replay-test.ts"
+    "demo:replay": "SERVER_URL=http://localhost:4402 USE_SPONSORED_FPC=true bun run ./packages/demo/src/aztec/replay-test.ts"
   },
   "devDependencies": {
     "@types/node": "^25.9.5",

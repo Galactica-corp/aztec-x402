@@ -22,6 +22,7 @@ interface PendingPayment {
   commitment?: string;
   offchainMessage?: string;
   prepareTxHash?: string;
+  inFlight?: boolean;
 }
 
 /**
@@ -196,10 +197,17 @@ export function createPaymentMiddleware(
         return send402(res, requirements, routeConfig.description, "invalid or expired payment nonce");
       }
 
+      if (paymentEntry.inFlight) {
+        return send402(res, requirements, routeConfig.description, "invalid or expired payment nonce");
+      }
+
       if (Date.now() - paymentEntry.createdAt > paymentEntry.timeoutMs) {
         pendingPayments.delete(nonce);
         return send402(res, requirements, routeConfig.description, "invalid or expired payment nonce");
       }
+
+      // Claim the nonce before the first await so overlapping replays cannot both pass.
+      paymentEntry.inFlight = true;
 
       // Carry commitment + offchain data from the prepare phase into verify requirements
       if (paymentEntry.commitment) {
@@ -226,6 +234,8 @@ export function createPaymentMiddleware(
         const failureReason = verifyResult.invalidReason || verifyResult.invalidMessage || "";
         if (!isRetryablePaymentFailure(failureReason)) {
           pendingPayments.delete(nonce);
+        } else {
+          paymentEntry.inFlight = false;
         }
         return send402(
           res,
@@ -242,6 +252,7 @@ export function createPaymentMiddleware(
       );
 
       if (!settleResult.success) {
+        paymentEntry.inFlight = false;
         res.status(500).json({
           error: "Payment settlement failed",
           reason: settleResult.errorReason,
@@ -301,7 +312,7 @@ function matchRoute(path: string, routes: RoutesConfig): { config: RouteConfig; 
 function sweepExpiredPayments(payments: Map<string, PendingPayment>): void {
   const now = Date.now();
   for (const [key, entry] of payments) {
-    if (now - entry.createdAt > entry.timeoutMs) {
+    if (!entry.inFlight && now - entry.createdAt > entry.timeoutMs) {
       payments.delete(key);
     }
   }

@@ -107,6 +107,14 @@ The middleware uses a two-layer defense against payment replay attacks:
 
 **Layer 2 — txHash Set (facilitator):** The facilitator records every settled txHash. Even if a nonce is somehow bypassed, the same txHash cannot be used twice. Defense-in-depth.
 
+Both layers claim the payment synchronously before the first `await`, so overlapping requests cannot both succeed.
+
+### Load testing
+
+`bun run demo:replay` creates one real payment, then stamps the same `PAYMENT-SIGNATURE` onto 100 distinct unpaid resources at once. Exactly one request may return 200; the rest must be 402. A follow-up flood of the same header, plus a few mutated payloads (truncated base64, flipped `txHash`, dropped or replaced nonce, empty header), must all fail.
+
+Override the burst size with `REPLAY_CONCURRENCY`. The script talks to `SERVER_URL` (the `demo:replay` npm script uses `http://localhost:4402`).
+
 ## Package Architecture
 
 ```mermaid
@@ -161,6 +169,9 @@ bun run server
 
 # In another shell, run the payment-gated client demo
 bun run demo
+
+# Concurrent replay load test (requires a running server)
+bun run demo:replay
 ```
 
 ### What happens
@@ -170,6 +181,8 @@ bun run demo
 2. **`bun run server`** — starts the local weather API and facilitator. The public hosted demo is not assumed to be current; run the local server against the same `deploy.json` you generated in setup.
 
 3. **`bun run demo`** — Alice pays $0.01 oUSD for a weather resource. The 3-phase flow: (1) client gets 402 with nonce, (2) client sends prepare request with sender address, server creates commitment, (3) client finalizes transfer using commitment, sends txHash to server. Server verifies and returns weather data.
+
+4. **`bun run demo:replay`** — one real payment, then a concurrent replay stampede (default 100), a follow-up flood, and a handful of mutated headers. Exactly one stampede request may succeed; everything else must be rejected.
 
 ## Known Issues and TODOs
 
@@ -261,6 +274,7 @@ Commit the updated `bun.lock` with the version bump. npm versions are immutable 
 | `AZTEC_NETWORK` | `aztec:sandbox` | CAIP-2 network id |
 | `USE_SPONSORED_FPC` | — | Set to `true` to use Sponsored FPC for gas fees on public networks |
 | `SERVER_URL` | `http://localhost:4402` | x402 demo server endpoint (client only) |
+| `REPLAY_CONCURRENCY` | `100` | Concurrent replay burst size (`demo:replay` only) |
 
 ## Design Decisions
 

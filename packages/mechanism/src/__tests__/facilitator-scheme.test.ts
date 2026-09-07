@@ -372,6 +372,41 @@ describe("ExactAztecFacilitatorScheme", () => {
       expect(replay.invalidReason).toContain("payment already used");
     });
 
+    it("rejects overlapping verify of the same txHash", async () => {
+      let release: () => void = () => {};
+      const gate = new Promise<void>((resolve) => {
+        release = resolve;
+      });
+      signer.verifyPayment = jest.fn().mockImplementation(async () => {
+        await gate;
+        return { isValid: true, amountFound: 100_000n };
+      });
+
+      const payload = createPayload();
+      const requirements = createRequirements();
+
+      const firstVerify = scheme.verify(payload, requirements).then(async (result) => {
+        if (result.isValid) {
+          await scheme.settle(payload, requirements);
+        }
+        return result;
+      });
+      const secondVerify = scheme.verify(payload, requirements).then(async (result) => {
+        if (result.isValid) {
+          await scheme.settle(payload, requirements);
+        }
+        return result;
+      });
+
+      release();
+      const [first, second] = await Promise.all([firstVerify, secondVerify]);
+
+      const validCount = [first, second].filter((result) => result.isValid).length;
+      expect(validCount).toBe(1);
+      const rejected = [first, second].find((result) => !result.isValid);
+      expect(rejected?.invalidReason).toContain("payment already used");
+    });
+
     it("consumes commitment after settlement", async () => {
       const payload = createPayload();
       const requirements = createRequirements();

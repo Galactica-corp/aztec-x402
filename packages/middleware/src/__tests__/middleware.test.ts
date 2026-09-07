@@ -415,6 +415,48 @@ describe("createPaymentMiddleware", () => {
     expect(parseError(res2.body)).toBe("invalid or expired payment nonce");
   });
 
+  it("rejects overlapping replay of the same nonce", async () => {
+    let release: () => void = () => {};
+    const gate = new Promise<void>((resolve) => {
+      release = resolve;
+    });
+    config.facilitator.verify = jest.fn().mockImplementation(async () => {
+      await gate;
+      return { isValid: true, payer: SENDER_ADDRESS };
+    });
+
+    const middleware = createPaymentMiddleware({
+      "/api/r1": createRouteConfig(),
+      "/api/r2": createRouteConfig(),
+    }, config);
+
+    const nonce = await getNonce(middleware, "/api/r1");
+    const paymentPayload = buildPaymentPayload(nonce);
+    const encoded = encodePayload(paymentPayload);
+
+    const next1 = jest.fn();
+    const next2 = jest.fn();
+    const res1 = createMockRes();
+    const res2 = createMockRes();
+
+    const first = middleware(
+      createMockReq("/api/r1", { "payment-signature": encoded }),
+      res1,
+      next1,
+    );
+    const second = middleware(
+      createMockReq("/api/r2", { "payment-signature": encoded }),
+      res2,
+      next2,
+    );
+
+    release();
+    await Promise.all([first, second]);
+
+    expect(next1.mock.calls.length + next2.mock.calls.length).toBe(1);
+    expect([res1.statusCode, res2.statusCode].filter((status) => status === 402)).toHaveLength(1);
+  });
+
   it("rejects expired nonce", async () => {
     const routeConfig = createRouteConfig();
     routeConfig.maxTimeoutSeconds = 1; // 1 second timeout
