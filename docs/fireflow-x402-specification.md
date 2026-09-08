@@ -257,6 +257,7 @@ Direct private transfers (not x402) are already possible: point Transaction Buil
 
 | Document                                                                                                                       | Role                                                   |
 | ------------------------------------------------------------------------------------------------------------------------------ | ------------------------------------------------------ |
+| [x402-demo.md](./x402-demo.md)                                                                                                  | Live FireFlow agent demo: private x402 from chat       |
 | [private-stablecoin-specification.md](./private-stablecoin-specification.md)                                                   | Overcast as a token-agnostic private payments protocol |
 | [fireflow-overcast/docs/specification.md](https://github.com/Galactica-corp/fireflow-overcast/blob/main/docs/specification.md) | Full node inputs, outputs, and behavior                |
 | [aztec-x402 readme](../readme.md)                                                                                              | Protocol flow, packages, anti-replay, demo             |
