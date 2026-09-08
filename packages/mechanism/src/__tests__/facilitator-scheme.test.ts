@@ -355,6 +355,7 @@ describe("ExactAztecFacilitatorScheme", () => {
 
       expect(result.isValid).toBe(false);
       expect(result.invalidReason).toContain("node connection lost");
+      expect(result.extensions?.retryable).toBe(true);
     });
 
     it("rejects replayed payment with same txHash", async () => {
@@ -404,7 +405,46 @@ describe("ExactAztecFacilitatorScheme", () => {
       const validCount = [first, second].filter((result) => result.isValid).length;
       expect(validCount).toBe(1);
       const rejected = [first, second].find((result) => !result.isValid);
-      expect(rejected?.invalidReason).toContain("payment already used");
+      expect(rejected?.invalidReason).toContain("payment verification in progress");
+      expect(rejected?.extensions?.retryable).toBe(true);
+    });
+
+    it("does not consume txHash on verify without settle", async () => {
+      const payload = createPayload();
+      const requirements = createRequirements();
+
+      const first = await scheme.verify(payload, requirements);
+      const second = await scheme.verify(payload, requirements);
+
+      expect(first.isValid).toBe(true);
+      expect(second.isValid).toBe(true);
+
+      await scheme.settle(payload, requirements);
+      const afterSettle = await scheme.verify(payload, requirements);
+      expect(afterSettle.isValid).toBe(false);
+      expect(afterSettle.invalidReason).toContain("payment already used");
+    });
+
+    it("releases in-flight txHash after verifyPayment times out", async () => {
+      const shortSigner = createMockSigner();
+      shortSigner.verifyPayment = jest.fn().mockReturnValue(new Promise(() => {}));
+      const shortScheme = new ExactAztecFacilitatorScheme(shortSigner, networks);
+      await shortScheme.preparePayment(TOKEN_ADDRESS, SENDER_ADDRESS, {
+        createdAt: Date.now(),
+        timeoutMs: 40,
+      });
+
+      const first = await shortScheme.verify(createPayload(), createRequirements());
+      expect(first.isValid).toBe(false);
+      expect(first.invalidReason).toContain("timed out");
+      expect(first.extensions?.retryable).toBe(true);
+
+      shortSigner.verifyPayment = jest.fn().mockResolvedValue({
+        isValid: true,
+        amountFound: 100_000n,
+      });
+      const retry = await shortScheme.verify(createPayload(), createRequirements());
+      expect(retry.invalidReason).not.toContain("payment verification in progress");
     });
 
     it("consumes commitment after settlement", async () => {

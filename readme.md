@@ -107,13 +107,13 @@ The middleware uses a two-layer defense against payment replay attacks:
 
 **Layer 2 — txHash Set (facilitator):** The facilitator records every settled txHash. Even if a nonce is somehow bypassed, the same txHash cannot be used twice. Defense-in-depth.
 
-Both layers claim the payment synchronously before the first `await`, so overlapping requests cannot both succeed.
+Both layers take ownership of the payment before the first `await` (nonce is removed from the pending map; an in-flight txHash is claimed with a retryable reason). Overlapping requests cannot both succeed, and a stalled verify cannot lock a payer out of their own payment.
 
 ### Load testing
 
-`bun run demo:replay` creates one real payment, then stamps the same `PAYMENT-SIGNATURE` onto 100 distinct unpaid resources at once. Exactly one request may return 200; the rest must be 402. A follow-up flood of the same header, plus a few mutated payloads (truncated base64, flipped `txHash`, dropped or replaced nonce, empty header), must all fail.
+`bun run demo:replay` pays once sequentially, then stamps a **second** prepared `PAYMENT-SIGNATURE` onto 100 distinct unpaid resources at once. Exactly one stampede request may return 200; the rest must be 402 with a replay reason. Mutated payloads (truncated base64, flipped `txHash` against its own nonce/prepare, dropped or replaced nonce, empty header) must all fail.
 
-Override the burst size with `REPLAY_CONCURRENCY`. The script talks to `SERVER_URL` (the `demo:replay` npm script uses `http://localhost:4402`).
+Override the burst size with `REPLAY_CONCURRENCY`. The script talks to `SERVER_URL` (default `http://localhost:4402`).
 
 ## Package Architecture
 
@@ -182,7 +182,7 @@ bun run demo:replay
 
 3. **`bun run demo`** — Alice pays $0.01 oUSD for a weather resource. The 3-phase flow: (1) client gets 402 with nonce, (2) client sends prepare request with sender address, server creates commitment, (3) client finalizes transfer using commitment, sends txHash to server. Server verifies and returns weather data.
 
-4. **`bun run demo:replay`** — one real payment, then a concurrent replay stampede (default 100), a follow-up flood, and a handful of mutated headers. Exactly one stampede request may succeed; everything else must be rejected.
+4. **`bun run demo:replay`** — one sequential payment, then a concurrent replay stampede of a second payment (default 100) and a handful of mutated headers. Exactly one stampede request may succeed; everything else must be 402.
 
 ## Known Issues and TODOs
 
