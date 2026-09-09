@@ -95,6 +95,7 @@ export class ExactAztecFacilitatorScheme implements SchemeNetworkFacilitator {
 
   private cachedAddresses: string[] = [];
   private consumedTxHashes = new Set<string>();
+  private inFlightTxHashes = new Map<string, number>();
   private pendingCommitments = new Map<string, PendingCommitment>();
 
   constructor(
@@ -196,6 +197,7 @@ export class ExactAztecFacilitatorScheme implements SchemeNetworkFacilitator {
       invalidReason: string,
       invalidMessage: string,
       consumeCommitment = true,
+      retryable = false,
     ): VerifyResponse => {
       if (commitment && consumeCommitment) {
         this.pendingCommitments.delete(commitment);
@@ -205,6 +207,7 @@ export class ExactAztecFacilitatorScheme implements SchemeNetworkFacilitator {
         invalidReason,
         invalidMessage,
         payer: aztecPayload.senderAddress,
+        ...(retryable ? { extensions: { retryable: true } } : {}),
       };
     };
 
@@ -217,11 +220,23 @@ export class ExactAztecFacilitatorScheme implements SchemeNetworkFacilitator {
       );
     }
 
-    // 2. Reject replayed payments
-    if (aztecPayload.txHash && this.consumedTxHashes.has(aztecPayload.txHash)) {
+    const txHash = aztecPayload.txHash;
+
+    // 2. Reject consumed payments (non-retryable) and in-flight payments (retryable)
+    if (this.consumedTxHashes.has(txHash)) {
       return fail(
         "payment already used",
         "This payment has already been consumed.",
+        true,
+      );
+    }
+
+    if (this.inFlightTxHashes.has(txHash)) {
+      return fail(
+        "payment verification in progress",
+        "This payment is already being verified.",
+        false,
+        true,
       );
     }
 
@@ -269,21 +284,29 @@ export class ExactAztecFacilitatorScheme implements SchemeNetworkFacilitator {
       );
     }
 
+    this.inFlightTxHashes.set(txHash, pending.expiresAt);
+
     try {
-      // 4. Verify the finalized transfer via the facilitator's node
-      const verification = await this.signer.verifyPayment(
-        aztecPayload.txHash,
-        requirements.asset,
-        BigInt(requirements.amount),
-        commitment,
+      const timeoutMs = Math.max(1, pending.expiresAt - Date.now());
+      const verification = await withTimeout(
+        this.signer.verifyPayment(
+          txHash,
+          requirements.asset,
+          BigInt(requirements.amount),
+          commitment,
+        ),
+        timeoutMs,
+        "verification timed out",
       );
 
       if (!verification.isValid) {
         const error = verification.error ?? "payment verification failed";
+        const retryable = isRetryableVerificationError(error);
         return fail(
           error,
           `Payment verification failed: ${error}`,
-          !isRetryableVerificationError(error),
+          !retryable,
+          retryable,
         );
       }
 
@@ -297,7 +320,10 @@ export class ExactAztecFacilitatorScheme implements SchemeNetworkFacilitator {
         `verification error: ${message}`,
         `Failed to verify payment: ${message}`,
         false,
+        true,
       );
+    } finally {
+      this.inFlightTxHashes.delete(txHash);
     }
   }
 
@@ -352,5 +378,26 @@ export class ExactAztecFacilitatorScheme implements SchemeNetworkFacilitator {
         this.pendingCommitments.delete(commitment);
       }
     }
+    for (const [txHash, expiresAt] of this.inFlightTxHashes) {
+      if (now > expiresAt) {
+        this.inFlightTxHashes.delete(txHash);
+      }
+    }
   }
+}
+
+function withTimeout<T>(promise: Promise<T>, ms: number, message: string): Promise<T> {
+  return new Promise((resolve, reject) => {
+    const timer = setTimeout(() => reject(new Error(message)), ms);
+    promise.then(
+      (value) => {
+        clearTimeout(timer);
+        resolve(value);
+      },
+      (error: unknown) => {
+        clearTimeout(timer);
+        reject(error);
+      },
+    );
+  });
 }

@@ -273,6 +273,7 @@ describe("createPaymentMiddleware", () => {
       .mockResolvedValueOnce({
         isValid: false,
         invalidReason: "completion log lookup failed: PXE timeout",
+        extensions: { retryable: true },
       })
       .mockResolvedValueOnce({
         isValid: true,
@@ -325,6 +326,127 @@ describe("createPaymentMiddleware", () => {
 
     expect(res.statusCode).toBe(500);
     expect(next).not.toHaveBeenCalled();
+  });
+
+  it("allows retry with the same nonce after settlement failure", async () => {
+    config.facilitator.settle = jest.fn()
+      .mockResolvedValueOnce({
+        success: false,
+        errorReason: "settlement error",
+      })
+      .mockResolvedValueOnce({
+        success: true,
+        payer: SENDER_ADDRESS,
+        transaction: TX_HASH,
+        network: "aztec:sandbox",
+      });
+
+    const middleware = createPaymentMiddleware({ "/api/data": createRouteConfig() }, config);
+
+    const nonce = await getNonce(middleware, "/api/data");
+    const paymentPayload = buildPaymentPayload(nonce);
+
+    const firstReq = createMockReq("/api/data", {
+      "payment-signature": encodePayload(paymentPayload),
+    });
+    const firstRes = createMockRes();
+    await middleware(firstReq, firstRes, jest.fn());
+    expect(firstRes.statusCode).toBe(500);
+
+    const retryReq = createMockReq("/api/data", {
+      "payment-signature": encodePayload(paymentPayload),
+    });
+    const retryRes = createMockRes();
+    const retryNext = jest.fn();
+    await middleware(retryReq, retryRes, retryNext);
+
+    expect(config.facilitator.verify).toHaveBeenCalledTimes(2);
+    expect(config.facilitator.settle).toHaveBeenCalledTimes(2);
+    expect(retryNext).toHaveBeenCalled();
+  });
+
+  it("restores the nonce when verify throws", async () => {
+    config.facilitator.verify = jest.fn()
+      .mockRejectedValueOnce(new Error("ECONNRESET"))
+      .mockResolvedValueOnce({
+        isValid: true,
+        payer: SENDER_ADDRESS,
+      });
+
+    const middleware = createPaymentMiddleware({ "/api/data": createRouteConfig() }, config);
+
+    const nonce = await getNonce(middleware, "/api/data");
+    const paymentPayload = buildPaymentPayload(nonce);
+
+    const firstReq = createMockReq("/api/data", {
+      "payment-signature": encodePayload(paymentPayload),
+    });
+    const firstRes = createMockRes();
+    await middleware(firstReq, firstRes, jest.fn());
+    expect(firstRes.statusCode).toBe(402);
+    expect(parseError(firstRes.body)).toContain("ECONNRESET");
+
+    const retryReq = createMockReq("/api/data", {
+      "payment-signature": encodePayload(paymentPayload),
+    });
+    const retryRes = createMockRes();
+    const retryNext = jest.fn();
+    await middleware(retryReq, retryRes, retryNext);
+
+    expect(config.facilitator.verify).toHaveBeenCalledTimes(2);
+    expect(retryNext).toHaveBeenCalled();
+  });
+
+  it("does not consume the nonce on retryable in-progress verification", async () => {
+    config.facilitator.verify = jest.fn()
+      .mockResolvedValueOnce({
+        isValid: false,
+        invalidReason: "payment verification in progress",
+        invalidMessage: "This payment is already being verified.",
+        extensions: { retryable: true },
+      })
+      .mockResolvedValueOnce({
+        isValid: true,
+        payer: SENDER_ADDRESS,
+      });
+
+    const middleware = createPaymentMiddleware({ "/api/data": createRouteConfig() }, config);
+
+    const nonce = await getNonce(middleware, "/api/data");
+    const paymentPayload = buildPaymentPayload(nonce);
+
+    const firstReq = createMockReq("/api/data", {
+      "payment-signature": encodePayload(paymentPayload),
+    });
+    const firstRes = createMockRes();
+    await middleware(firstReq, firstRes, jest.fn());
+    expect(firstRes.statusCode).toBe(402);
+
+    const retryReq = createMockReq("/api/data", {
+      "payment-signature": encodePayload(paymentPayload),
+    });
+    const retryRes = createMockRes();
+    const retryNext = jest.fn();
+    await middleware(retryReq, retryRes, retryNext);
+
+    expect(retryNext).toHaveBeenCalled();
+  });
+
+  it("returns 402 when payment extra nonce is not a string", async () => {
+    const middleware = createPaymentMiddleware({ "/api/data": createRouteConfig() }, config);
+    const paymentPayload = buildPaymentPayload("unused");
+    Reflect.set(paymentPayload.accepted.extra, "nonce", 123);
+
+    const req = createMockReq("/api/data", {
+      "payment-signature": encodePayload(paymentPayload),
+    });
+    const res = createMockRes();
+    const next = jest.fn();
+    await middleware(req, res, next);
+
+    expect(res.statusCode).toBe(402);
+    expect(next).not.toHaveBeenCalled();
+    expect(parseError(res.body)).toContain("Invalid payment payload");
   });
 
   it("sets PAYMENT-RESPONSE header after successful settlement", async () => {
@@ -413,6 +535,48 @@ describe("createPaymentMiddleware", () => {
     expect(res2.statusCode).toBe(402);
     expect(next2).not.toHaveBeenCalled();
     expect(parseError(res2.body)).toBe("invalid or expired payment nonce");
+  });
+
+  it("rejects overlapping replay of the same nonce", async () => {
+    let release: () => void = () => {};
+    const gate = new Promise<void>((resolve) => {
+      release = resolve;
+    });
+    config.facilitator.verify = jest.fn().mockImplementation(async () => {
+      await gate;
+      return { isValid: true, payer: SENDER_ADDRESS };
+    });
+
+    const middleware = createPaymentMiddleware({
+      "/api/r1": createRouteConfig(),
+      "/api/r2": createRouteConfig(),
+    }, config);
+
+    const nonce = await getNonce(middleware, "/api/r1");
+    const paymentPayload = buildPaymentPayload(nonce);
+    const encoded = encodePayload(paymentPayload);
+
+    const next1 = jest.fn();
+    const next2 = jest.fn();
+    const res1 = createMockRes();
+    const res2 = createMockRes();
+
+    const first = middleware(
+      createMockReq("/api/r1", { "payment-signature": encoded }),
+      res1,
+      next1,
+    );
+    const second = middleware(
+      createMockReq("/api/r2", { "payment-signature": encoded }),
+      res2,
+      next2,
+    );
+
+    release();
+    await Promise.all([first, second]);
+
+    expect(next1.mock.calls.length + next2.mock.calls.length).toBe(1);
+    expect([res1.statusCode, res2.statusCode].filter((status) => status === 402)).toHaveLength(1);
   });
 
   it("rejects expired nonce", async () => {
@@ -509,6 +673,27 @@ describe("createPaymentMiddleware", () => {
 
     expect(first).toBe(MOCK_COMMITMENT);
     expect(second).toBe(MOCK_COMMITMENT);
+    expect(config.facilitator.preparePayment).toHaveBeenCalledTimes(1);
+  });
+
+  it("sends only one preparePayment for overlapping prepares of the same nonce", async () => {
+    let release: () => void = () => {};
+    const gate = new Promise<void>((resolve) => {
+      release = resolve;
+    });
+    config.facilitator.preparePayment = jest.fn().mockImplementation(async () => {
+      await gate;
+      return { commitment: MOCK_COMMITMENT };
+    });
+
+    const middleware = createPaymentMiddleware({ "/api/data": createRouteConfig() }, config);
+    const nonce = await getNonce(middleware, "/api/data");
+
+    const first = prepareCommitment(middleware, "/api/data", nonce);
+    const second = prepareCommitment(middleware, "/api/data", nonce);
+    release();
+    await Promise.all([first, second]);
+
     expect(config.facilitator.preparePayment).toHaveBeenCalledTimes(1);
   });
 

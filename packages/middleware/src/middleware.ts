@@ -122,9 +122,10 @@ export function createPaymentMiddleware(
       // Create commitment if facilitator supports it
       if (config.facilitator.preparePayment) {
         if (!paymentEntry.commitment) {
-          let extra: Record<string, unknown>;
+          // Take ownership so a concurrent prepare cannot send a second on-chain tx.
+          pendingPayments.delete(nonce);
           try {
-            extra = await config.facilitator.preparePayment(
+            const extra = await config.facilitator.preparePayment(
               routeConfig.asset,
               senderAddress,
               {
@@ -133,6 +134,12 @@ export function createPaymentMiddleware(
                 createdAt: paymentEntry.createdAt,
               },
             );
+            const parsedExtra = parseAztecPaymentExtra(extra);
+            paymentEntry.senderAddress = senderAddress;
+            paymentEntry.commitment = parsedExtra.commitment;
+            paymentEntry.offchainMessage = parsedExtra.offchainMessage;
+            paymentEntry.prepareTxHash = parsedExtra.prepareTxHash;
+            requirements.extra = { nonce, ...extra };
           } catch (error) {
             const message = error instanceof Error ? error.message : String(error);
             return send402(
@@ -141,25 +148,11 @@ export function createPaymentMiddleware(
               routeConfig.description,
               `commitment preparation failed: ${message}`,
             );
+          } finally {
+            pendingPayments.set(nonce, paymentEntry);
           }
-          const parsedExtra = parseAztecPaymentExtra(extra);
-          // Store commitment + offchain data in pending entry for validation in phase 3
-          paymentEntry.senderAddress = senderAddress;
-          paymentEntry.commitment = parsedExtra.commitment;
-          paymentEntry.offchainMessage = parsedExtra.offchainMessage;
-          paymentEntry.prepareTxHash = parsedExtra.prepareTxHash;
-          requirements.extra = { nonce, ...extra };
         } else {
-          requirements.extra = {
-            nonce,
-            commitment: paymentEntry.commitment,
-          };
-          if (paymentEntry.offchainMessage) {
-            requirements.extra.offchainMessage = paymentEntry.offchainMessage;
-          }
-          if (paymentEntry.prepareTxHash) {
-            requirements.extra.prepareTxHash = paymentEntry.prepareTxHash;
-          }
+          applyPreparedExtra(requirements, nonce, paymentEntry);
         }
       } else {
         requirements.extra = { nonce };
@@ -172,9 +165,11 @@ export function createPaymentMiddleware(
     const paymentHeader = getHeader(req, "payment-signature");
     if (paymentHeader) {
       let paymentPayload: PaymentPayload;
+      let nonce: string | undefined;
       try {
         const decoded = Buffer.from(paymentHeader, "base64").toString();
         paymentPayload = PaymentPayloadSchema.parse(JSON.parse(decoded));
+        nonce = parseAztecPaymentExtra(paymentPayload.accepted.extra).nonce;
       } catch (error) {
         return send402(
           res,
@@ -184,9 +179,6 @@ export function createPaymentMiddleware(
         );
       }
 
-      // Validate nonce
-      const accepted = paymentPayload.accepted;
-      const nonce = parseAztecPaymentExtra(accepted.extra).nonce;
       if (!nonce) {
         return send402(res, requirements, routeConfig.description, "missing payment nonce");
       }
@@ -201,69 +193,60 @@ export function createPaymentMiddleware(
         return send402(res, requirements, routeConfig.description, "invalid or expired payment nonce");
       }
 
-      // Carry commitment + offchain data from the prepare phase into verify requirements
-      if (paymentEntry.commitment) {
-        requirements.extra = {
-          ...requirements.extra,
-          nonce,
-          commitment: paymentEntry.commitment,
-        };
-        if (paymentEntry.offchainMessage) {
-          requirements.extra.offchainMessage = paymentEntry.offchainMessage;
-        }
-        if (paymentEntry.prepareTxHash) {
-          requirements.extra.prepareTxHash = paymentEntry.prepareTxHash;
-        }
-      }
+      // Take ownership before the first await so overlapping replays cannot both pass.
+      pendingPayments.delete(nonce);
+      applyPreparedExtra(requirements, nonce, paymentEntry);
 
-      // Verify payment
-      const verifyResult = await config.facilitator.verify(
-        paymentPayload,
-        requirements,
-      );
+      try {
+        const verifyResult = await config.facilitator.verify(
+          paymentPayload,
+          requirements,
+        );
 
-      if (!verifyResult.isValid) {
-        const failureReason = verifyResult.invalidReason || verifyResult.invalidMessage || "";
-        if (!isRetryablePaymentFailure(failureReason)) {
-          pendingPayments.delete(nonce);
+        if (!verifyResult.isValid) {
+          if (isRetryableVerifyResponse(verifyResult)) {
+            pendingPayments.set(nonce, paymentEntry);
+          }
+          return send402(
+            res,
+            requirements,
+            routeConfig.description,
+            verifyResult.invalidMessage || verifyResult.invalidReason,
+          );
         }
+
+        const settleResult = await config.facilitator.settle(
+          paymentPayload,
+          requirements,
+        );
+
+        if (!settleResult.success) {
+          pendingPayments.set(nonce, paymentEntry);
+          res.status(500).json({
+            error: "Payment settlement failed",
+            reason: settleResult.errorReason,
+            message: settleResult.errorMessage,
+          });
+          return;
+        }
+
+        const responsePayload = Buffer.from(
+          JSON.stringify(settleResult),
+        ).toString("base64");
+        res.setHeader("PAYMENT-RESPONSE", responsePayload);
+        paidResources.add(req.path);
+        next();
+        return;
+      } catch (error) {
+        pendingPayments.set(nonce, paymentEntry);
+        const message = error instanceof Error ? error.message : String(error);
         return send402(
           res,
           requirements,
           routeConfig.description,
-          verifyResult.invalidMessage || verifyResult.invalidReason,
+          `verification error: ${message}`,
         );
       }
-
-      // Settle payment
-      const settleResult = await config.facilitator.settle(
-        paymentPayload,
-        requirements,
-      );
-
-      if (!settleResult.success) {
-        res.status(500).json({
-          error: "Payment settlement failed",
-          reason: settleResult.errorReason,
-          message: settleResult.errorMessage,
-        });
-        return;
-      }
-
-      pendingPayments.delete(nonce);
-
-      // Set PAYMENT-RESPONSE header
-      const responsePayload = Buffer.from(
-        JSON.stringify(settleResult),
-      ).toString("base64");
-      res.setHeader("PAYMENT-RESPONSE", responsePayload);
-
-      // Mark this resource as paid
-      paidResources.add(req.path);
-
-      // Pass through to the actual route handler
-      next();
-      return;
     }
 
     // Phase 1: Initial request — generate nonce, return 402
@@ -307,15 +290,27 @@ function sweepExpiredPayments(payments: Map<string, PendingPayment>): void {
   }
 }
 
-function isRetryablePaymentFailure(reason: string): boolean {
-  return (
-    reason.startsWith("completion log lookup failed") ||
-    reason.startsWith("no completion log found for commitment") ||
-    reason.startsWith("transaction effects unavailable") ||
-    reason.startsWith("amount verification failed") ||
-    reason.startsWith("verification error:") ||
-    reason.startsWith("verification failed:")
-  );
+function applyPreparedExtra(
+  requirements: PaymentRequirements,
+  nonce: string,
+  paymentEntry: PendingPayment,
+): void {
+  if (!paymentEntry.commitment) return;
+  requirements.extra = {
+    ...requirements.extra,
+    nonce,
+    commitment: paymentEntry.commitment,
+  };
+  if (paymentEntry.offchainMessage) {
+    requirements.extra.offchainMessage = paymentEntry.offchainMessage;
+  }
+  if (paymentEntry.prepareTxHash) {
+    requirements.extra.prepareTxHash = paymentEntry.prepareTxHash;
+  }
+}
+
+function isRetryableVerifyResponse(result: { extensions?: Record<string, unknown> }): boolean {
+  return result.extensions?.retryable === true;
 }
 
 function formatParseError(prefix: string, error: unknown): string {
