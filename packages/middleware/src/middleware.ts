@@ -43,7 +43,6 @@ export function createPaymentMiddleware(
   config: MiddlewareConfig,
 ) {
   const pendingPayments = new Map<string, PendingPayment>();
-  const paidResources = new Set<string>();
 
   return async (
     req: MiddlewareRequest,
@@ -59,12 +58,6 @@ export function createPaymentMiddleware(
 
     const { config: routeConfig, params } = match;
     req.params = params;
-
-    // If this exact resource was already paid for, let it through
-    if (paidResources.has(req.path)) {
-      next();
-      return;
-    }
 
     const timeoutMs = (routeConfig.maxTimeoutSeconds ?? 120) * 1000;
 
@@ -234,7 +227,6 @@ export function createPaymentMiddleware(
           JSON.stringify(settleResult),
         ).toString("base64");
         res.setHeader("PAYMENT-RESPONSE", responsePayload);
-        paidResources.add(req.path);
         next();
         return;
       } catch (error) {

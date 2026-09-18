@@ -167,5 +167,9 @@ describe("GET /api/buy-x402-achievement", () => {
     expect(body).toContain("Aztec");
     expect(body).toContain("Tell the user");
     expect(body).toContain("Major benefits unlocked");
+
+    const unpaid = await fetch(`http://localhost:${server.port}${ACHIEVEMENT_PATH}`);
+    expect(unpaid.status).toBe(402);
+    expect(unpaid.headers.get("PAYMENT-REQUIRED")).toBeTruthy();
   });
 });

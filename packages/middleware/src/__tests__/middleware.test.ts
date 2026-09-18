@@ -246,6 +246,28 @@ describe("createPaymentMiddleware", () => {
     expect(next).toHaveBeenCalled();
   });
 
+  it("returns 402 on a subsequent unpaid request after a successful settle", async () => {
+    const middleware = createPaymentMiddleware({ "/api/data": createRouteConfig() }, config);
+
+    const nonce = await getNonce(middleware, "/api/data");
+    const paymentPayload = buildPaymentPayload(nonce);
+    const paidReq = createMockReq("/api/data", {
+      "payment-signature": encodePayload(paymentPayload),
+    });
+    const paidRes = createMockRes();
+    await middleware(paidReq, paidRes, jest.fn());
+    expect(paidRes.statusCode).not.toBe(402);
+
+    const unpaidReq = createMockReq("/api/data");
+    const unpaidRes = createMockRes();
+    const unpaidNext = jest.fn();
+    await middleware(unpaidReq, unpaidRes, unpaidNext);
+
+    expect(unpaidRes.statusCode).toBe(402);
+    expect(unpaidRes.headers["PAYMENT-REQUIRED"]).toBeTruthy();
+    expect(unpaidNext).not.toHaveBeenCalled();
+  });
+
   it("returns 402 when verification fails", async () => {
     config.facilitator.verify = jest.fn().mockResolvedValue({
       isValid: false,
