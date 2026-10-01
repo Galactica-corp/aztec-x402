@@ -1,0 +1,71 @@
+{
+  "name": "@galactica-net/x402-agent",
+  "version": "0.1.0",
+  "description": "Agent CLI and wallet for private x402 payments on Aztec",
+  "author": "Galactica Network",
+  "license": "Apache-2.0",
+  "homepage": "https://overcast.fi/",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/Galactica-corp/aztec-x402.git",
+    "directory": "packages/agent"
+  },
+  "bugs": {
+    "url": "https://github.com/Galactica-corp/aztec-x402/issues"
+  },
+  "keywords": [
+    "aztec",
+    "x402",
+    "payments",
+    "agents",
+    "privacy",
+    "stablecoin"
+  ],
+  "type": "module",
+  "engines": {
+    "node": ">=22"
+  },
+  "bin": {
+    "aztec-x402": "./dist/cli.js"
+  },
+  "files": [
+    "dist",
+    "src"
+  ],
+  "exports": {
+    "./aztec": {
+      "bun": "./src/aztec/index.ts",
+      "import": "./dist/aztec/index.js",
+      "types": "./dist/aztec/index.d.ts"
+    }
+  },
+  "scripts": {
+    "build": "tsup",
+    "test": "bun test",
+    "clean": "rm -rf dist",
+    "cli": "bun run src/cli.ts",
+    "prepublishOnly": "bun run build"
+  },
+  "publishConfig": {
+    "registry": "https://registry.npmjs.org/",
+    "access": "public"
+  },
+  "dependencies": {
+    "@aztec-foundation/aztec-standards": "5.0.1",
+    "@aztec/accounts": "5.0.1",
+    "@aztec/aztec.js": "5.0.1",
+    "@aztec/constants": "5.0.1",
+    "@aztec/l1-artifacts": "5.0.1",
+    "@aztec/noir-contracts.js": "5.0.1",
+    "@aztec/stdlib": "5.0.1",
+    "@aztec/wallet-sdk": "5.0.1",
+    "@aztec/wallets": "5.0.1",
+    "viem": "npm:@aztec/viem@2.38.2",
+    "@galactica-net/x402-client": "workspace:*",
+    "@galactica-net/x402-core": "workspace:*",
+    "@galactica-net/x402-mechanism": "workspace:*"
+  },
+  "devDependencies": {
+    "typescript": "^5.5.0"
+  }
+}

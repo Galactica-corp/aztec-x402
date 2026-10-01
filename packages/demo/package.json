@@ -28,6 +28,7 @@
     "test:offchain": "bun run src/aztec/test-offchain-partial.ts"
   },
   "dependencies": {
+    "@galactica-net/x402-agent": "workspace:*",
     "@galactica-net/x402-client": "workspace:*",
     "@galactica-net/x402-core": "workspace:*",
     "@galactica-net/x402-mechanism": "workspace:*",
