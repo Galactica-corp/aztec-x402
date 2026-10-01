@@ -26,6 +26,7 @@
     "clean": "bun run --filter '*' clean",
     "setup": "NODE_URL=https://v5.testnet.rpc.aztec-labs.com AZTEC_NETWORK=aztec:testnet USE_SPONSORED_FPC=true bun run ./packages/demo/src/aztec/setup.ts",
     "server": "USE_SPONSORED_FPC=true bun run ./packages/demo/src/aztec/real-server.ts",
+    "setup:usdc": "NODE_URL=https://v5.testnet.rpc.aztec-labs.com AZTEC_NETWORK=aztec:testnet USE_SPONSORED_FPC=true TOKEN_ADDRESS=0x2bb09ca02aeabb84fbe69537a0bf4b5ed57112466dc4666f9639157fe8dcfcf7 DRIPPER_ADDRESS=0x064399d44c7ba2380dc7f8e8a8395189879ab7cc71c1ac5c4ca63a35a25815fd bun run ./packages/demo/src/aztec/setup.ts",
     "setup:sandbox": "NODE_URL=http://localhost:8080 AZTEC_NETWORK=aztec:sandbox USE_SPONSORED_FPC=true bun run ./packages/demo/src/aztec/setup.ts",
     "demo": "bun run ./packages/demo/src/aztec/real-client.ts",
     "demo:sandbox": "SERVER_URL=http://localhost:4402 USE_SPONSORED_FPC=true bun run ./packages/demo/src/aztec/real-client.ts",

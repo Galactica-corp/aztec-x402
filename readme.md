@@ -150,7 +150,19 @@ graph LR
 | `@galactica-net/x402-mechanism` | x402 mechanism plugin — client scheme (sign + transfer) and facilitator scheme (verify + settle) |
 | `@galactica-net/x402-middleware` | Express-compatible middleware — 3-phase 402 flow, nonce lifecycle, payment verification |
 | `@galactica-net/x402-client` | Fetch wrapper — automatic 402 detection, prepare, payment, and retry |
+| `@galactica-net/x402-agent` | `aztec-x402` CLI for agents — wallet, spend-capped payments, funding page; PXE wallet + client signer |
 | `@galactica-net/x402-demo` | Real Aztec demo + mock demo + replay attack test |
+
+## Agent Skill
+
+Any agent harness that runs shell commands can pay with private x402 through the [`aztec-x402` skill](plugins/aztec-x402/skills/aztec-x402/SKILL.md) and the [`aztec-x402` CLI](packages/agent/README.md). In Claude Code:
+
+```text
+/plugin marketplace add Galactica-corp/aztec-x402
+/plugin install aztec-x402@galactica-x402
+```
+
+Install, demo script, and status: [docs/agent-skill.md](docs/agent-skill.md).
 
 ## Quick Start
 
@@ -181,6 +193,8 @@ bun run demo:replay
 2. **`bun run server`** — starts the local weather API and facilitator. The public hosted demo is not assumed to be current; run the local server against the same `deploy.json` you generated in setup.
 
 3. **`bun run demo`** — Alice pays $0.01 oUSD for a weather resource. The 3-phase flow: (1) client gets 402 with nonce, (2) client sends prepare request with sender address, server creates commitment, (3) client finalizes transfer using commitment, sends txHash to server. Server verifies and returns weather data.
+
+To charge the canonical testnet USDC that the agent CLI's faucet mints (instead of deploying oUSD), run `bun run setup:usdc` in place of `bun run setup`.
 
 4. **`bun run demo:replay`** — one sequential payment, then a concurrent replay stampede of a second payment (default 100) and a handful of mutated headers. Exactly one stampede request may succeed; everything else must be 402.
 

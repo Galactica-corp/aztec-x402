@@ -7,6 +7,7 @@ COPY packages/core/package.json packages/core/
 COPY packages/mechanism/package.json packages/mechanism/
 COPY packages/middleware/package.json packages/middleware/
 COPY packages/client/package.json packages/client/
+COPY packages/agent/package.json packages/agent/
 COPY packages/demo/package.json packages/demo/
 RUN bun install --frozen-lockfile
 
