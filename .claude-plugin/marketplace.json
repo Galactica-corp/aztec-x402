@@ -1,0 +1,16 @@
+{
+  "name": "galactica-x402",
+  "owner": {
+    "name": "Galactica Network"
+  },
+  "metadata": {
+    "description": "Private x402 payments on Aztec for AI agents"
+  },
+  "plugins": [
+    {
+      "name": "aztec-x402",
+      "source": "./plugins/aztec-x402",
+      "description": "Let your agent pay for HTTP resources privately with x402 on Aztec, and help you fund its wallet."
+    }
+  ]
+}
