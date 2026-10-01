@@ -14,6 +14,8 @@
  *   AZTEC_NETWORK — CAIP-2 network id (default: aztec:sandbox)
  *   USE_SPONSORED_FPC — set to "true" to pay fees via the canonical Sponsored FPC
  *                       (local-network prints its address at startup; same on testnet).
+ *   TOKEN_ADDRESS, DRIPPER_ADDRESS — reuse an existing token and its Dripper instead of
+ *                       deploying oUSD (e.g. the canonical testnet USDC the agent CLI uses).
  */
 import { createAztecNodeClient } from "@aztec/aztec.js/node";
 import { AztecAddress } from "@aztec/aztec.js/addresses";
@@ -84,6 +86,13 @@ async function main() {
   const config = loadConfig();
   config.nodeUrl = NODE_URL;
   config.network = NETWORK;
+  if (process.env.TOKEN_ADDRESS && process.env.DRIPPER_ADDRESS) {
+    // Existing contracts are verified on-chain below and then skipped.
+    config.tokenAddress = process.env.TOKEN_ADDRESS;
+    config.dripperAddress = process.env.DRIPPER_ADDRESS;
+    config.tokenSymbol = process.env.TOKEN_SYMBOL ?? "USDC";
+    config.tokenDecimals = "6";
+  }
 
   // Step 1: Ensure keys (sandbox → genesis test accounts; remote → deployable Schnorr)
   const keys = await ensureKeys(KEYS_PATH, wallet, {
