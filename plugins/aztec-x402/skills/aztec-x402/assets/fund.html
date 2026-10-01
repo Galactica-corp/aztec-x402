@@ -1,0 +1,322 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<meta name="referrer" content="no-referrer">
+<title>Fund your agent</title>
+<!--
+  Funding page for the aztec-x402 skill. One self-contained file, no external
+  scripts. Two ways it is opened:
+
+  - local:  served by `aztec-x402 fund` at http://127.0.0.1:<port>/?t=<token>;
+            reads the funding plan from the CLI and reports the deposit back.
+  - hosted: a static copy opened as <url>#<plan>; the plan travels in the URL
+            fragment, which browsers never send to the host. The CLI finds the
+            deposit by watching L1, so nothing reports back.
+
+  The plan holds owner-independent calldata. This page only fills in the
+  connected account and asks the wallet to sign. The claim secret never
+  leaves the agent; the plan carries only its hash.
+-->
+<style>
+  :root {
+    --bg: #f7f7f5; --card: #ffffff; --text: #1b1b1f; --muted: #62636b; --line: #e3e3e0;
+    --accent: #3a4fd8; --accent-text: #ffffff; --ok: #1d7f4e; --warn: #9a5b00; --err: #b3261e;
+    --mono: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+  }
+  @media (prefers-color-scheme: dark) {
+    :root {
+      --bg: #121316; --card: #1b1c20; --text: #ececf0; --muted: #a0a1aa; --line: #2c2d33;
+      --accent: #8c9bff; --accent-text: #0d0f1a; --ok: #5cd39a; --warn: #f0b45c; --err: #ff8a80;
+    }
+  }
+  * { box-sizing: border-box; }
+  body { margin: 0; background: var(--bg); color: var(--text);
+    font: 15px/1.5 system-ui, -apple-system, "Segoe UI", sans-serif; }
+  main { max-width: 640px; margin: 0 auto; padding: 32px 16px 64px; }
+  h1 { font-size: 22px; margin: 0 0 4px; }
+  .sub { color: var(--muted); margin: 0 0 24px; }
+  .card { background: var(--card); border: 1px solid var(--line); border-radius: 12px; padding: 20px; margin-bottom: 16px; }
+  .card h2 { font-size: 15px; margin: 0 0 12px; }
+  dl { display: grid; grid-template-columns: max-content 1fr; gap: 6px 16px; margin: 0; }
+  dt { color: var(--muted); }
+  dd { margin: 0; min-width: 0; }
+  .mono { font-family: var(--mono); font-size: 13px; overflow-wrap: anywhere; }
+  .note { color: var(--muted); font-size: 13px; margin: 12px 0 0; }
+  button { font: inherit; font-weight: 600; border: 0; border-radius: 8px; padding: 10px 16px;
+    background: var(--accent); color: var(--accent-text); cursor: pointer; }
+  button:disabled { opacity: .5; cursor: default; }
+  ol.steps { list-style: none; padding: 0; margin: 0; }
+  ol.steps li { display: flex; gap: 12px; padding: 10px 0; border-top: 1px solid var(--line); }
+  ol.steps li:first-child { border-top: 0; }
+  .dot { flex: none; width: 22px; height: 22px; border-radius: 50%; border: 2px solid var(--line);
+    display: grid; place-items: center; font-size: 12px; margin-top: 1px; }
+  li.active .dot { border-color: var(--accent); color: var(--accent); }
+  li.done .dot { border-color: var(--ok); background: var(--ok); color: var(--card); }
+  li.failed .dot { border-color: var(--err); color: var(--err); }
+  li .label { flex: 1; min-width: 0; }
+  li .detail { color: var(--muted); font-size: 13px; }
+  .status { margin-top: 12px; font-weight: 600; }
+  .status.ok { color: var(--ok); } .status.err { color: var(--err); } .status.warn { color: var(--warn); }
+  a { color: var(--accent); }
+</style>
+</head>
+<body>
+<main>
+  <h1>Fund your agent</h1>
+  <p class="sub" id="sub">Loading…</p>
+
+  <section class="card" id="deposit-card" hidden>
+    <h2>Deposit</h2>
+    <dl id="facts"></dl>
+    <p class="note" id="privacy"></p>
+  </section>
+
+  <section class="card">
+    <h2>Steps</h2>
+    <ol class="steps" id="steps"></ol>
+    <div style="margin-top:16px"><button id="go" disabled>Connect wallet</button></div>
+    <div class="status" id="status" role="status" aria-live="polite"></div>
+  </section>
+</main>
+<script>
+"use strict";
+const $ = (id) => document.getElementById(id);
+const esc = (s) => String(s).replace(/[&<>"]/g, (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;" }[c]));
+const short = (a) => (a ? a.slice(0, 10) + "…" + a.slice(-8) : "");
+const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
+
+const TOKEN = new URLSearchParams(location.search).get("t");
+const FRAGMENT = location.hash.slice(1);
+const MODE = TOKEN ? "local" : FRAGMENT ? "hosted" : "none";
+
+let plan;
+let phase = "signing";
+let l2Balance;
+let serverError;
+let owner;
+let submitted = false;
+const txStatus = {};
+
+function setStatus(text, kind) {
+  const el = $("status");
+  el.textContent = text || "";
+  el.className = "status " + (kind || "");
+}
+
+async function api(path, body) {
+  const res = await fetch(path + "?t=" + encodeURIComponent(TOKEN), body
+    ? { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(body) }
+    : {});
+  const json = await res.json();
+  if (!res.ok) throw new Error(json.error || res.statusText);
+  return json;
+}
+
+function decodePlan(fragment) {
+  let b64 = fragment.replace(/-/g, "+").replace(/_/g, "/");
+  while (b64.length % 4) b64 += "=";
+  const bytes = Uint8Array.from(atob(b64), (c) => c.charCodeAt(0));
+  return JSON.parse(new TextDecoder().decode(bytes));
+}
+
+const ADDRESS = /^0x[0-9a-fA-F]{40}$/;
+const CALLDATA = /^0x([0-9a-fA-F]|\{owner\})*$/;
+
+function checkPlan(p) {
+  const fail = (what) => { throw new Error("This funding link is malformed (" + what + "). Ask your agent for a new one."); };
+  if (!p || p.v !== 1) fail("version");
+  if (!/^0x[0-9a-fA-F]{64}$/.test(p.agent)) fail("agent address");
+  if (!Number.isInteger(p.l1ChainId)) fail("chain");
+  if (!ADDRESS.test(p.portal)) fail("portal");
+  if (!Array.isArray(p.steps) || p.steps.length === 0 || p.steps.length > 10) fail("steps");
+  for (const s of p.steps) {
+    if (!ADDRESS.test(s.to) || !CALLDATA.test(s.data)) fail("step " + s.id);
+    if (s.skipIf && (!ADDRESS.test(s.skipIf.to) || !CALLDATA.test(s.skipIf.data) || !/^\d+$/.test(s.skipIf.gte))) fail("step " + s.id);
+  }
+  return p;
+}
+
+function eth(method, params) {
+  return window.ethereum.request({ method, params });
+}
+
+function fill(data) {
+  return data.split("{owner}").join(owner.slice(2).toLowerCase().padStart(64, "0"));
+}
+
+async function satisfied(step) {
+  if (!step.skipIf) return false;
+  const result = await eth("eth_call", [{ to: step.skipIf.to, data: fill(step.skipIf.data) }, "latest"]);
+  return BigInt(!result || result === "0x" ? 0 : result) >= BigInt(step.skipIf.gte);
+}
+
+/** Wallets sometimes pick a stale nonce right after the previous tx; a fresh signature fixes it. */
+async function sendWithRetry(step) {
+  for (let attempt = 1; ; attempt++) {
+    try {
+      return await eth("eth_sendTransaction", [{ from: owner, to: step.to, data: fill(step.data) }]);
+    } catch (e) {
+      const message = (e && e.message) || String(e);
+      if (attempt >= 3 || !/nonce too low|nonce has already been used/i.test(message)) throw e;
+      txStatus[step.id] = { state: "active", text: "Wallet used a stale nonce — please sign again…" };
+      renderSteps();
+      await sleep(4000);
+    }
+  }
+}
+
+async function waitReceipt(hash) {
+  for (;;) {
+    const r = await eth("eth_getTransactionReceipt", [hash]);
+    if (r) return r;
+    await sleep(3000);
+  }
+}
+
+function renderFacts() {
+  $("deposit-card").hidden = false;
+  $("sub").textContent = "Sign a deposit on " + plan.l1ChainName + " with your browser wallet. Your agent then claims it on Aztec " + plan.network + ".";
+  $("facts").innerHTML = [
+    ["Agent (Aztec)", '<span class="mono">' + esc(plan.agent) + "</span>"],
+    ["You send", esc(plan.amount + " " + plan.token.symbol) + " on " + esc(plan.l1ChainName)],
+    ["Agent receives", esc(plan.result)],
+    ["Portal", '<span class="mono">' + esc(plan.portal) + "</span>"],
+  ].map(([k, v]) => "<dt>" + k + "</dt><dd>" + v + "</dd>").join("");
+  $("privacy").textContent = (MODE === "hosted" ? "Check that the agent address matches the one your agent gave you. " : "") + plan.privacy;
+}
+
+function row(n, cls, label, detail) {
+  return '<li class="' + cls + '"><span class="dot">' + (cls === "done" ? "✓" : n) + '</span><span class="label">' +
+    esc(label) + '<div class="detail">' + detail + "</div></span></li>";
+}
+
+function renderSteps() {
+  const explorer = plan.l1ExplorerUrl;
+  const rows = plan.steps.map((s, i) => {
+    const st = txStatus[s.id] || {};
+    const link = st.hash && explorer ? ' · <a href="' + esc(explorer) + "/tx/" + esc(st.hash) + '" target="_blank" rel="noopener">view tx</a>' : "";
+    return row(i + 1, st.state || "", s.label, esc(st.text || (s.skipIf ? "Needs your signature (skipped if already done)" : "Needs your signature")) + link);
+  });
+  let n = plan.steps.length;
+  if (MODE === "local") {
+    const order = ["signing", "waiting_l1", "waiting_message", "claiming", "done"];
+    const reached = (p) => order.indexOf(phase) >= order.indexOf(p);
+    const msgCls = reached("claiming") ? "done" : phase === "waiting_message" ? "active" : phase === "failed" ? "failed" : "";
+    const claimCls = phase === "done" ? "done" : phase === "claiming" ? "active" : phase === "failed" ? "failed" : "";
+    rows.push(row(++n, msgCls, "Message reaches Aztec", "Usually a few minutes after the deposit is mined."));
+    rows.push(row(++n, claimCls, "Agent claims the deposit", "The agent proves the claim on Aztec."));
+  } else {
+    const sent = txStatus.deposit && txStatus.deposit.state === "done";
+    rows.push(row(++n, sent ? "active" : "", "Agent detects and claims the deposit",
+      "Your agent watches " + esc(plan.l1ChainName) + " for this deposit and claims it on Aztec, usually within a few minutes."));
+  }
+  $("steps").innerHTML = rows.join("");
+}
+
+async function refreshLocal() {
+  const s = await api("/api/state");
+  plan = s.plan;
+  phase = s.phase;
+  l2Balance = s.l2Balance;
+  serverError = s.error;
+  renderFacts();
+  renderSteps();
+  if (phase === "done") {
+    setStatus("Done. The agent's balance is " + l2Balance + ".", "ok");
+    $("go").disabled = true;
+    $("go").textContent = "Funded";
+  } else if (phase === "failed") {
+    setStatus("Claim failed: " + (serverError || "unknown error") + '. Ask the agent to run "aztec-x402 fund claim".', "err");
+  } else if (phase === "waiting_message" || phase === "waiting_l1") {
+    setStatus("Deposit mined. Waiting for it to reach Aztec…", "warn");
+  } else if (phase === "claiming") {
+    setStatus("The agent is claiming the deposit on Aztec…", "warn");
+  }
+}
+
+async function connect() {
+  if (!window.ethereum) {
+    setStatus("No browser wallet on this page. Install MetaMask or another browser wallet. Wallets only load on https:// and localhost pages — if you opened a plain http://<ip> link, ask your agent for the hosted link instead.", "err");
+    return;
+  }
+  owner = (await eth("eth_requestAccounts", []))[0];
+  const want = "0x" + plan.l1ChainId.toString(16);
+  if ((await eth("eth_chainId", [])) !== want) {
+    await eth("wallet_switchEthereumChain", [{ chainId: want }]);
+  }
+  setStatus("Connected " + short(owner) + ". Sign each step in your wallet.");
+  $("go").textContent = "Sign and send";
+  $("go").onclick = () => run().catch(fail);
+}
+
+async function run() {
+  $("go").disabled = true;
+  for (const step of plan.steps) {
+    if (txStatus[step.id] && txStatus[step.id].state === "done") continue;
+    for (let round = 0; round < 10; round++) {
+      txStatus[step.id] = { state: "active", text: "Checking…", hash: (txStatus[step.id] || {}).hash };
+      renderSteps();
+      if (await satisfied(step)) {
+        const previous = txStatus[step.id].hash;
+        txStatus[step.id] = round === 0
+          ? { state: "done", text: "Already done — skipped" }
+          : { state: "done", text: "Confirmed", hash: previous };
+        break;
+      }
+      txStatus[step.id] = { state: "active", text: "Waiting for your signature…" };
+      renderSteps();
+      const hash = await sendWithRetry(step);
+      txStatus[step.id] = { state: "active", text: "Mining…", hash };
+      renderSteps();
+      const receipt = await waitReceipt(hash);
+      if (receipt.status !== "0x1") {
+        txStatus[step.id] = { state: "failed", text: "Reverted", hash };
+        renderSteps();
+        throw new Error("Transaction reverted");
+      }
+      txStatus[step.id] = { state: "done", text: "Confirmed", hash };
+      if (!step.repeat) break;
+    }
+    renderSteps();
+  }
+  $("go").textContent = "Signed";
+  const deposit = txStatus.deposit;
+  if (MODE === "local") {
+    if (deposit && deposit.hash) await api("/api/submitted", { l1TxHash: deposit.hash, owner });
+    submitted = true;
+    setStatus("Deposit sent. Waiting for your agent to pick it up…", "warn");
+    await refreshLocal();
+  } else {
+    renderSteps();
+    setStatus("Deposit sent. Your agent will claim it on Aztec in a few minutes — you can close this page and ask it to confirm.", "ok");
+  }
+}
+
+function fail(e) {
+  $("go").disabled = false;
+  setStatus((e && e.message) || String(e), "err");
+}
+
+(async () => {
+  try {
+    if (MODE === "none") throw new Error("This page needs a funding link from your agent. Ask it to run `aztec-x402 fund`.");
+    if (MODE === "hosted") {
+      plan = checkPlan(decodePlan(FRAGMENT));
+      renderFacts();
+      renderSteps();
+    } else {
+      await refreshLocal();
+      setInterval(() => { if (phase !== "done" && (submitted || phase !== "signing")) refreshLocal().catch(() => {}); }, 4000);
+    }
+    $("go").disabled = phase !== "signing";
+    $("go").onclick = () => connect().catch(fail);
+  } catch (e) {
+    fail(e);
+    $("go").disabled = true;
+  }
+})();
+</script>
+</body>
+</html>
