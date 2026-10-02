@@ -1,13 +1,20 @@
 /**
  * Fee Juice portal adapter: the user bridges the rollup's L1 fee asset to the
- * agent's Aztec account, so the agent can pay its own transaction fees.
+ * agent's Aztec account as Fee Juice (Aztec gas).
  *
  * On testnet the L1 fee asset has a public faucet (FeeAssetHandler.mint), so
  * the user only needs Sepolia ETH for gas. Fee Juice deposits are public by
  * protocol design (`depositToAztecPublic`): the amount and recipient are
  * visible on L1. Payments the agent makes afterwards stay private.
  */
-import { createPublicClient, encodeFunctionData, http, parseEventLogs, type PublicClient } from "viem";
+import {
+  createPublicClient,
+  encodeFunctionData,
+  getAbiItem,
+  http,
+  parseEventLogs,
+  type PublicClient,
+} from "viem";
 import { FeeAssetHandlerAbi } from "@aztec/l1-artifacts/FeeAssetHandlerAbi";
 import { FeeJuicePortalAbi } from "@aztec/l1-artifacts/FeeJuicePortalAbi";
 import { TestERC20Abi } from "@aztec/l1-artifacts/TestERC20Abi";
@@ -18,16 +25,35 @@ import { createAztecNodeClient } from "@aztec/aztec.js/node";
 import { formatAmount, parsePrice } from "@galactica-net/x402-core";
 import type { NetworkConfig } from "../networks.js";
 import type { Session } from "../aztec/session.js";
+import { FEE_JUICE_DECIMALS, feeJuiceBalance } from "../aztec/fee-juice.js";
 import { CliError } from "../errors.js";
 import type { DepositRecord } from "./deposits.js";
-import { toHex as asHex, type BridgeAdapter, type BridgeDescription, type Hex, type L1Deposit, type PreparedL1Tx } from "./bridge.js";
+import {
+  OWNER_WORD,
+  toHex,
+  type BridgeAdapter,
+  type BridgeDescription,
+  type Hex,
+  type L1Deposit,
+  type PlanStep,
+} from "./bridge.js";
 import { trimAmount } from "../x402.js";
 
-const DECIMALS = 18;
-/** Fee Juice the agent asks for by default: plenty for hundreds of payments. */
+/** Fee Juice the agent asks for by default: plenty for hundreds of transactions. */
 const DEFAULT_AMOUNT = "100";
+/** Most public RPCs cap eth_getLogs ranges; search in chunks of this many blocks. */
+const LOG_CHUNK_BLOCKS = 10_000n;
 
-interface L1Addresses {
+/** Encoded in place of the user's address, then swapped for OWNER_WORD. */
+const OWNER_SENTINEL: Hex = `0x${"ee".repeat(20)}`;
+const OWNER_SENTINEL_WORD = "0".repeat(24) + "ee".repeat(20);
+
+function withOwner(data: Hex): string {
+  if (!data.includes(OWNER_SENTINEL_WORD)) throw new Error("calldata has no owner placeholder");
+  return data.replace(OWNER_SENTINEL_WORD, OWNER_WORD);
+}
+
+export interface L1Addresses {
   portal: Hex;
   token: Hex;
   handler?: Hex;
@@ -55,20 +81,24 @@ export class FeeJuiceBridge implements BridgeAdapter {
       throw new CliError("This network has no Fee Juice portal on L1", "no_bridge");
     }
     const handler = l1ContractAddresses.feeAssetHandlerAddress?.toString();
-    const l1 = createPublicClient({ transport: http(network.l1RpcUrl) });
-    return new FeeJuiceBridge(l1, {
-      portal: asHex(portal),
-      token: asHex(token),
-      handler: handler && !isZero(handler) ? asHex(handler) : undefined,
+    return FeeJuiceBridge.fromAddresses(network.l1RpcUrl, {
+      portal: toHex(portal),
+      token: toHex(token),
+      handler: handler && !isZero(handler) ? toHex(handler) : undefined,
     });
+  }
+
+  /** For known L1 addresses, without asking the Aztec node. */
+  static fromAddresses(l1RpcUrl: string, addresses: L1Addresses): FeeJuiceBridge {
+    return new FeeJuiceBridge(createPublicClient({ transport: http(l1RpcUrl) }), addresses);
   }
 
   async describe(): Promise<BridgeDescription> {
     return {
       id: "fee-juice",
       title: "Fee Juice (Aztec gas)",
-      result: "Fee Juice in the agent's Aztec account, used to pay its own transaction fees.",
-      l1Token: { symbol: "FEE", decimals: DECIMALS, address: this.addresses.token },
+      result: "Fee Juice in the agent's Aztec account: gas for its own transactions.",
+      l1Token: { symbol: "FEE", decimals: FEE_JUICE_DECIMALS, address: this.addresses.token },
       portal: this.addresses.portal,
       defaultAmount: DEFAULT_AMOUNT,
       privacy:
@@ -77,76 +107,82 @@ export class FeeJuiceBridge implements BridgeAdapter {
   }
 
   parseAmount(amount: string): bigint {
-    return parsePrice(amount, DECIMALS);
+    return parsePrice(amount, FEE_JUICE_DECIMALS);
   }
 
   formatAmount(amount: bigint): string {
-    return trimAmount(formatAmount(amount, DECIMALS));
+    return trimAmount(formatAmount(amount, FEE_JUICE_DECIMALS));
   }
 
-  async prepare(owner: Hex, deposit: DepositRecord): Promise<PreparedL1Tx[]> {
+  steps(deposit: DepositRecord): PlanStep[] {
     const amount = BigInt(deposit.amount);
-    const [balance, allowance] = await Promise.all([
-      this.l1.readContract({ address: this.addresses.token, abi: TestERC20Abi, functionName: "balanceOf", args: [owner] }),
-      this.l1.readContract({
-        address: this.addresses.token,
-        abi: TestERC20Abi,
-        functionName: "allowance",
-        args: [owner, this.addresses.portal],
-      }),
-    ]);
-
-    const txs: PreparedL1Tx[] = [];
-    if (balance < amount) {
-      if (!this.addresses.handler) {
-        throw new CliError(
-          `L1 account holds ${this.formatAmount(balance)} FEE, needs ${this.formatAmount(amount)}`,
-          "insufficient_l1_balance",
-        );
-      }
-      const mintAmount = await this.l1.readContract({
-        address: this.addresses.handler,
-        abi: FeeAssetHandlerAbi,
-        functionName: "mintAmount",
-      });
-      // The faucet mints a fixed amount per call; ask for as many as needed.
-      const mints = Number((amount - balance + mintAmount - 1n) / mintAmount);
-      for (let i = 0; i < mints; i++) {
-        txs.push({
-          id: `mint-${i + 1}`,
-          label: `Get ${this.formatAmount(mintAmount)} test FEE from the public testnet faucet`,
-          to: this.addresses.handler,
-          data: encodeFunctionData({ abi: FeeAssetHandlerAbi, functionName: "mint", args: [owner] }),
-        });
-      }
-    }
-    if (allowance < amount) {
-      txs.push({
-        id: "approve",
-        label: `Allow the Fee Juice portal to take ${this.formatAmount(amount)} FEE`,
-        to: this.addresses.token,
-        data: encodeFunctionData({
-          abi: TestERC20Abi,
-          functionName: "approve",
-          args: [this.addresses.portal, amount],
-        }),
+    const { token, portal, handler } = this.addresses;
+    const hasEnough = {
+      to: token,
+      data: withOwner(encodeFunctionData({ abi: TestERC20Abi, functionName: "balanceOf", args: [OWNER_SENTINEL] })),
+      gte: amount.toString(),
+    };
+    const steps: PlanStep[] = [];
+    if (handler) {
+      steps.push({
+        id: "mint",
+        label: "Get test FEE from the public testnet faucet",
+        to: handler,
+        data: withOwner(encodeFunctionData({ abi: FeeAssetHandlerAbi, functionName: "mint", args: [OWNER_SENTINEL] })),
+        skipIf: hasEnough,
+        repeat: true,
       });
     }
-    txs.push({
+    steps.push({
+      id: "approve",
+      label: `Allow the Fee Juice portal to take ${this.formatAmount(amount)} FEE`,
+      to: token,
+      data: encodeFunctionData({ abi: TestERC20Abi, functionName: "approve", args: [portal, amount] }),
+      skipIf: {
+        to: token,
+        data: withOwner(
+          encodeFunctionData({ abi: TestERC20Abi, functionName: "allowance", args: [OWNER_SENTINEL, portal] }),
+        ),
+        gte: amount.toString(),
+      },
+    });
+    steps.push({
       id: "deposit",
       label: `Deposit ${this.formatAmount(amount)} FEE to the agent on Aztec`,
-      to: this.addresses.portal,
+      to: portal,
       data: encodeFunctionData({
         abi: FeeJuicePortalAbi,
         functionName: "depositToAztecPublic",
-        args: [asHex(deposit.recipient), amount, asHex(deposit.secretHash)],
+        args: [toHex(deposit.recipient), amount, toHex(deposit.secretHash)],
       }),
     });
-    return txs;
+    return steps;
   }
 
-  async readDeposit(l1TxHash: Hex): Promise<L1Deposit> {
-    const receipt = await this.l1.waitForTransactionReceipt({ hash: l1TxHash, timeout: 180_000 });
+  l1BlockNumber(): Promise<bigint> {
+    return this.l1.getBlockNumber();
+  }
+
+  async findDeposit(deposit: DepositRecord, fromBlock: bigint): Promise<Hex | undefined> {
+    const event = getAbiItem({ abi: FeeJuicePortalAbi, name: "DepositToAztecPublic" });
+    const latest = await this.l1.getBlockNumber();
+    for (let start = fromBlock; start <= latest; start += LOG_CHUNK_BLOCKS) {
+      const end = start + LOG_CHUNK_BLOCKS - 1n < latest ? start + LOG_CHUNK_BLOCKS - 1n : latest;
+      const logs = await this.l1.getLogs({
+        address: this.addresses.portal,
+        event,
+        args: { to: toHex(deposit.recipient) },
+        fromBlock: start,
+        toBlock: end,
+      });
+      const match = logs.find((l) => l.args.secretHash?.toLowerCase() === deposit.secretHash.toLowerCase());
+      if (match) return match.transactionHash;
+    }
+    return undefined;
+  }
+
+  async readDeposit(l1TxHash: Hex, timeoutMs = 180_000): Promise<L1Deposit> {
+    const receipt = await this.l1.waitForTransactionReceipt({ hash: l1TxHash, timeout: timeoutMs });
     if (receipt.status !== "success") {
       throw new CliError(`L1 deposit ${l1TxHash} reverted`, "l1_reverted");
     }
@@ -179,10 +215,7 @@ export class FeeJuiceBridge implements BridgeAdapter {
     return result.receipt.txHash.toString();
   }
 
-  async l2Balance(session: Session): Promise<bigint> {
-    const feeJuice = FeeJuiceContract.at(session.wallet);
-    const result = await feeJuice.methods.balance_of_public(session.address).simulate({ from: session.address });
-    const value = typeof result === "object" && result !== null && "result" in result ? result.result : result;
-    return BigInt(String(value));
+  l2Balance(session: Session): Promise<bigint> {
+    return feeJuiceBalance(session);
   }
 }

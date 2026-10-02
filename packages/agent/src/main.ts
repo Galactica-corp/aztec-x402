@@ -1,7 +1,9 @@
 import { parseArgs } from "util";
 import { resolveContext } from "./config.js";
-import { CliError, PolicyError, UsageError } from "./errors.js";
-import { printJson, setQuiet } from "./output.js";
+import { CliError, PolicyError, UsageError, isProverError, messageOf, proverFailed } from "./errors.js";
+import { inflightPayment, setInflightPayment } from "./inflight.js";
+import { appendLedger } from "./policy.js";
+import { hasPrinted, printJson, resetOutput, setQuiet } from "./output.js";
 import { walletCreate, walletShow } from "./commands/wallet.js";
 import { balance, faucet } from "./commands/balance.js";
 import { inspect, pay } from "./commands/pay.js";
@@ -27,6 +29,8 @@ Commands:
   fund [--amount N] [--port P] [--host H] [--no-open]
                               Serve a local page where the user signs an L1
                               deposit to the agent; waits until it is claimed
+  fund --hosted [--no-wait]   Same, via a link to the hosted page (for a user
+                              browser that cannot reach this machine)
   fund claim                  Finish deposits left pending
   config get | set <key> <value>
                               Keys: network, nodeUrl, policy.maxPerPayment,
@@ -61,6 +65,8 @@ const OPTIONS = {
   port: { type: "string" },
   host: { type: "string" },
   "no-open": { type: "boolean" },
+  hosted: { type: "boolean" },
+  "no-wait": { type: "boolean" },
 } as const;
 
 async function run(argv: string[]): Promise<object> {
@@ -121,6 +127,8 @@ async function run(argv: string[]): Promise<object> {
         amount: values.amount,
         port: values.port ? Number(values.port) : undefined,
         open: !values["no-open"],
+        hosted: Boolean(values.hosted),
+        wait: !values["no-wait"],
       });
     default:
       throw new UsageError(`Unknown command "${command}". Run \`aztec-x402 --help\`.`);
@@ -128,6 +136,7 @@ async function run(argv: string[]): Promise<object> {
 }
 
 export async function main(argv: string[]): Promise<number> {
+  resetOutput();
   try {
     const result = await run(argv);
     if ("help" in result) {
@@ -137,20 +146,43 @@ export async function main(argv: string[]): Promise<number> {
     printJson({ ok: true, ...result });
     return 0;
   } catch (error) {
-    if (error instanceof CliError) {
-      printJson({ ok: false, error: { code: error.code, message: error.message, ...error.details } });
-      if (error instanceof PolicyError) return 3;
-      return error instanceof UsageError ? 2 : 1;
-    }
-    // parseArgs throws TypeErrors with ERR_PARSE_ARGS_* codes for bad flags.
-    const code = error instanceof Error ? Reflect.get(error, "code") : undefined;
-    if (error instanceof Error && typeof code === "string" && code.startsWith("ERR_PARSE_ARGS")) {
-      printJson({ ok: false, error: { code: "usage", message: error.message } });
-      return 2;
-    }
-    const message = error instanceof Error ? error.message : String(error);
-    printJson({ ok: false, error: { code: "unexpected", message } });
-    if (process.env.LOG_LEVEL !== "silent" && error instanceof Error) console.error(error.stack);
+    return reportError(error);
+  }
+}
+
+/**
+ * Turn any failure into the one JSON document on stdout. Also used for
+ * errors that escape the command (uncaught exceptions from SDK callbacks),
+ * which must keep the `ok: false` + `error.code` contract too.
+ */
+export function reportError(thrown: unknown): number {
+  const payment = inflightPayment();
+  if (payment) {
+    // Proving precedes sending: a prover failure means no tx; anything else may have sent one.
+    appendLedger(payment.dataDir, {
+      id: payment.id,
+      status: isProverError(thrown) ? "failed" : "uncertain",
+      error: messageOf(thrown),
+    });
+    setInflightPayment(undefined);
+  }
+  const error = isProverError(thrown) ? proverFailed(thrown) : thrown;
+  if (hasPrinted()) {
+    process.stderr.write(`[aztec-x402] error after output: ${messageOf(error)}\n`);
     return 1;
   }
+  if (error instanceof CliError) {
+    printJson({ ok: false, error: { code: error.code, message: error.message, ...error.details } });
+    if (error instanceof PolicyError) return 3;
+    return error instanceof UsageError ? 2 : 1;
+  }
+  // parseArgs throws TypeErrors with ERR_PARSE_ARGS_* codes for bad flags.
+  const code = error instanceof Error ? Reflect.get(error, "code") : undefined;
+  if (error instanceof Error && typeof code === "string" && code.startsWith("ERR_PARSE_ARGS")) {
+    printJson({ ok: false, error: { code: "usage", message: error.message } });
+    return 2;
+  }
+  printJson({ ok: false, error: { code: "unexpected", message: messageOf(error) } });
+  if (process.env.LOG_LEVEL !== "silent" && error instanceof Error) console.error(error.stack);
+  return 1;
 }

@@ -35,7 +35,7 @@ L1 contracts (Fee Juice portal, fee asset, its faucet) come from the node at run
 }
 ```
 
-The CLI only pays in tokens listed in the registry or this file. Environment overrides: `AZTEC_X402_NETWORK`, `AZTEC_X402_NODE_URL`, `AZTEC_X402_L1_RPC_URL`.
+The CLI only pays in tokens listed in the registry or this file. Environment overrides: `AZTEC_X402_NETWORK`, `AZTEC_X402_NODE_URL`, `AZTEC_X402_L1_RPC_URL`, and `AZTEC_X402_FUND_PAGE_URL` (or `fundPageUrl` in `config.json`) for another hosted copy of `assets/fund.html` — the default is `https://aztec-x402.unfz.to/fund.html`.
 
 ## Paid endpoints
 

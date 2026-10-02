@@ -53,7 +53,7 @@ Then talk to the agent:
 2. **"Get some test money."** The agent runs `faucet` and mints 10 private USDC (about a minute — a proof is generated locally).
 3. **"Buy me the x402 achievement at http://localhost:4402/api/buy-x402-achievement — up to 5 cents."** The agent checks the price (0.01 USDC), pays with `--max-amount 0.05`, and returns the achievement skill with the Aztec tx hash. About 2 minutes.
 4. **Guardrail moment: "Now buy it again, but don't spend more than half a cent."** The CLI refuses before any money moves (exit 3, `policy_rejected`), and the agent asks you instead of raising the cap.
-5. **"Help me fund you from my own wallet."** The agent serves a local page. Connect MetaMask on Sepolia (a little Sepolia ETH for gas), sign the prepared transactions, and the agent claims the deposit on Aztec a few minutes later.
+5. **"Help me fund you from my own wallet."** The agent serves a local page — or, when it runs somewhere your browser cannot reach, sends a link to the hosted page at `aztec-x402.unfz.to`. Connect MetaMask on Sepolia (a little Sepolia ETH for gas), sign the planned transactions, and the agent finds the deposit on L1 and claims it on Aztec a few minutes later.
 
 What the audience should notice: the agent pays an HTTP API in a private stablecoin without a human in the loop, the explorer shows no sender, recipient, or amount, and the spend cap is enforced by the tool, not by trusting the model.
 
@@ -69,6 +69,23 @@ Fresh agent wallet, plain request ("buy me the x402 achievement at … up to 5 c
 | Claude Code 2.1 | Opus 5.5 | yes | triggered and followed the same steps (run stopped before paying) |
 | Codex CLI 0.155 (`~/.codex/skills/aztec-x402`, workspace-write sandbox with network) | Codex default | yes | wallet → faucet → `pay`, paid 0.01 USDC |
 
+Funding from a phone ("fund you from my MetaMask; I'm on my phone and can't open anything on your machine"):
+
+| Harness | Model | Result |
+| --- | --- | --- |
+| Claude Code 2.1 | Sonnet 5.5 | chose `fund --hosted`, handed over the link, explained gas-not-USDC, gas needs, and the address check |
+| Codex CLI 0.155 | Codex default | chose `fund --hosted --no-wait` (no persistent process), same explanation |
+
+Funding end to end with real Sepolia transactions (the page in Chromium, signed by a funded test key behind `window.ethereum`):
+
+| Mode | L1 (user) | Aztec (agent) |
+| --- | --- | --- |
+| `fund --hosted` (live `aztec-x402.unfz.to` page) | faucet mint, approve, deposit 5 FEE | found the deposit on L1 without a report from the page, claimed 5 FEE |
+| `fund` (local page) | approve, deposit 2 FEE (mint skipped: balance already enough) | page reported the deposit, page followed the claim to "Done. The agent's balance is 8 FEE." |
+| `fund --hosted --no-wait`, then `fund claim` | approve, deposit 1 FEE | `fund claim` found the deposit on L1 and claimed it (~4 min, mostly the L1→L2 message) |
+
+`balance` then showed the Fee Juice (`feeJuice.public: 9`).
+
 ## What is live and what is next
 
 | Capability | Status |
@@ -76,7 +93,7 @@ Fresh agent wallet, plain request ("buy me the x402 achievement at … up to 5 c
 | Agent wallet (initializerless Schnorr, no deploy tx) | Live on testnet |
 | Testnet USDC faucet (canonical `aztec-standards` USDC + Dripper) | Live on testnet |
 | Price check, spend-capped private payment, payment ledger | Live on testnet |
-| Funding page with browser wallet; agent claims on Aztec | Live on testnet via the **Fee Juice** portal (agent gas) |
+| Funding page with browser wallet; agent claims on Aztec | Live on testnet via the **Fee Juice** portal (agent gas); local page or hosted link (`aztec-x402.unfz.to/fund.html`) for agents the user cannot reach |
 | Funding the agent with **USDC from Ethereum** | Next: Aztec 6 testnet, using the inference-money USDC bridge (Circle Sepolia USDC → private AIP-20 USDC, one Permit2 signature). Needs the x402 stack on Aztec 6. |
 | Published npm package and Claude Code marketplace entry | After review of this branch |
 | Mainnet | Not yet; the network registry has a slot for it. |

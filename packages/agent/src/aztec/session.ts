@@ -16,7 +16,7 @@ import { join } from "path";
 import { createPXEWallet, type PXEWallet } from "./pxe-wallet.js";
 import { loadAccountKeys, type AccountKeys } from "./keystore.js";
 import type { NetworkConfig } from "../networks.js";
-import { UsageError } from "../errors.js";
+import { NodeUnreachableError, UsageError } from "../errors.js";
 
 /** Long enough for client-side proving plus a checkpointed block on testnet. */
 export const TX_TIMEOUT_SECONDS = 300;
@@ -41,6 +41,12 @@ export async function openWallet(network: NetworkConfig, dataDir: string): Promi
   wallet: PXEWallet;
 }> {
   const node = createAztecNodeClient(network.nodeUrl);
+  // Fail fast with a clear code: the PXE needs the node for everything, even key derivation.
+  try {
+    await node.getNodeInfo();
+  } catch (error) {
+    throw new NodeUnreachableError(network.nodeUrl, error);
+  }
   const wallet = await createPXEWallet(node, {
     ephemeral: false,
     pxe: {

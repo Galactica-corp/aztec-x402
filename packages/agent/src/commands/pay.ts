@@ -19,7 +19,8 @@ import { SCHEME, parseAztecPaymentExtra } from "@galactica-net/x402-core";
 import { RealClientAztecSigner } from "../aztec/client-signer.js";
 import { openSession, tokenAt } from "../aztec/session.js";
 import { sameAddress, type ResolvedContext } from "../config.js";
-import { CliError, PolicyError, UsageError } from "../errors.js";
+import { CliError, PolicyError, UsageError, isProverError, proverFailed } from "../errors.js";
+import { setInflightPayment } from "../inflight.js";
 import { appendLedger, checkPayment, type PaymentLimits } from "../policy.js";
 import { decodePaymentRequired, describeRequirement, formatTokenAmount, selectRequirement } from "../x402.js";
 import { progress } from "../output.js";
@@ -179,6 +180,7 @@ export async function pay(
         nonce,
       });
       progress("Merchant prepared the commitment. Proving private transfer (takes ~30-90s)...");
+      setInflightPayment({ dataDir: ctx.dataDir, id });
       try {
         const result = await inner.createPaymentPayload(x402Version, prepared);
         const hash = result.payload.txHash;
@@ -187,6 +189,10 @@ export async function pay(
         progress(`Paid in tx ${txHash}. Sending proof to merchant...`);
         return result;
       } catch (error) {
+        if (isProverError(error)) {
+          appendLedger(ctx.dataDir, { id, status: "failed", error: String(error) });
+          throw proverFailed(error);
+        }
         // A timeout can hit after the tx was sent; keep counting it against the budget.
         const message = String(error);
         const uncertain = /time(d)?\s?out/i.test(message);
@@ -198,6 +204,8 @@ export async function pay(
           );
         }
         throw error;
+      } finally {
+        setInflightPayment(undefined);
       }
     },
   };
@@ -212,7 +220,19 @@ export async function pay(
     return fetch(input, reqInit);
   };
   const payFetch = wrapFetchWithPayment(fetchOnce, guarded);
-  const response = await payFetch(url, init);
+  let response: Response;
+  try {
+    response = await payFetch(url, init);
+  } catch (error) {
+    if (!txHash) throw error;
+    // Money moved but the merchant never answered the retry with proof.
+    appendLedger(ctx.dataDir, { id, status: "paid", error: String(error) });
+    throw new CliError(
+      `Paid, but the merchant did not respond with the content: ${String(error)}`,
+      "not_delivered",
+      { payment: { token: token.symbol, amount: price, payTo: requirement.payTo, txHash, nonce } },
+    );
+  }
 
   if (!txHash) {
     const rejected = decodePaymentRequired(response);
