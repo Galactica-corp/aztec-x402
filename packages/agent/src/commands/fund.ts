@@ -189,7 +189,10 @@ export async function fund(
       progress(`Found the L1 deposit ${l1TxHash}.`);
     }
     phase = "waiting_l1";
-    record = await completeDeposit(record, bridge, () => sessionPromise, ctx.dataDir, (p) => (phase = p));
+    // "done" is published only once the balance is known: the page stops polling at "done".
+    record = await completeDeposit(record, bridge, () => sessionPromise, ctx.dataDir, (p) => {
+      if (p !== "done") phase = p;
+    });
     l2Balance = await balanceText(await sessionPromise);
     phase = "done";
     // Let a local page pick up the final state before the server goes away.
