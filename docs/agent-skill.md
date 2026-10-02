@@ -76,7 +76,15 @@ Funding from a phone ("fund you from my MetaMask; I'm on my phone and can't open
 | Claude Code 2.1 | Sonnet 5.5 | chose `fund --hosted`, handed over the link, explained gas-not-USDC, gas needs, and the address check |
 | Codex CLI 0.155 | Codex default | chose `fund --hosted --no-wait` (no persistent process), same explanation |
 
-The hosted page's plan was also run through `eth_simulateV1` against the live Sepolia contracts (mint → approve → deposit all succeed, the deposit event names the agent and the CLI's secret hash), and the CLI's L1 watcher found a real Sepolia deposit by recipient and secret hash.
+Funding end to end with real Sepolia transactions (the page in Chromium, signed by a funded test key behind `window.ethereum`):
+
+| Mode | L1 (user) | Aztec (agent) |
+| --- | --- | --- |
+| `fund --hosted` (live `aztec-x402.unfz.to` page) | faucet mint, approve, deposit 5 FEE | found the deposit on L1 without a report from the page, claimed 5 FEE |
+| `fund` (local page) | approve, deposit 2 FEE (mint skipped: balance already enough) | page reported the deposit, page followed the claim to "Done. The agent's balance is 8 FEE." |
+| `fund --hosted --no-wait`, then `fund claim` | approve, deposit 1 FEE | `fund claim` found the deposit on L1 and claimed it (~4 min, mostly the L1→L2 message) |
+
+`balance` then showed the Fee Juice (`feeJuice.public: 9`).
 
 ## What is live and what is next
 
