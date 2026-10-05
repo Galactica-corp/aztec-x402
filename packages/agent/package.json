@@ -40,6 +40,7 @@
     }
   },
   "scripts": {
+    "prebuild": "bun run scripts/embed-fund-page.ts",
     "build": "tsup",
     "test": "bun test",
     "clean": "rm -rf dist",

@@ -251,7 +251,7 @@ bun run build   # Build all packages
 
 ## Publishing to npm
 
-Public packages live under `packages/` (`x402-core`, `x402-mechanism`, `x402-client`, `x402-middleware`). They depend on each other via `workspace:*`. **Use `bun publish`, not `npm publish`** — npm leaves `workspace:*` in the published `package.json`, which breaks installs for consumers.
+Public packages live under `packages/` (`x402-core`, `x402-mechanism`, `x402-client`, `x402-middleware`, `x402-agent`). They depend on each other via `workspace:*`. **Use `bun publish`, not `npm publish`** — npm leaves `workspace:*` in the published `package.json`, which breaks installs for consumers.
 
 `bun publish` / `bun pm pack` resolve `workspace:*` from **`bun.lock`**, not from the current `package.json` versions. After bumping versions, refresh the lockfile or you will publish stale dependency versions.
 
@@ -276,6 +276,7 @@ cd packages/core && bun publish
 cd ../mechanism && bun publish
 cd ../client && bun publish
 cd ../middleware && bun publish
+cd ../agent && bun publish
 ```
 
 Commit the updated `bun.lock` with the version bump. npm versions are immutable — if a release is broken, bump and publish a new version.

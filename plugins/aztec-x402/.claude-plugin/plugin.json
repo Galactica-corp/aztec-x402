@@ -1,6 +1,6 @@
 {
   "name": "aztec-x402",
-  "version": "0.1.0",
+  "version": "0.2.0",
   "description": "Private x402 payments on Aztec: an agent wallet, spend-capped payments to x402 endpoints, and a local page for users to fund the agent.",
   "author": {
     "name": "Galactica Network"

@@ -2,6 +2,9 @@ import { unwrapAztecSdkResult } from "@galactica-net/x402-core";
 import { AztecAddress } from "@aztec/aztec.js/addresses";
 import { DripperContract } from "@aztec-foundation/aztec-standards/dist/src/artifacts/Dripper.js";
 import { openSession, tokenAt, type Session } from "../aztec/session.js";
+import { FEE_JUICE_DECIMALS, feeJuiceBalance } from "../aztec/fee-juice.js";
+import { formatAmount } from "@galactica-net/x402-core";
+import { trimAmount } from "../x402.js";
 import { findToken, type ResolvedContext } from "../config.js";
 import { UsageError } from "../errors.js";
 import type { TokenInfo } from "../networks.js";
@@ -45,7 +48,19 @@ export async function balance(ctx: ResolvedContext, opts: { token?: string }) {
       privateBaseUnits: amount.toString(),
     });
   }
-  return { network: ctx.network.name, account: session.address.toString(), balances };
+  // Fee Juice is what `fund` deposits on testnet; show it so deposits can be confirmed.
+  const gas = await feeJuiceBalance(session);
+  return {
+    network: ctx.network.name,
+    account: session.address.toString(),
+    balances,
+    feeJuice: {
+      token: "FEE",
+      description: "Aztec gas (public balance)",
+      public: trimAmount(formatAmount(gas, FEE_JUICE_DECIMALS)),
+      publicBaseUnits: gas.toString(),
+    },
+  };
 }
 
 /** Mint testnet tokens into the agent's private balance via the token's Dripper. */

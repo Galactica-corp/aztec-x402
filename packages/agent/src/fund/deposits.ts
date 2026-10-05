@@ -18,6 +18,10 @@ export interface DepositRecord {
   secretHash: string;
   status: DepositStatus;
   createdAt: string;
+  /** L1 block when the deposit was planned; the CLI searches for it from here. */
+  l1FromBlock?: string;
+  /** How the user was given the page: served by the CLI, or the hosted copy. */
+  mode?: "local" | "hosted";
   l1From?: string;
   l1TxHash?: string;
   messageHash?: string;

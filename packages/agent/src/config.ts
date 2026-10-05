@@ -25,9 +25,18 @@ export interface SpendPolicy {
 export interface UserConfig {
   network?: string;
   nodeUrl?: string;
+  /** Hosted copy of the skill's funding page (assets/fund.html). */
+  fundPageUrl?: string;
   policy?: Partial<SpendPolicy>;
   /** Extra tokens per network name, merged over the built-in registry. */
   tokens?: Record<string, TokenInfo[]>;
+}
+
+/** Hosted copy (Unfazed) of plugins/aztec-x402/skills/aztec-x402/assets/fund.html. */
+export const DEFAULT_FUND_PAGE_URL = "https://aztec-x402.unfz.to/fund.html";
+
+export function fundPageUrl(): string {
+  return process.env.AZTEC_X402_FUND_PAGE_URL ?? readUserConfig().fundPageUrl ?? DEFAULT_FUND_PAGE_URL;
 }
 
 export const DEFAULT_POLICY: SpendPolicy = {
