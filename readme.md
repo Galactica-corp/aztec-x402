@@ -269,9 +269,15 @@ bun run build
 cd packages/client
 bun pm pack
 tar -xOf galactica-net-x402-client-<version>.tgz package/package.json
-# dependencies should be concrete semver (e.g. "1.1.2"), not "workspace:*"
+# dependencies should be concrete semver (e.g. "1.2.0"), not "workspace:*"
 
-# 5. Publish each public package with Bun
+# 5. Log in with npm. Bun has no login command (`bun npm login` is a missing
+#    script, and this Bun version has no `bun pm login`). `bun publish` uses
+#    the credentials `npm login` writes.
+npm login
+npm whoami
+
+# 6. Publish each public package with Bun
 cd packages/core && bun publish
 cd ../mechanism && bun publish
 cd ../client && bun publish
