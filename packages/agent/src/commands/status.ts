@@ -1,4 +1,4 @@
-import { createAztecNodeClient } from "@aztec/aztec.js/node";
+import { createAztecNodeClient } from "@aztec-labs/aztec.js/node";
 import { loadAccountKeys } from "../aztec/keystore.js";
 import { homeDir, readUserConfig, writeUserConfig, type ResolvedContext } from "../config.js";
 import { UsageError } from "../errors.js";

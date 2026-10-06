@@ -56,16 +56,16 @@ In this demo the API provider runs the facilitator inside its own server process
 
 This project uses the **AIP-20 standard token** from [`@aztec-foundation/aztec-standards`](https://github.com/AztecProtocol/aztec-standards). AIP-20 natively supports the `completer` parameter in `initialize_transfer_commitment(to, completer)`, enabling cross-party commitment flows where the server prepares and the client finalizes.
 
-The demo consumes the published `@aztec-foundation/aztec-standards@5.0.1` token wrapper and artifact directly. There is no checked-in local token artifact or Noir source copy in this repo.
+The demo consumes the published `@aztec-foundation/aztec-standards@6.0.0-rc.1` token wrapper and artifact directly. There is no checked-in local token artifact or Noir source copy in this repo.
 
 ## Aztec Version Compatibility
 
 | Component | Version | Notes |
 |-----------|---------|-------|
-| SDK (`@aztec/aztec.js` etc.) | `5.0.1` | Aztec advise against `5.0.0` for production |
-| AIP-20 token artifact | `@aztec-foundation/aztec-standards@5.0.1` | Built against the same release |
-| Public testnet | `5.0.x` | RPC: `https://v5.testnet.rpc.aztec-labs.com` |
-| Local network | `5.0.1` | Use Aztec 5.0.x tooling |
+| SDK (`@aztec-labs/aztec.js` etc.) | `6.0.0-rc.1` | Published under `@aztec-labs`; `l1-artifacts` stays `@aztec-foundation` |
+| AIP-20 token artifact | `@aztec-foundation/aztec-standards@6.0.0-rc.1` | Built against the same release |
+| Public testnet | `6.0.0-rc.1` | New rollup `0x8c2fb2A68A3d362ab1DE99E06F83f8903160BbD9`. No public RPC in the packages; set `NODE_URL` to a v6 node |
+| Local network | `6.0.0-rc.1` | `aztec start --local-network` |
 
 ### API Notes
 
@@ -80,20 +80,22 @@ Notable points about the Aztec SDK surface this code relies on:
 
 ### Testnet Status
 
-The old devnet blocker is no longer the active target. The demo defaults to Aztec public testnet:
+The demo targets Aztec public testnet v6, a new rollup. The `6.0.0-rc.1` packages do not publish a node URL, and `https://v5.testnet.rpc.aztec-labs.com` still serves the previous rollup. Set `NODE_URL` to a node whose `aztec_getNodeInfo` reports `nodeVersion` `6.0.0-rc.1` and rollup `0x8c2fb2A68A3d362ab1DE99E06F83f8903160BbD9`:
 
 ```bash
-NODE_URL=https://v5.testnet.rpc.aztec-labs.com \
+NODE_URL=<v6-testnet-rpc> \
 AZTEC_NETWORK=aztec:testnet \
 USE_SPONSORED_FPC=true \
 bun run ./packages/demo/src/aztec/setup.ts
 ```
 
+Confirm the Sponsored FPC is deployed on that rollup before relying on `USE_SPONSORED_FPC`. The v6 node image sets `SPONSORED_FPC` off for testnet and on for the local network.
+
 ### Running a Local Network
 
 ```bash
-# Install Aztec 5.0.x tooling
-VERSION=5.0.1 bash -i <(curl -sL https://install.aztec.network/5.0.1)
+# Install Aztec 6.0.0-rc.1 tooling
+VERSION=6.0.0-rc.1 bash -i <(curl -sL https://install.aztec.network/6.0.0-rc.1)
 
 # Start a local Aztec network
 aztec start --local-network

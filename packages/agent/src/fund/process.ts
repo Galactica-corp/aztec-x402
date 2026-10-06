@@ -3,8 +3,8 @@
  * step persists to deposits.json, so `aztec-x402 fund claim` can finish a
  * deposit whose funding page or process went away.
  */
-import { Fr } from "@aztec/aztec.js/fields";
-import { isL1ToL2MessageReady } from "@aztec/aztec.js/messaging";
+import { Fr } from "@aztec-labs/aztec.js/fields";
+import { isL1ToL2MessageReady } from "@aztec-labs/aztec.js/messaging";
 import type { Session } from "../aztec/session.js";
 import { CliError } from "../errors.js";
 import { progress } from "../output.js";

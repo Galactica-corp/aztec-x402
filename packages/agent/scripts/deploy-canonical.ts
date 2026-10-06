@@ -6,8 +6,8 @@
  * artifacts and constructor args and are the same for everyone. USDC's minter
  * is the Dripper, so anyone can drip testnet USDC to themselves.
  *
- * Note: the package's `deployments.json` predates the 5.0.1 artifacts; the
- * addresses printed here (and hard-coded in src/networks.ts) are the 5.0.1 ones.
+ * Addresses printed here (and hard-coded in src/networks.ts) follow the
+ * 6.0.0-rc.1 artifacts.
  *
  * Safe to re-run: contracts already on-chain are skipped. Fees are paid from
  * the agent wallet of the selected network via Sponsored FPC.
@@ -15,9 +15,9 @@
  * Usage: bun run scripts/deploy-canonical.ts [--network testnet] [--dry-run]
  */
 import { parseArgs } from "util";
-import { AztecAddress } from "@aztec/aztec.js/addresses";
-import { Fr } from "@aztec/aztec.js/fields";
-import type { DeployMethod } from "@aztec/aztec.js/contracts";
+import { AztecAddress } from "@aztec-labs/aztec.js/addresses";
+import { Fr } from "@aztec-labs/aztec.js/fields";
+import type { DeployMethod } from "@aztec-labs/aztec.js/contracts";
 import { TokenContract } from "@aztec-foundation/aztec-standards/dist/src/artifacts/Token.js";
 import { DripperContract } from "@aztec-foundation/aztec-standards/dist/src/artifacts/Dripper.js";
 import { resolveContext } from "../src/config.js";

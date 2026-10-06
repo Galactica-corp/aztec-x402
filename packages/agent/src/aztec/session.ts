@@ -2,15 +2,15 @@
  * An open wallet session: node client, persistent PXE, the agent's account,
  * and fee payment. Every command that touches private state goes through here.
  */
-import { createAztecNodeClient, type AztecNode } from "@aztec/aztec.js/node";
-import { AztecAddress } from "@aztec/aztec.js/addresses";
-import { Fr, GrumpkinScalar } from "@aztec/aztec.js/fields";
-import { SponsoredFeePaymentMethod } from "@aztec/aztec.js/fee";
-import { getContractInstanceFromInstantiationParams } from "@aztec/aztec.js/contracts";
-import { TxStatus } from "@aztec/aztec.js/tx";
-import type { AccountManager } from "@aztec/aztec.js/wallet";
-import { SponsoredFPCContractArtifact } from "@aztec/noir-contracts.js/SponsoredFPC";
-import { SPONSORED_FPC_SALT } from "@aztec/constants";
+import { createAztecNodeClient, type AztecNode } from "@aztec-labs/aztec.js/node";
+import { AztecAddress } from "@aztec-labs/aztec.js/addresses";
+import { Fr, GrumpkinScalar } from "@aztec-labs/aztec.js/fields";
+import { SponsoredFeePaymentMethod } from "@aztec-labs/aztec.js/fee";
+import { getContractInstanceFromInstantiationParams } from "@aztec-labs/aztec.js/contracts";
+import { TxStatus } from "@aztec-labs/aztec.js/tx";
+import type { AccountManager } from "@aztec-labs/aztec.js/wallet";
+import { SponsoredFPCContractArtifact } from "@aztec-labs/noir-contracts.js/SponsoredFPC";
+import { SPONSORED_FPC_SALT } from "@aztec-labs/constants";
 import { TokenContract } from "@aztec-foundation/aztec-standards/dist/src/artifacts/Token.js";
 import { join } from "path";
 import { createPXEWallet, type PXEWallet } from "./pxe-wallet.js";

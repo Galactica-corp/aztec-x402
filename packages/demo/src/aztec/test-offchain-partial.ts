@@ -13,16 +13,16 @@
  *
  * Prerequisites: Aztec sandbox running v4.1.0-nightly on localhost:8080
  */
-import { createAztecNodeClient } from "@aztec/aztec.js/node";
-import { Fr } from "@aztec/aztec.js/fields";
-import { AztecAddress } from "@aztec/aztec.js/addresses";
-import { TokenContract, TokenContractArtifact } from "@aztec/noir-contracts.js/Token";
-import { SponsoredFeePaymentMethod } from "@aztec/aztec.js/fee";
-import { getContractInstanceFromInstantiationParams } from "@aztec/aztec.js/contracts";
-import { TxHash } from "@aztec/aztec.js/tx";
-import { INITIAL_TEST_SECRET_KEYS, INITIAL_TEST_SIGNING_KEYS, INITIAL_TEST_ACCOUNT_SALTS } from "@aztec/accounts/testing";
-import { SponsoredFPCContractArtifact } from "@aztec/noir-contracts.js/SponsoredFPC";
-import { SPONSORED_FPC_SALT } from "@aztec/constants";
+import { createAztecNodeClient } from "@aztec-labs/aztec.js/node";
+import { Fr } from "@aztec-labs/aztec.js/fields";
+import { AztecAddress } from "@aztec-labs/aztec.js/addresses";
+import { TokenContract, TokenContractArtifact } from "@aztec-labs/noir-contracts.js/Token";
+import { SponsoredFeePaymentMethod } from "@aztec-labs/aztec.js/fee";
+import { getContractInstanceFromInstantiationParams } from "@aztec-labs/aztec.js/contracts";
+import { TxHash } from "@aztec-labs/aztec.js/tx";
+import { INITIAL_TEST_SECRET_KEYS, INITIAL_TEST_SIGNING_KEYS, INITIAL_TEST_ACCOUNT_SALTS } from "@aztec-labs/accounts/testing";
+import { SponsoredFPCContractArtifact } from "@aztec-labs/noir-contracts.js/SponsoredFPC";
+import { SPONSORED_FPC_SALT } from "@aztec-labs/constants";
 import { createPXEWallet } from "./pxe-wallet.js";
 import { z } from "zod";
 

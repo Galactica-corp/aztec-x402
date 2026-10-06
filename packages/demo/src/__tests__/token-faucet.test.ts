@@ -6,12 +6,12 @@
  */
 import { describe, it, expect, jest } from "bun:test";
 
-// Polyfill for @aztec/foundation which calls expect.addEqualityTesters at module load.
+// Polyfill for @aztec-labs/foundation which calls expect.addEqualityTesters at module load.
 if (!Reflect.get(expect, "addEqualityTesters")) {
   Reflect.set(expect, "addEqualityTesters", () => {});
 }
 
-const { AztecAddress } = await import("@aztec/aztec.js/addresses");
+const { AztecAddress } = await import("@aztec-labs/aztec.js/addresses");
 const { DripperContract } = await import(
   "@aztec-foundation/aztec-standards/dist/src/artifacts/Dripper.js"
 );

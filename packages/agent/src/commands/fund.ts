@@ -13,7 +13,7 @@
  * link and exits; `fund claim` finishes the deposit later.
  */
 import { spawn } from "child_process";
-import { generateClaimSecret } from "@aztec/aztec.js/ethereum";
+import { generateClaimSecret } from "@aztec-labs/aztec.js/ethereum";
 import { loadAccountKeys } from "../aztec/keystore.js";
 import { openSession, type Session } from "../aztec/session.js";
 import { fundPageUrl, type ResolvedContext } from "../config.js";

@@ -17,9 +17,9 @@
  *   TOKEN_ADDRESS, DRIPPER_ADDRESS — reuse an existing token and its Dripper instead of
  *                       deploying oUSD (e.g. the canonical testnet USDC the agent CLI uses).
  */
-import { createAztecNodeClient } from "@aztec/aztec.js/node";
-import { AztecAddress } from "@aztec/aztec.js/addresses";
-import { TxStatus } from "@aztec/aztec.js/tx";
+import { createAztecNodeClient } from "@aztec-labs/aztec.js/node";
+import { AztecAddress } from "@aztec-labs/aztec.js/addresses";
+import { TxStatus } from "@aztec-labs/aztec.js/tx";
 import { TokenContract } from "@aztec-foundation/aztec-standards/dist/src/artifacts/Token.js";
 import { DripperContract } from "@aztec-foundation/aztec-standards/dist/src/artifacts/Dripper.js";
 import { unwrapAztecSdkResult } from "@galactica-net/x402-core";
@@ -33,8 +33,13 @@ import {
 } from "./token-faucet.js";
 import { isSandboxNetwork, shouldEnableProver } from "./network-config.js";
 
-const NODE_URL = process.env.NODE_URL ?? "http://localhost:8080";
 const NETWORK = process.env.AZTEC_NETWORK ?? "aztec:sandbox";
+if (!process.env.NODE_URL && NETWORK === "aztec:testnet") {
+  throw new Error(
+    "NODE_URL is required for aztec:testnet. Point it at a 6.0.0-rc.1 node (aztec_getNodeInfo nodeVersion). https://v5.testnet.rpc.aztec-labs.com is the previous rollup.",
+  );
+}
+const NODE_URL = process.env.NODE_URL ?? "http://localhost:8080";
 const USE_SPONSORED_FPC = process.env.USE_SPONSORED_FPC === "true";
 const TOKEN_NAME = "Overcast USD";
 const TOKEN_SYMBOL = "oUSD";
