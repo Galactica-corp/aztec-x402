@@ -19,18 +19,18 @@
  */
 import { describe, it, expect, jest } from "bun:test";
 
-// Polyfill for @aztec/foundation which calls expect.addEqualityTesters at module load.
-// MUST run before any @aztec/* module import to avoid TypeError at load time.
+// Polyfill for @aztec-labs/foundation which calls expect.addEqualityTesters at module load.
+// MUST run before any @aztec-labs/* module import to avoid TypeError at load time.
 if (!Reflect.get(expect, "addEqualityTesters")) {
   Reflect.set(expect, "addEqualityTesters", () => {});
 }
 
-import type { Fr as FrType } from "@aztec/aztec.js/fields";
-import type { TxHash as TxHashType } from "@aztec/aztec.js/tx";
+import type { Fr as FrType } from "@aztec-labs/aztec.js/fields";
+import type { TxHash as TxHashType } from "@aztec-labs/aztec.js/tx";
 
-const { Fr } = await import("@aztec/aztec.js/fields");
-const { TxHash } = await import("@aztec/aztec.js/tx");
-const { AztecAddress } = await import("@aztec/aztec.js/addresses");
+const { Fr } = await import("@aztec-labs/aztec.js/fields");
+const { TxHash } = await import("@aztec-labs/aztec.js/tx");
+const { AztecAddress } = await import("@aztec-labs/aztec.js/addresses");
 const { RealFacilitatorAztecSigner } = await import("../aztec/facilitator-signer.js");
 
 /** Valid Aztec address (within BN254 field modulus) */

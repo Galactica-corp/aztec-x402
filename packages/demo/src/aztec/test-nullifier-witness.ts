@@ -6,10 +6,10 @@
  * 2. Query the node for a nullifier membership witness for those nullifiers
  * 3. See if the node can actually find them
  */
-import { createAztecNodeClient } from "@aztec/aztec.js/node";
-import { BlockNumber } from "@aztec/aztec.js/fields";
-import { AztecAddress } from "@aztec/aztec.js/addresses";
-import { Fr } from "@aztec/aztec.js/fields";
+import { createAztecNodeClient } from "@aztec-labs/aztec.js/node";
+import { BlockNumber } from "@aztec-labs/aztec.js/fields";
+import { AztecAddress } from "@aztec-labs/aztec.js/addresses";
+import { Fr } from "@aztec-labs/aztec.js/fields";
 import { TokenContract } from "@aztec-foundation/aztec-standards/dist/src/artifacts/Token.js";
 import { getAztecTxEffectArray, unwrapAztecSdkResult } from "@galactica-net/x402-core";
 import { createPXEWallet } from "./pxe-wallet.js";

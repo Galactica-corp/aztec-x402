@@ -1,5 +1,5 @@
 import { unwrapAztecSdkResult } from "@galactica-net/x402-core";
-import { AztecAddress } from "@aztec/aztec.js/addresses";
+import { AztecAddress } from "@aztec-labs/aztec.js/addresses";
 import { DripperContract } from "@aztec-foundation/aztec-standards/dist/src/artifacts/Dripper.js";
 import { openSession, tokenAt, type Session } from "../aztec/session.js";
 import { FEE_JUICE_DECIMALS, feeJuiceBalance } from "../aztec/fee-juice.js";

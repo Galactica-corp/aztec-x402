@@ -15,13 +15,13 @@ import {
   parseEventLogs,
   type PublicClient,
 } from "viem";
-import { FeeAssetHandlerAbi } from "@aztec/l1-artifacts/FeeAssetHandlerAbi";
-import { FeeJuicePortalAbi } from "@aztec/l1-artifacts/FeeJuicePortalAbi";
-import { TestERC20Abi } from "@aztec/l1-artifacts/TestERC20Abi";
-import { FeeJuiceContract } from "@aztec/aztec.js/protocol";
-import { AztecAddress } from "@aztec/aztec.js/addresses";
-import { Fr } from "@aztec/aztec.js/fields";
-import { createAztecNodeClient } from "@aztec/aztec.js/node";
+import { FeeAssetHandlerAbi } from "@aztec-foundation/l1-artifacts/FeeAssetHandlerAbi";
+import { FeeJuicePortalAbi } from "@aztec-foundation/l1-artifacts/FeeJuicePortalAbi";
+import { TestERC20Abi } from "@aztec-foundation/l1-artifacts/TestERC20Abi";
+import { FeeJuiceContract } from "@aztec-labs/aztec.js/protocol";
+import { AztecAddress } from "@aztec-labs/aztec.js/addresses";
+import { Fr } from "@aztec-labs/aztec.js/fields";
+import { createAztecNodeClient } from "@aztec-labs/aztec.js/node";
 import { formatAmount, parsePrice } from "@galactica-net/x402-core";
 import type { NetworkConfig } from "../networks.js";
 import type { Session } from "../aztec/session.js";
@@ -203,7 +203,7 @@ export class FeeJuiceBridge implements BridgeAdapter {
 
   async claim(session: Session, deposit: DepositRecord): Promise<string> {
     if (deposit.leafIndex === undefined) throw new Error("Deposit has no L1→L2 message index yet");
-    const feeJuice = FeeJuiceContract.at(session.wallet);
+    const feeJuice = FeeJuiceContract.withWallet(session.wallet);
     const result = await feeJuice.methods
       .claim(
         AztecAddress.fromStringUnsafe(deposit.recipient),

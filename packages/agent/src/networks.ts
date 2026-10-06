@@ -40,19 +40,21 @@ export interface NetworkConfig {
 }
 
 /**
- * Canonical aztec-standards 5.0.1 Dripper and USDC: universal deploys with
+ * Canonical aztec-standards 6.0.0-rc.1 Dripper and USDC: universal deploys with
  * salt 1337, so the addresses depend only on the artifacts. USDC's minter is
- * the Dripper (anyone may drip). Reproduce with `scripts/deploy-canonical.ts`;
- * the package's own `deployments.json` predates the 5.0.1 artifacts.
+ * the Dripper (anyone may drip). Reproduce with `scripts/deploy-canonical.ts`.
  */
-const CANONICAL_DRIPPER = "0x064399d44c7ba2380dc7f8e8a8395189879ab7cc71c1ac5c4ca63a35a25815fd";
-const CANONICAL_USDC = "0x2bb09ca02aeabb84fbe69537a0bf4b5ed57112466dc4666f9639157fe8dcfcf7";
+const CANONICAL_DRIPPER = "0x215737bae89da9d4703a162c1ccb9c3cae8f1f78b969956795e00d102e7f3e4a";
+const CANONICAL_USDC = "0x292f992b7e5db72958bcf1978c54a698fa35967c85e6e5640a40fe5d6fbc39b0";
 
 export const NETWORKS: Record<string, NetworkConfig> = {
   testnet: {
     name: "testnet",
     caip2: "aztec:testnet",
-    nodeUrl: "https://v5.testnet.rpc.aztec-labs.com",
+    // dRPC testnet node. aztec_getNodeInfo reports 6.0.0-rc.1 and rollup
+    // 0x8c2fb2A68A3d362ab1DE99E06F83f8903160BbD9.
+    // https://v5.testnet.rpc.aztec-labs.com still serves the v5 rollup.
+    nodeUrl: "https://lb.drpc.live/aztec-testnet/Ak_eT5HA2kbyqamqGTF702daoH37vEsR8YYxjmVXwXgc",
     proverEnabled: true,
     sponsoredFees: true,
     l1ChainId: 11155111,

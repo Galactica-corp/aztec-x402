@@ -2,9 +2,9 @@
  * Compute the expected siloed validity commitment nullifier in TypeScript
  * and compare with what the prepare tx actually emitted.
  */
-import { createAztecNodeClient } from "@aztec/aztec.js/node";
-import { AztecAddress } from "@aztec/aztec.js/addresses";
-import { Fr } from "@aztec/aztec.js/fields";
+import { createAztecNodeClient } from "@aztec-labs/aztec.js/node";
+import { AztecAddress } from "@aztec-labs/aztec.js/addresses";
+import { Fr } from "@aztec-labs/aztec.js/fields";
 import { TokenContract } from "@aztec-foundation/aztec-standards/dist/src/artifacts/Token.js";
 import { getAztecTxEffectArray, unwrapAztecSdkResult } from "@galactica-net/x402-core";
 import { createPXEWallet } from "./pxe-wallet.js";
@@ -68,14 +68,14 @@ console.log(`  Token address: ${tokenAddress.toString()}`);
 // validity_commitment = poseidon2_hash_with_separator([commitment, completer], DOM_SEP__PARTIAL_NOTE_VALIDITY_COMMITMENT)
 
 try {
-  const { siloNullifier } = await import("@aztec/stdlib/hash");
+  const { siloNullifier } = await import("@aztec-labs/stdlib/hash");
 
   console.log("\nStep 2: Computing expected nullifier hashes...");
   console.log(`  DOM_SEP for partial note validity: looking up...`);
 
   // The DOM_SEP__PARTIAL_NOTE_VALIDITY_COMMITMENT is a constant from the protocol
   // Let's find it
-  const constants = await import("@aztec/constants");
+  const constants = await import("@aztec-labs/constants");
   const constKeys = Object.keys(constants).filter(k => k.includes("PARTIAL") || k.includes("VALIDITY") || k.includes("DOM_SEP"));
   console.log(`  Relevant constants: ${constKeys.join(", ")}`);
 

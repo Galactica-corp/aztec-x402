@@ -14,8 +14,8 @@ Sentry.init({
   tracesSampleRate: 1.0,
 });
 
-import { createAztecNodeClient } from "@aztec/aztec.js/node";
-import { AztecAddress } from "@aztec/aztec.js/addresses";
+import { createAztecNodeClient } from "@aztec-labs/aztec.js/node";
+import { AztecAddress } from "@aztec-labs/aztec.js/addresses";
 import { TokenContract } from "@aztec-foundation/aztec-standards/dist/src/artifacts/Token.js";
 import { createPXEWallet } from "./pxe-wallet.js";
 import { readFileSync } from "fs";

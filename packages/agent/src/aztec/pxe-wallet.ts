@@ -39,18 +39,18 @@
  * @see https://github.com/AztecProtocol/aztec-packages/pull/10613
  * @see https://github.com/AztecProtocol/aztec-packages/issues/15753
  */
-import { CallAuthorizationRequest } from "@aztec/aztec.js/authorization";
-import { extractOffchainOutput, NO_WAIT } from "@aztec/aztec.js/contracts";
-import type { OffchainMessage } from "@aztec/aztec.js/contracts";
-import { getGasLimits } from "@aztec/wallet-sdk/base-wallet";
-import { waitForTx } from "@aztec/aztec.js/node";
-import { EmbeddedWallet as NodeEmbeddedWallet, type EmbeddedWalletOptions } from "@aztec/wallets/embedded";
-import type { AztecNode } from "@aztec/aztec.js/node";
-import type { ExecutionPayload } from "@aztec/aztec.js/tx";
-import { TxSimulationResultWithAppOffset } from "@aztec/aztec.js/wallet";
-import type { SendOptions } from "@aztec/aztec.js/wallet";
-import { GasSettings } from "@aztec/stdlib/gas";
-import { collectOffchainEffects } from "@aztec/stdlib/tx";
+import { CallAuthorizationRequest } from "@aztec-labs/aztec.js/authorization";
+import { extractOffchainOutput, NO_WAIT } from "@aztec-labs/aztec.js/contracts";
+import type { OffchainMessage } from "@aztec-labs/aztec.js/contracts";
+import { getGasLimits } from "@aztec-labs/wallet-sdk/base-wallet";
+import { waitForTx } from "@aztec-labs/aztec.js/node";
+import { EmbeddedWallet as NodeEmbeddedWallet, type EmbeddedWalletOptions } from "@aztec-labs/wallets/embedded";
+import type { AztecNode } from "@aztec-labs/aztec.js/node";
+import type { ExecutionPayload } from "@aztec-labs/aztec.js/tx";
+import { TxSimulationResultWithAppOffset } from "@aztec-labs/aztec.js/wallet";
+import type { SendOptions } from "@aztec-labs/aztec.js/wallet";
+import { GasSettings } from "@aztec-labs/stdlib/gas";
+import { collectOffchainEffects } from "@aztec-labs/stdlib/tx";
 import { inspect } from "util";
 
 interface SendTxWithAppReturnValuesResult {
@@ -151,7 +151,7 @@ export class PXEWallet extends NodeEmbeddedWallet {
     // including the partial-note completion log the payment verification reads —
     // trips the "Sender for tags is not set" assertion.
     const provenTx = await this.pxe.proveTx(txRequest, {
-      scopes: this.scopesFrom(opts.from, opts.additionalScopes),
+      scopes: this.scopesFrom(opts.from, opts.additionalScopes ?? [], opts.sendMessagesAs),
       senderForTags: this.senderForTagsFrom(opts.from, opts.sendMessagesAs),
     });
     debugSend("proved tx");
@@ -229,8 +229,9 @@ export class PXEWallet extends NodeEmbeddedWallet {
       simulatePublic: true,
       skipTxValidation: opts.skipTxValidation,
       skipFeeEnforcement: opts.skipFeeEnforcement,
-      scopes: this.scopesFrom(opts.from, opts.additionalScopes),
+      scopes: this.scopesFrom(opts.from, opts.additionalScopes ?? [], opts.sendMessagesAs),
       senderForTags: this.senderForTagsFrom(opts.from, opts.sendMessagesAs),
+      overrides: opts.overrides,
     });
     const appCallOffset = await this.computeAppCallOffset(opts.from, opts.feeOptions);
     return TxSimulationResultWithAppOffset.fromResultAndOffset(result, appCallOffset);

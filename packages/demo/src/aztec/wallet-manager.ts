@@ -9,17 +9,17 @@
  * EmbeddedWallet's stub-account simulation causes commitment mismatches
  * in the partial note flow — see pxe-wallet.ts for details.
  */
-import { Fr, GrumpkinScalar } from "@aztec/aztec.js/fields";
-import { SponsoredFeePaymentMethod } from "@aztec/aztec.js/fee";
-import { getContractInstanceFromInstantiationParams } from "@aztec/aztec.js/contracts";
-import { SponsoredFPCContractArtifact } from "@aztec/noir-contracts.js/SponsoredFPC";
-import { SPONSORED_FPC_SALT } from "@aztec/constants";
-import { NO_FROM } from "@aztec/aztec.js/account";
-import { TxStatus } from "@aztec/aztec.js/tx";
-import { getInitialTestAccountsData } from "@aztec/accounts/testing";
-import type { AztecNode } from "@aztec/aztec.js/node";
+import { Fr, GrumpkinScalar } from "@aztec-labs/aztec.js/fields";
+import { SponsoredFeePaymentMethod } from "@aztec-labs/aztec.js/fee";
+import { getContractInstanceFromInstantiationParams } from "@aztec-labs/aztec.js/contracts";
+import { SponsoredFPCContractArtifact } from "@aztec-labs/noir-contracts.js/SponsoredFPC";
+import { SPONSORED_FPC_SALT } from "@aztec-labs/constants";
+import { NO_FROM } from "@aztec-labs/aztec.js/account";
+import { TxStatus } from "@aztec-labs/aztec.js/tx";
+import { getInitialTestAccountsData } from "@aztec-labs/accounts/testing";
+import type { AztecNode } from "@aztec-labs/aztec.js/node";
 import type { PXEWallet } from "./pxe-wallet.js";
-import type { AccountManager } from "@aztec/aztec.js/wallet";
+import type { AccountManager } from "@aztec-labs/aztec.js/wallet";
 import { readFileSync, writeFileSync, existsSync } from "fs";
 
 export interface KeySet {
@@ -105,7 +105,7 @@ export async function ensureKeys(
     console.log("Using local-network genesis test accounts...");
     const [aliceData, bobData] = await getInitialTestAccountsData();
     if (!aliceData || !bobData) {
-      throw new Error("Expected at least 2 initial test accounts from @aztec/accounts/testing");
+      throw new Error("Expected at least 2 initial test accounts from @aztec-labs/accounts/testing");
     }
     const keys: StoredKeys = {
       alice: keySetFromTestAccount(aliceData),
@@ -138,7 +138,7 @@ export async function ensureKeys(
  * Register the canonical Sponsored FPC in the wallet and return a payment method.
  *
  * Same address local-network prints at startup (`SponsoredFPC: 0x1441…`) and that
- * `@aztec/aztec`'s `registerDeployedSponsoredFPCInWalletAndGetAddress` derives via
+ * `@aztec-labs/aztec`'s `registerDeployedSponsoredFPCInWalletAndGetAddress` derives via
  * `SPONSORED_FPC_SALT`. Use when `USE_SPONSORED_FPC=true`.
  */
 export async function setupSponsoredPayment(

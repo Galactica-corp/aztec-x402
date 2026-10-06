@@ -45,21 +45,27 @@ import {
   AztecOffchainMessagesSchema,
   unwrapAztecSdkResult,
 } from "@galactica-net/x402-core";
-import { AztecAddress } from "@aztec/aztec.js/addresses";
-import { toSendOptions } from "@aztec/aztec.js/contracts";
+import { AztecAddress } from "@aztec-labs/aztec.js/addresses";
+import { toSendOptions } from "@aztec-labs/aztec.js/contracts";
 import type {
   InteractionFeeOptions,
   SendInteractionOptions,
   WaitOpts,
-} from "@aztec/aztec.js/contracts";
-import { Fr } from "@aztec/aztec.js/fields";
-import { TxHash, TxStatus } from "@aztec/aztec.js/tx";
-import { DomainSeparator } from "@aztec/constants";
-import { computeLogTag, computeSiloedPrivateLogFirstField } from "@aztec/stdlib/hash";
-import { SiloedTag, Tag, type LogResult } from "@aztec/stdlib/logs";
+} from "@aztec-labs/aztec.js/contracts";
+import { Fr } from "@aztec-labs/aztec.js/fields";
+import { TxHash, TxStatus } from "@aztec-labs/aztec.js/tx";
+import { type DomainSeparator } from "@aztec-labs/constants";
+import { computeLogTag, computeSiloedPrivateLogFirstField } from "@aztec-labs/stdlib/hash";
 
 /**
- * Subset of `@aztec/stdlib/interfaces/client`'s `AztecNode` that the facilitator
+ * `aztec::note::partial_note::DOM_SEP__NOTE_COMPLETION_LOG_TAG` from aztec-nr
+ * v6.0.0-rc.1. The TypeScript `DomainSeparator` enum no longer includes it.
+ */
+const NOTE_COMPLETION_LOG_TAG: DomainSeparator = 3372669888;
+import { SiloedTag, Tag, type LogResult } from "@aztec-labs/stdlib/logs";
+
+/**
+ * Subset of `@aztec-labs/stdlib/interfaces/client`'s `AztecNode` that the facilitator
  * uses. The real `AztecNode` client returned by `createAztecNodeClient(...)`
  * satisfies this shape — we keep a narrowed local interface so this module
  * stays decoupled from the rest of the SDK surface.
@@ -408,7 +414,7 @@ export class RealFacilitatorAztecSigner implements FacilitatorAztecSigner {
   ): Promise<CompletionLog | null> {
     const logTag = await computeLogTag(
       commitmentFr,
-      DomainSeparator.NOTE_COMPLETION_LOG_TAG,
+      NOTE_COMPLETION_LOG_TAG,
     );
     const siloedTag = await computeSiloedPrivateLogFirstField(tokenAddr, logTag);
 
