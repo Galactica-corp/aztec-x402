@@ -59,7 +59,7 @@ import { computeLogTag, computeSiloedPrivateLogFirstField } from "@aztec-labs/st
 
 /**
  * `aztec::note::partial_note::DOM_SEP__NOTE_COMPLETION_LOG_TAG` from aztec-nr
- * v6.0.0-rc.1. The TypeScript `DomainSeparator` enum no longer includes it.
+ * v6.0.0-rc.3 (same value as rc.1). The TypeScript `DomainSeparator` enum does not include it.
  */
 const NOTE_COMPLETION_LOG_TAG: DomainSeparator = 3372669888;
 import { SiloedTag, Tag, type LogResult } from "@aztec-labs/stdlib/logs";

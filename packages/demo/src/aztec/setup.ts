@@ -36,7 +36,7 @@ import { isSandboxNetwork, shouldEnableProver } from "./network-config.js";
 const NETWORK = process.env.AZTEC_NETWORK ?? "aztec:sandbox";
 if (!process.env.NODE_URL && NETWORK === "aztec:testnet") {
   throw new Error(
-    "NODE_URL is required for aztec:testnet. Point it at a 6.0.0-rc.1 node (aztec_getNodeInfo nodeVersion). https://v5.testnet.rpc.aztec-labs.com is the previous rollup.",
+    "NODE_URL is required for aztec:testnet. Point it at a 6.0.0-rc.3 node (aztec_getNodeInfo nodeVersion). https://v5.testnet.rpc.aztec-labs.com is the previous rollup.",
   );
 }
 const NODE_URL = process.env.NODE_URL ?? "http://localhost:8080";
