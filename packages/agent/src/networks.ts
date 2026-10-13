@@ -51,10 +51,8 @@ export const NETWORKS: Record<string, NetworkConfig> = {
   testnet: {
     name: "testnet",
     caip2: "aztec:testnet",
-    // dRPC testnet node. aztec_getNodeInfo reports 6.0.0-rc.1 and rollup
-    // 0x8c2fb2A68A3d362ab1DE99E06F83f8903160BbD9.
-    // https://v5.testnet.rpc.aztec-labs.com still serves the v5 rollup.
-    nodeUrl: "https://lb.drpc.live/aztec-testnet/Ak_eT5HA2kbyqamqGTF702daoH37vEsR8YYxjmVXwXgc",
+    // Public v6 testnet RPC.
+    nodeUrl: "https://v6.testnet.rpc.aztec-labs.com",
     proverEnabled: true,
     sponsoredFees: true,
     l1ChainId: 11155111,

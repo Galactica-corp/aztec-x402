@@ -1,7 +1,8 @@
 import { createAztecNodeClient } from "@aztec-labs/aztec.js/node";
+import { assertNodeVersion } from "../aztec/node-version.js";
 import { loadAccountKeys } from "../aztec/keystore.js";
 import { homeDir, readUserConfig, writeUserConfig, type ResolvedContext } from "../config.js";
-import { UsageError } from "../errors.js";
+import { CliError, UsageError } from "../errors.js";
 import { NETWORKS } from "../networks.js";
 import { readLedger, spentLast24h } from "../policy.js";
 import { formatTokenAmount } from "../x402.js";
@@ -13,8 +14,10 @@ export async function status(ctx: ResolvedContext) {
   try {
     const client = createAztecNodeClient(ctx.network.nodeUrl);
     const [blockNumber, info] = await Promise.all([client.getBlockNumber(), client.getNodeInfo()]);
+    assertNodeVersion(info.nodeVersion, ctx.network.nodeUrl);
     node = { reachable: true, blockNumber, nodeVersion: info.nodeVersion };
   } catch (error) {
+    if (error instanceof CliError && error.code === "node_version") throw error;
     node = { reachable: false, error: error instanceof Error ? error.message : String(error) };
   }
   return {

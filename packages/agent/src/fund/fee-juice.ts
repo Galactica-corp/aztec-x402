@@ -25,6 +25,7 @@ import { createAztecNodeClient } from "@aztec-labs/aztec.js/node";
 import { formatAmount, parsePrice } from "@galactica-net/x402-core";
 import type { NetworkConfig } from "../networks.js";
 import type { Session } from "../aztec/session.js";
+import { assertNodeVersion } from "../aztec/node-version.js";
 import { FEE_JUICE_DECIMALS, feeJuiceBalance } from "../aztec/fee-juice.js";
 import { CliError } from "../errors.js";
 import type { DepositRecord } from "./deposits.js";
@@ -71,7 +72,8 @@ export class FeeJuiceBridge implements BridgeAdapter {
 
   static async create(network: NetworkConfig): Promise<FeeJuiceBridge> {
     const node = createAztecNodeClient(network.nodeUrl);
-    const { l1ChainId, l1ContractAddresses } = await node.getNodeInfo();
+    const { l1ChainId, l1ContractAddresses, nodeVersion } = await node.getNodeInfo();
+    assertNodeVersion(nodeVersion, network.nodeUrl);
     if (l1ChainId !== network.l1ChainId) {
       throw new CliError(`Node reports L1 chain ${l1ChainId}, expected ${network.l1ChainId}`, "l1_mismatch");
     }

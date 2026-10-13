@@ -7,8 +7,8 @@
  * — served locally by the CLI, or from the hosted copy of the skill's page
  * with the plan in the URL fragment — so neither the page nor its host ever
  * needs a connection back to the agent. The CLI finds the deposit by watching
- * L1 logs. v5 testnet ships the Fee Juice portal adapter; a stablecoin portal
- * (e.g. the USDC bridge on v6 testnet) plugs in as another adapter.
+ * L1 logs. The Fee Juice portal is the live adapter; a stablecoin portal
+ * plugs in as another adapter.
  */
 import type { Session } from "../aztec/session.js";
 import type { DepositRecord } from "./deposits.js";

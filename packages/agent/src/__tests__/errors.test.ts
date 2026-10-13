@@ -2,7 +2,8 @@ import { afterEach, beforeEach, describe, expect, spyOn, test } from "bun:test";
 import { mkdtempSync } from "fs";
 import { tmpdir } from "os";
 import { join } from "path";
-import { isProverError, proverFailed } from "../errors.js";
+import { assertNodeVersion } from "../aztec/node-version.js";
+import { CliError, isProverError, proverFailed } from "../errors.js";
 import { setInflightPayment } from "../inflight.js";
 import { appendLedger, readLedger } from "../policy.js";
 import { reportError } from "../main.js";
@@ -13,6 +14,26 @@ function bbError(message: string): Error {
   error.name = "BBApiException";
   return error;
 }
+
+describe("node version", () => {
+  test("accepts Aztec 6, including a release candidate", () => {
+    expect(() => assertNodeVersion("6.0.0-rc.1", "https://node")).not.toThrow();
+    expect(() => assertNodeVersion("6.1.0", "https://node")).not.toThrow();
+  });
+
+  test("rejects a node on another major version", () => {
+    let error: CliError | undefined;
+    try {
+      assertNodeVersion("5.0.0", "https://old.example");
+    } catch (caught) {
+      if (caught instanceof CliError) error = caught;
+    }
+    expect(error).toBeInstanceOf(CliError);
+    expect(error?.code).toBe("node_version");
+    expect(error?.message).toContain("5.0.0");
+    expect(error?.message).toContain("https://old.example");
+  });
+});
 
 describe("prover errors", () => {
   test("recognises Barretenberg failures, including CRS download problems", () => {

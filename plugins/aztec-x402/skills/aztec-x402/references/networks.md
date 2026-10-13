@@ -7,14 +7,14 @@ The CLI carries this registry built in; `aztec-x402 status` prints the live view
 | Item | Value |
 | --- | --- |
 | Aztec version | 6.0.0-rc.1 (SDK `@aztec-labs/*@6.0.0-rc.1`) |
-| Node RPC | Not published in the packages. Set `AZTEC_X402_NODE_URL` to a node that reports `nodeVersion` `6.0.0-rc.1`. `https://v5.testnet.rpc.aztec-labs.com` is the previous rollup. |
+| Node RPC | `https://v6.testnet.rpc.aztec-labs.com`. Override with `AZTEC_X402_NODE_URL`. |
 | x402 network id (CAIP-2) | `aztec:testnet` |
 | L1 | Sepolia (chain id 11155111), public RPC `https://ethereum-sepolia-rpc.publicnode.com` |
 | USDC (AIP-20, 6 decimals) | `0x292f992b7e5db72958bcf1978c54a698fa35967c85e6e5640a40fe5d6fbc39b0` |
 | USDC faucet (Dripper, anyone may mint) | `0x215737bae89da9d4703a162c1ccb9c3cae8f1f78b969956795e00d102e7f3e4a` |
 | Sponsored FPC (pays fees) | `0x06a9fa0208c78509921b0487a6b5cd5c2e93baf17de1a18d310f65a3cc1d924b` |
 
-USDC and the Dripper are the canonical `aztec-standards` 6.0.0-rc.1 universal deploys (salt 1337): their addresses follow from the artifacts alone. They still have to be deployed on the v6 rollup before they can be used. The v6 testnet node image does not deploy the Sponsored FPC (`SPONSORED_FPC: false`); the local network does.
+USDC and the Dripper are the canonical `aztec-standards` universal deploys (salt 1337): their addresses follow from the artifacts alone. They still have to be deployed on the rollup before they can be used.
 
 L1 contracts (Fee Juice portal, fee asset, its faucet) come from the node at run time: `curl -s -X POST <node RPC> -H 'content-type: application/json' -d '{"jsonrpc":"2.0","method":"aztec_getNodeInfo","params":[],"id":1}'` → `result.l1ContractAddresses`.
 

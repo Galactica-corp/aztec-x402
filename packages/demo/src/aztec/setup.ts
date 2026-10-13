@@ -10,7 +10,8 @@
  * Usage: bun run packages/demo/src/aztec/setup.ts
  *
  * Environment variables:
- *   NODE_URL  — Aztec node URL (default: http://localhost:8080)
+ *   NODE_URL  — Aztec node URL (testnet default: https://v6.testnet.rpc.aztec-labs.com,
+ *               sandbox default: http://localhost:8080)
  *   AZTEC_NETWORK — CAIP-2 network id (default: aztec:sandbox)
  *   USE_SPONSORED_FPC — set to "true" to pay fees via the canonical Sponsored FPC
  *                       (local-network prints its address at startup; same on testnet).
@@ -33,13 +34,11 @@ import {
 } from "./token-faucet.js";
 import { isSandboxNetwork, shouldEnableProver } from "./network-config.js";
 
+const TESTNET_NODE_URL = "https://v6.testnet.rpc.aztec-labs.com";
 const NETWORK = process.env.AZTEC_NETWORK ?? "aztec:sandbox";
-if (!process.env.NODE_URL && NETWORK === "aztec:testnet") {
-  throw new Error(
-    "NODE_URL is required for aztec:testnet. Point it at a 6.0.0-rc.1 node (aztec_getNodeInfo nodeVersion). https://v5.testnet.rpc.aztec-labs.com is the previous rollup.",
-  );
-}
-const NODE_URL = process.env.NODE_URL ?? "http://localhost:8080";
+const NODE_URL =
+  process.env.NODE_URL ??
+  (NETWORK === "aztec:testnet" ? TESTNET_NODE_URL : "http://localhost:8080");
 const USE_SPONSORED_FPC = process.env.USE_SPONSORED_FPC === "true";
 const TOKEN_NAME = "Overcast USD";
 const TOKEN_SYMBOL = "oUSD";
