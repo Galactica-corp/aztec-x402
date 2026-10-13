@@ -15,8 +15,7 @@ Sentry.init({
 });
 
 import { createAztecNodeClient } from "@aztec-labs/aztec.js/node";
-import { AztecAddress } from "@aztec-labs/aztec.js/addresses";
-import { TokenContract } from "@aztec-foundation/aztec-standards/dist/src/artifacts/Token.js";
+import { TokenRegistry } from "@galactica-net/x402-agent/aztec";
 import { createPXEWallet } from "./pxe-wallet.js";
 import { readFileSync } from "fs";
 import { join, dirname } from "path";
@@ -66,6 +65,7 @@ try {
 const NODE_URL = config.nodeUrl;
 const NETWORK = parseAztecNetwork(config.network);
 const TOKEN_ADDRESS = config.tokenAddress;
+const TOKEN_SYMBOL = config.tokenSymbol ?? "tokens";
 const SERVER_ADDRESS = config.bobAddress;
 const proverEnabled = shouldEnableProver(NETWORK);
 
@@ -83,21 +83,18 @@ const bobAccount = await loadAccount(wallet, keys, "bob");
 const bob = bobAccount.address;
 console.log(`Server address: ${bob}`);
 
-// Load the token contract for the facilitator (needed for commitment creation)
-const tokenAddress = AztecAddress.fromStringUnsafe(TOKEN_ADDRESS);
-const tokenInstance = await node.getContract(tokenAddress);
-if (tokenInstance) {
-  await wallet.registerContract(tokenInstance, TokenContract.artifact);
-}
-const token = await TokenContract.at(tokenAddress, wallet);
-
 const paymentMethod = USE_SPONSORED_FPC
   ? await setupSponsoredPayment(wallet)
   : undefined;
-const sendOpts = paymentMethod ? { fee: { paymentMethod } } : undefined;
+const fee = paymentMethod ? { paymentMethod } : undefined;
 
-// Create real facilitator signer
-const facilitatorSigner = new RealFacilitatorAztecSigner(bobAccount, node, token, sendOpts, wallet);
+// The token is whatever setup put in deploy.json; its kind is read from the chain.
+const tokens = new TokenRegistry({ node, wallet, account: bob, fee });
+const facilitatorSigner = new RealFacilitatorAztecSigner(bobAccount, node, tokens);
+const sellingIn = await tokens.get(TOKEN_ADDRESS);
+// Fail now, not at the first buyer, if this account may not charge in the token.
+await facilitatorSigner.assertCanSell(TOKEN_ADDRESS);
+console.log(`Charging in token ${TOKEN_ADDRESS} (${sellingIn.kind})`);
 const facilitator = new ExactAztecFacilitatorScheme(facilitatorSigner, [NETWORK]);
 await facilitator.initialize();
 
@@ -134,6 +131,7 @@ async function handleRequest(req: Request): Promise<Response> {
         status: "ok",
         network: NETWORK,
         tokenAddress: TOKEN_ADDRESS,
+        tokenKind: sellingIn.kind,
         serverAddress: SERVER_ADDRESS,
         gatedRoutes: Object.keys(routes),
       }),
@@ -230,5 +228,5 @@ const server = Bun.serve({
 
 console.log(`\nx402 demo server (REAL AZTEC) running on http://localhost:${server.port}`);
 console.log(`  GET /health                      — server info`);
-console.log(`  GET /api/weather/:id             — payment-gated ($0.01 oUSD per resource)`);
-console.log(`  GET /api/buy-x402-achievement    — payment-gated skill unlock ($0.01 oUSD)`);
+console.log(`  GET /api/weather/:id             — payment-gated (0.01 ${TOKEN_SYMBOL} per resource)`);
+console.log(`  GET /api/buy-x402-achievement    — payment-gated skill unlock (0.01 ${TOKEN_SYMBOL})`);

@@ -7,11 +7,12 @@
  * (see config.ts), so a local network or a new deployment needs no release.
  */
 import type { AztecNetwork } from "@galactica-net/x402-core";
+import { TESTNET_MANIFEST } from "@galactica-net/inference-money-core/deployments";
 
 export interface TokenInfo {
   symbol: string;
   name: string;
-  /** AIP-20 token contract address on Aztec. */
+  /** Token contract address on Aztec. Its kind (AIP-20, inference-money) is read from the chain. */
   address: string;
   decimals: number;
   /** Dripper contract that may mint this token (testnet faucets only). */
@@ -40,12 +41,12 @@ export interface NetworkConfig {
 }
 
 /**
- * Canonical aztec-standards 6.0.0-rc.1 Dripper and USDC: universal deploys with
- * salt 1337, so the addresses depend only on the artifacts. USDC's minter is
- * the Dripper (anyone may drip). Reproduce with `scripts/deploy-canonical.ts`.
+ * Canonical aztec-standards 6.0.0-rc.1 Dripper and test USDC: universal deploys
+ * with salt 1337, so the addresses depend only on the artifacts. The token's
+ * minter is the Dripper (anyone may drip). Reproduce with `scripts/deploy-canonical.ts`.
  */
 const CANONICAL_DRIPPER = "0x215737bae89da9d4703a162c1ccb9c3cae8f1f78b969956795e00d102e7f3e4a";
-const CANONICAL_USDC = "0x292f992b7e5db72958bcf1978c54a698fa35967c85e6e5640a40fe5d6fbc39b0";
+const CANONICAL_TEST_USDC = "0x292f992b7e5db72958bcf1978c54a698fa35967c85e6e5640a40fe5d6fbc39b0";
 
 export const NETWORKS: Record<string, NetworkConfig> = {
   testnet: {
@@ -61,9 +62,16 @@ export const NETWORKS: Record<string, NetworkConfig> = {
     l1ExplorerUrl: "https://sepolia.etherscan.io",
     tokens: [
       {
+        // Sepolia USDC bridged by inference-money; payable only to its listed merchants.
         symbol: "USDC",
-        name: "USDC (testnet, faucet-minted)",
-        address: CANONICAL_USDC,
+        name: "USDC (inference-money, bridged from Sepolia)",
+        address: TESTNET_MANIFEST.l2.token.address,
+        decimals: 6,
+      },
+      {
+        symbol: "tUSDC",
+        name: "Test USDC (AIP-20, faucet-minted)",
+        address: CANONICAL_TEST_USDC,
         decimals: 6,
         dripper: CANONICAL_DRIPPER,
         faucetAmount: "10",

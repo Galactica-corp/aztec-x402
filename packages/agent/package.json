@@ -62,6 +62,7 @@
     "@aztec-labs/wallet-sdk": "6.0.0-rc.1",
     "@aztec-labs/wallets": "6.0.0-rc.1",
     "viem": "npm:@aztec/viem@2.38.3",
+    "@galactica-net/inference-money-core": "0.1.0",
     "@galactica-net/x402-client": "workspace:*",
     "@galactica-net/x402-core": "workspace:*",
     "@galactica-net/x402-mechanism": "workspace:*"

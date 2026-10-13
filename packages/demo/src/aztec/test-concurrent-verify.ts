@@ -19,12 +19,10 @@
  *   bun run packages/demo/src/aztec/test-concurrent-verify.ts
  */
 import { createAztecNodeClient } from "@aztec-labs/aztec.js/node";
-import { AztecAddress } from "@aztec-labs/aztec.js/addresses";
-import { TokenContract } from "@aztec-foundation/aztec-standards/dist/src/artifacts/Token.js";
+import { TokenRegistry } from "@galactica-net/x402-agent/aztec";
 import { readFileSync } from "fs";
 import { join, dirname } from "path";
-import { createPXEWallet } from "./pxe-wallet.js";
-import { loadKeys, loadAccount, setupSponsoredPayment } from "./wallet-manager.js";
+import { loadKeys, loadAccount, openDemoWallet, setupSponsoredPayment } from "./wallet-manager.js";
 import { RealFacilitatorAztecSigner } from "./facilitator-signer.js";
 import { RealClientAztecSigner } from "./client-signer.js";
 import { shouldEnableProver } from "./network-config.js";
@@ -60,15 +58,12 @@ console.log(`Token: ${TOKEN_ADDRESS}\n`);
 
 console.log("Connecting...");
 const node = createAztecNodeClient(NODE_URL);
-const wallet = await createPXEWallet(node, {
-  ephemeral: true,
-  pxe: { proverEnabled },
-});
+const { wallet, paymentGate } = await openDemoWallet(node, proverEnabled, TOKEN_ADDRESS);
 
 const paymentMethod = USE_SPONSORED_FPC
   ? await setupSponsoredPayment(wallet)
   : undefined;
-const sendOpts = paymentMethod ? { fee: { paymentMethod } } : undefined;
+const fee = paymentMethod ? { paymentMethod } : undefined;
 
 const keys = loadKeys(KEYS_PATH);
 const aliceAccount = await loadAccount(wallet, keys, "alice"); // buyer
@@ -78,17 +73,19 @@ const bob = bobAccount.address;
 console.log(`Alice (buyer):       ${alice}`);
 console.log(`Bob   (facilitator): ${bob}\n`);
 
-const tokenAddress = AztecAddress.fromStringUnsafe(TOKEN_ADDRESS);
-const tokenInstance = await node.getContract(tokenAddress);
-if (tokenInstance) {
-  await wallet.registerContract(tokenInstance, TokenContract.artifact);
-}
 await wallet.registerSender(bob, "bob");
 await wallet.registerSender(alice, "alice");
-const token = await TokenContract.at(tokenAddress, wallet);
 
-const facilitatorSigner = new RealFacilitatorAztecSigner(bobAccount, node, token, sendOpts, wallet);
-const clientSigner = new RealClientAztecSigner(aliceAccount, token, sendOpts);
+// One wallet holds both accounts; each side gets its own view of the token.
+const facilitatorSigner = new RealFacilitatorAztecSigner(
+  bobAccount,
+  node,
+  new TokenRegistry({ node, wallet, account: bob, fee }),
+);
+const clientSigner = new RealClientAztecSigner(
+  aliceAccount,
+  new TokenRegistry({ node, wallet, account: alice, fee, paymentGate }),
+);
 
 interface FlowResult {
   label: string;

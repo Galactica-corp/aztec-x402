@@ -55,3 +55,10 @@ export function proverFailed(error: unknown): CliError {
     { txSubmitted: false },
   );
 }
+
+/** The token's own rules refuse the payment (e.g. the payee is not a listed merchant); nothing was sent. */
+export class TokenRefusedError extends CliError {
+  constructor(message: string, code = "token_refused", details?: Record<string, unknown>) {
+    super(message, code, details);
+  }
+}

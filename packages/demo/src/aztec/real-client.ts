@@ -8,16 +8,14 @@
  */
 import { createAztecNodeClient } from "@aztec-labs/aztec.js/node";
 import { AztecAddress } from "@aztec-labs/aztec.js/addresses";
-import { TokenContract } from "@aztec-foundation/aztec-standards/dist/src/artifacts/Token.js";
-import { createPXEWallet } from "./pxe-wallet.js";
+import { TokenRegistry } from "@galactica-net/x402-agent/aztec";
 import { readFileSync } from "fs";
 import { join, dirname } from "path";
 
 import { ExactAztecClientScheme } from "@galactica-net/x402-mechanism/exact/client";
 import { wrapFetchWithPayment } from "@galactica-net/x402-client";
 import { RealClientAztecSigner } from "./client-signer.js";
-import { loadKeys, loadAccount, setupSponsoredPayment } from "./wallet-manager.js";
-import { unwrapAztecSdkResult } from "@galactica-net/x402-core";
+import { loadKeys, loadAccount, openDemoWallet, setupSponsoredPayment } from "./wallet-manager.js";
 import { shouldEnableProver } from "./network-config.js";
 
 const SERVER_URL = process.env.SERVER_URL ?? "http://localhost:4402";
@@ -41,22 +39,10 @@ const NETWORK = config.network;
 const USE_SPONSORED_FPC = process.env.USE_SPONSORED_FPC === "true";
 const proverEnabled = shouldEnableProver(NETWORK);
 
-function extractSimulateValue(result: unknown): unknown {
-  return unwrapAztecSdkResult(result);
-}
-
-function bigintFromSimulate(result: unknown): bigint {
-  const value = extractSimulateValue(result);
-  return typeof value === "bigint" ? value : BigInt(String(value));
-}
-
 // Connect to Aztec
 console.log(`Connecting to Aztec node at ${NODE_URL}...`);
 const node = createAztecNodeClient(NODE_URL);
-const wallet = await createPXEWallet(node, {
-  ephemeral: true,
-  pxe: { proverEnabled },
-});
+const { wallet, paymentGate } = await openDemoWallet(node, proverEnabled, config.tokenAddress);
 
 // Get Alice's wallet (the payer)
 const keys = loadKeys(KEYS_PATH);
@@ -64,31 +50,26 @@ const aliceAccount = await loadAccount(wallet, keys, "alice");
 const alice = aliceAccount.address;
 console.log(`Payer address: ${alice}`);
 
-// Get the deployed token contract
-const tokenAddress = AztecAddress.fromStringUnsafe(config.tokenAddress);
-const tokenInstance = await node.getContract(tokenAddress);
-if (tokenInstance) {
-  await wallet.registerContract(tokenInstance, TokenContract.artifact);
-}
-const token = await TokenContract.at(tokenAddress, wallet);
-
 // Register Bob as sender so we can discover notes from him
 const bob = AztecAddress.fromStringUnsafe(config.bobAddress);
 await wallet.registerSender(bob, "bob");
 
-// Check balance before
-const balanceBefore = await token.methods
-  .balance_of_private(alice)
-  .simulate({ from: alice });
-console.log(`Balance before: ${extractSimulateValue(balanceBefore)}\n`);
-
 const paymentMethod = USE_SPONSORED_FPC
   ? await setupSponsoredPayment(wallet)
   : undefined;
-const feeOpts = paymentMethod ? { fee: { paymentMethod } } : undefined;
+const fee = paymentMethod ? { paymentMethod } : undefined;
+
+// The token's kind is read from the chain; the signer pays accordingly.
+const tokens = new TokenRegistry({ node, wallet, account: alice, fee, paymentGate });
+const token = await tokens.get(config.tokenAddress);
+console.log(`Paying in token ${config.tokenAddress} (${token.kind})`);
+
+// Check balance before
+const balanceBefore = await token.privateBalance();
+console.log(`Balance before: ${balanceBefore}\n`);
 
 // Create real client signer and x402 payment-aware fetch
-const clientSigner = new RealClientAztecSigner(aliceAccount, token, feeOpts);
+const clientSigner = new RealClientAztecSigner(aliceAccount, tokens);
 const scheme = new ExactAztecClientScheme(clientSigner);
 const payFetch = wrapFetchWithPayment(fetch, scheme);
 
@@ -105,9 +86,7 @@ console.log(`Response (${response.status}):`);
 console.log(JSON.stringify(data, null, 2));
 
 // Check balance after
-const balanceAfter = await token.methods
-  .balance_of_private(alice)
-  .simulate({ from: alice });
-console.log(`\nBalance after: ${extractSimulateValue(balanceAfter)}`);
-console.log(`Spent: ${bigintFromSimulate(balanceBefore) - bigintFromSimulate(balanceAfter)}`);
+const balanceAfter = await token.privateBalance();
+console.log(`\nBalance after: ${balanceAfter}`);
+console.log(`Spent: ${balanceBefore - balanceAfter}`);
 process.exit(0);
