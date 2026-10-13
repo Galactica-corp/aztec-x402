@@ -5,6 +5,10 @@
  * faucet, and a token contract (with the dripper as minter), drips private
  * tokens to the payer, and writes deployment info to a config file.
  *
+ * With TOKEN=inference (local network only) it sets up the inference-money
+ * USDC instead: see setup-inference.ts. The server and client read the token
+ * from the config file and work out its kind themselves.
+ *
  * Resumable: saves progress to deploy.json after each step. Safe to restart.
  *
  * Usage: bun run packages/demo/src/aztec/setup.ts
@@ -15,8 +19,10 @@
  *   AZTEC_NETWORK — CAIP-2 network id (default: aztec:sandbox)
  *   USE_SPONSORED_FPC — set to "true" to pay fees via the canonical Sponsored FPC
  *                       (local-network prints its address at startup; same on testnet).
+ *   TOKEN — `aip20` (default) or `inference`; L1_RPC_URL — the local network's L1
+ *                       (default http://localhost:8545), used by `inference` only.
  *   TOKEN_ADDRESS, DRIPPER_ADDRESS — reuse an existing token and its Dripper instead of
- *                       deploying oUSD (e.g. the canonical testnet USDC the agent CLI uses).
+ *                       deploying oUSD (e.g. the canonical testnet tUSDC the agent CLI uses).
  */
 import { createAztecNodeClient } from "@aztec-labs/aztec.js/node";
 import { AztecAddress } from "@aztec-labs/aztec.js/addresses";
@@ -33,6 +39,7 @@ import {
   tokenConstructorWithDripperArgs,
 } from "./token-faucet.js";
 import { isSandboxNetwork, shouldEnableProver } from "./network-config.js";
+import { setupInferenceToken } from "./setup-inference.js";
 
 const TESTNET_NODE_URL = "https://v6.testnet.rpc.aztec-labs.com";
 const NETWORK = process.env.AZTEC_NETWORK ?? "aztec:sandbox";
@@ -40,6 +47,8 @@ const NODE_URL =
   process.env.NODE_URL ??
   (NETWORK === "aztec:testnet" ? TESTNET_NODE_URL : "http://localhost:8080");
 const USE_SPONSORED_FPC = process.env.USE_SPONSORED_FPC === "true";
+const TOKEN = process.env.TOKEN ?? "aip20";
+const L1_RPC_URL = process.env.L1_RPC_URL ?? "http://localhost:8545";
 const TOKEN_NAME = "Overcast USD";
 const TOKEN_SYMBOL = "oUSD";
 const TOKEN_DECIMALS = 6;
@@ -94,7 +103,7 @@ async function main() {
     // Existing contracts are verified on-chain below and then skipped.
     config.tokenAddress = process.env.TOKEN_ADDRESS;
     config.dripperAddress = process.env.DRIPPER_ADDRESS;
-    config.tokenSymbol = process.env.TOKEN_SYMBOL ?? "USDC";
+    config.tokenSymbol = process.env.TOKEN_SYMBOL ?? "tUSDC";
     config.tokenDecimals = "6";
   }
 
@@ -127,6 +136,39 @@ async function main() {
   saveConfig(config);
   console.log(`  Alice (payer):       ${alice}`);
   console.log(`  Bob   (server):      ${bob}\n`);
+
+  if (TOKEN === "inference") {
+    if (!isSandboxNetwork(NETWORK)) {
+      throw new Error("TOKEN=inference deploys a bridge of its own and only runs against a local network.");
+    }
+    const { tokenAddress } = await setupInferenceToken({
+      node,
+      nodeUrl: NODE_URL,
+      l1RpcUrl: L1_RPC_URL,
+      wallet,
+      merchant: bob,
+      payer: alice,
+      amount: MINT_AMOUNT,
+      manifestPath: join(DATA_DIR, "inference-manifest.json"),
+      log: console.log,
+    });
+    saveConfig({
+      nodeUrl: NODE_URL,
+      network: NETWORK,
+      aliceAddress: config.aliceAddress,
+      bobAddress: config.bobAddress,
+      tokenAddress,
+      tokenName: "USD Coin (inference-money, local)",
+      tokenSymbol: "USDC",
+      tokenDecimals: String(TOKEN_DECIMALS),
+    });
+    console.log(`\nConfig written to ${CONFIG_PATH}`);
+    console.log("\nSetup complete!");
+    process.exit(0);
+  }
+  if (TOKEN !== "aip20") {
+    throw new Error(`Unknown TOKEN "${TOKEN}" (expected: aip20, inference).`);
+  }
 
   const sendOpts = (from: AztecAddress) => ({
     from,

@@ -52,11 +52,18 @@ This closes the "who did the payment go to?" verification gap that exists with d
 
 In this demo the API provider runs the facilitator inside its own server process. That is different from the common EVM x402 shape where a merchant can ask an external facilitator to verify a prepared payment. For Aztec private payments, the receiver's Aztec account creates the commitment first, so the facilitator needs access to the merchant/server Aztec wallet or to an explicitly delegated service that can create commitments for that merchant. A third-party facilitator is possible later, but it must own that delegation and the retry/rate-limit policy around prepare transactions.
 
-## Token Contract
+## Supported Tokens
 
-This project uses the **AIP-20 standard token** from [`@aztec-foundation/aztec-standards`](https://github.com/AztecProtocol/aztec-standards). AIP-20 natively supports the `completer` parameter in `initialize_transfer_commitment(to, completer)`, enabling cross-party commitment flows where the server prepares and the client finalizes.
+A merchant picks the token it is paid in by setting a route's `asset` to the token's address. Nothing else is configured: the server and the buyer each read the contract's class id from the node and use the matching token adapter. A contract of any other class is refused (`unsupported_token`).
 
-The demo consumes the published `@aztec-foundation/aztec-standards@6.0.0-rc.1` token wrapper and artifact directly. There is no checked-in local token artifact or Noir source copy in this repo.
+| Kind | Token | Rules | Getting it |
+|------|-------|-------|------------|
+| `aip20` | The standard token from [`@aztec-foundation/aztec-standards`](https://github.com/AztecProtocol/aztec-standards) | Anyone may pay anyone | Faucet (Dripper). On testnet: `tUSDC` |
+| `inference-money` | The bridged USDC of [inference-money](https://github.com/Galactica-corp/inference-money) (`@galactica-net/inference-money-core`): the same token plus a merchant list | A user may only pay a listed merchant, so the server's account must be on the list; a request takes one payment | Bridged from Ethereum USDC. On testnet: `USDC`, at the address the SDK ships |
+
+Both build on `initialize_transfer_commitment(to, completer)`: the server opens a request, the client pays it, and the server verifies the same completion log. The adapters live in `packages/agent/src/aztec/tokens/` (exported from `@galactica-net/x402-agent/aztec`); `adapter.ts` says how to add a kind. Artifacts come from the two npm packages; no token source is checked in here.
+
+A server that cannot sell in its token (for inference-money: its account is not a listed merchant) fails at start, `RealFacilitatorAztecSigner.assertCanSell`, not at a buyer's first request.
 
 ## Aztec Version Compatibility
 
@@ -99,7 +106,16 @@ VERSION=6.0.0-rc.1 bash -i <(curl -sL https://install.aztec.network/6.0.0-rc.1)
 
 # Start a local Aztec network
 aztec start --local-network
+
+# Then set up one of the two tokens, start the server, and pay
+bun run setup:sandbox             # AIP-20: deploys a token and a faucet, mints to the payer
+bun run setup:sandbox:inference   # inference-money USDC: see below
+bun run server:sandbox
+bun run demo:sandbox
+bun run e2e:sandbox               # opens, pays and verifies a request, and checks the token's refusals
 ```
+
+`setup:sandbox:inference` deploys an inference-money bridge of its own on the local network (Permit2 and a mock USDC on the local L1, then portal, router, token and bridge), lists the server as a merchant, and funds the payer with a private deposit. It needs the local L1 RPC (`L1_RPC_URL`, default `http://localhost:8545`) and keeps the deployment in `inference-manifest.json` next to `deploy.json`. Both setups write the token to `deploy.json`; the server and client need no other switch.
 
 ## Anti-Replay Protection
 
@@ -152,7 +168,7 @@ graph LR
 | `@galactica-net/x402-mechanism` | x402 mechanism plugin — client scheme (sign + transfer) and facilitator scheme (verify + settle) |
 | `@galactica-net/x402-middleware` | Express-compatible middleware — 3-phase 402 flow, nonce lifecycle, payment verification |
 | `@galactica-net/x402-client` | Fetch wrapper — automatic 402 detection, prepare, payment, and retry |
-| `@galactica-net/x402-agent` | `aztec-x402` CLI for agents — wallet, spend-capped payments, funding page; PXE wallet + client signer |
+| `@galactica-net/x402-agent` | `aztec-x402` CLI for agents — wallet, spend-capped payments, funding page; PXE wallet, token adapters + client signer |
 | `@galactica-net/x402-demo` | Real Aztec demo + mock demo + replay attack test |
 
 ## Agent Skill
@@ -196,7 +212,7 @@ bun run demo:replay
 
 3. **`bun run demo`** — Alice pays $0.01 oUSD for a weather resource. The 3-phase flow: (1) client gets 402 with nonce, (2) client sends prepare request with sender address, server creates commitment, (3) client finalizes transfer using commitment, sends txHash to server. Server verifies and returns weather data.
 
-To charge the canonical testnet USDC that the agent CLI's faucet mints (instead of deploying oUSD), run `bun run setup:usdc` in place of `bun run setup`.
+To charge the canonical testnet `tUSDC` that the agent CLI's faucet mints (instead of deploying oUSD), run `bun run setup:tusdc` in place of `bun run setup`.
 
 4. **`bun run demo:replay`** — one sequential payment, then a concurrent replay stampede of a second payment (default 100) and a handful of mutated headers. Exactly one stampede request may succeed; everything else must be 402.
 
@@ -241,7 +257,8 @@ Each 402 challenge includes a server-generated UUID v7 nonce that acts as the in
 - [ ] Consume offchain messages when Aztec wires up partial note delivery
 - [x] Add `offchain_receive()` client-side hook when offchain messages are populated
 - [x] Switch to the published AIP-20 npm package
-- [ ] E2e integration test (setup + full payment flow in CI)
+- [ ] E2e integration test in CI (`bun run e2e:sandbox` runs it by hand against a local network)
+- [ ] Fund the agent with inference-money USDC from Ethereum (`aztec-x402 fund`); until then that token reaches a wallet only through inference-money's own tooling
 
 ## Development
 
@@ -295,6 +312,8 @@ Commit the updated `bun.lock` with the version bump. npm versions are immutable 
 |----------|---------|-------------|
 | `NODE_URL` | `https://v6.testnet.rpc.aztec-labs.com` on testnet, `http://localhost:8080` on the sandbox | Aztec node endpoint |
 | `AZTEC_NETWORK` | `aztec:sandbox` | CAIP-2 network id |
+| `TOKEN` | `aip20` | Which token `setup` prepares: `aip20` or `inference` (local network only) |
+| `L1_RPC_URL` | `http://localhost:8545` | Local network's L1, used by `TOKEN=inference` |
 | `USE_SPONSORED_FPC` | — | Set to `true` to use Sponsored FPC for gas fees on public networks |
 | `SERVER_URL` | `http://localhost:4402` | x402 demo server endpoint (client only) |
 | `REPLAY_CONCURRENCY` | `100` | Concurrent replay burst size (`demo:replay` only) |

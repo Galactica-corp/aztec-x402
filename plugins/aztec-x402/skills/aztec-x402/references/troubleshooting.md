@@ -13,6 +13,10 @@ Every failure prints `{"ok": false, "error": {"code": …, "message": …}}`. Fi
 | `not_x402` | no | The URL answers 402 without an x402 header — it uses another payment system. Tell the user. |
 | `no_matching_option` | no | The merchant does not accept payment on this network or scheme. `error.options` lists what it does accept. |
 | `unknown_token` / `token_not_found` | no | Token not in the registry or not deployed on this network. See networks.md to add one. |
+| `unsupported_token` | no | The address is a contract, but not one of the supported token kinds. Do not pay; tell the user. |
+| `merchant_not_listed` | no | The token (inference-money `USDC`) only pays merchants on its list, and this payee is not on it. Nothing to retry: tell the user the merchant cannot be paid in this token. |
+| `payment_refused` | no, not by this attempt | This payment request was already paid or is being paid (`error.reason`; `error.txHash` if known). Do not pay again: check `history`, then ask the merchant for the content or request the URL afresh. |
+| `token_refused` | no | The token contract's own rules refused the call (`error.rule`). Report the message. |
 | `prepare_failed` | no | The merchant could not create the commitment (its own tx failed or the nonce expired). Retry once; then report the merchant's message. |
 | `not_delivered` | **yes** | Paid, content not returned. `error.payment.txHash` is the proof of payment. Give it to the user; ask before paying again. |
 | `payment_uncertain` | maybe | The transfer was sent or about to be, but not confirmed in time. It still counts toward the 24h limit. Check `aztec-x402 balance` against the price; ask the user before retrying. |

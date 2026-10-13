@@ -62,7 +62,7 @@ export async function faucet(ctx: ResolvedContext, opts: { token?: string; amoun
   if (!token?.dripper) {
     const withFaucet = ctx.network.tokens.filter((t) => t.dripper).map((t) => t.symbol);
     throw new UsageError(
-      `No faucet for ${token ? `${token.symbol} (${token.name})` : "any token"} on ${ctx.network.name}.` +
+      `No faucet for ${token?.symbol ?? "any token"} on ${ctx.network.name}.` +
         (withFaucet.length > 0 ? ` Tokens with a faucet: ${withFaucet.join(", ")}.` : ""),
       "no_faucet",
     );
