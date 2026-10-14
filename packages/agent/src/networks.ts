@@ -52,7 +52,7 @@ export const NETWORKS: Record<string, NetworkConfig> = {
     name: "testnet",
     caip2: "aztec:testnet",
     // Public v6 testnet RPC.
-    nodeUrl: "https://v6.testnet.rpc.aztec-labs.com",
+    nodeUrl: "https://aztec-testnet.drpc.org",
     proverEnabled: true,
     sponsoredFees: true,
     l1ChainId: 11155111,

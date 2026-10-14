@@ -7,7 +7,7 @@ The CLI carries this registry built in; `aztec-x402 status` prints the live view
 | Item | Value |
 | --- | --- |
 | Aztec version | 6.0.0-rc.1 (SDK `@aztec-labs/*@6.0.0-rc.1`) |
-| Node RPC | `https://v6.testnet.rpc.aztec-labs.com`. Override with `AZTEC_X402_NODE_URL`. |
+| Node RPC | `https://aztec-testnet.drpc.org`. Override with `AZTEC_X402_NODE_URL`. |
 | x402 network id (CAIP-2) | `aztec:testnet` |
 | L1 | Sepolia (chain id 11155111), public RPC `https://ethereum-sepolia-rpc.publicnode.com` |
 | USDC (AIP-20, 6 decimals) | `0x292f992b7e5db72958bcf1978c54a698fa35967c85e6e5640a40fe5d6fbc39b0` |

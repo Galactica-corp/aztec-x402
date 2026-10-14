@@ -10,7 +10,7 @@
  * Usage: bun run packages/demo/src/aztec/setup.ts
  *
  * Environment variables:
- *   NODE_URL  — Aztec node URL (testnet default: https://v6.testnet.rpc.aztec-labs.com,
+ *   NODE_URL  — Aztec node URL (testnet default: https://aztec-testnet.drpc.org,
  *               sandbox default: http://localhost:8080)
  *   AZTEC_NETWORK — CAIP-2 network id (default: aztec:sandbox)
  *   USE_SPONSORED_FPC — set to "true" to pay fees via the canonical Sponsored FPC
@@ -34,7 +34,7 @@ import {
 } from "./token-faucet.js";
 import { isSandboxNetwork, shouldEnableProver } from "./network-config.js";
 
-const TESTNET_NODE_URL = "https://v6.testnet.rpc.aztec-labs.com";
+const TESTNET_NODE_URL = "https://aztec-testnet.drpc.org";
 const NETWORK = process.env.AZTEC_NETWORK ?? "aztec:sandbox";
 const NODE_URL =
   process.env.NODE_URL ??

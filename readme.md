@@ -64,7 +64,7 @@ The demo consumes the published `@aztec-foundation/aztec-standards@6.0.0-rc.1` t
 |-----------|---------|-------|
 | SDK (`@aztec-labs/aztec.js` etc.) | `6.0.0-rc.1` | Published under `@aztec-labs`; `l1-artifacts` stays `@aztec-foundation` |
 | AIP-20 token artifact | `@aztec-foundation/aztec-standards@6.0.0-rc.1` | Built against the same release |
-| Public testnet | `6.0.0-rc.1` | Rollup `0x8c2fb2A68A3d362ab1DE99E06F83f8903160BbD9`. Default RPC `https://v6.testnet.rpc.aztec-labs.com` |
+| Public testnet | `6.0.0-rc.1` | Rollup `0x8c2fb2A68A3d362ab1DE99E06F83f8903160BbD9`. Default RPC `https://aztec-testnet.drpc.org` |
 | Local network | `6.0.0-rc.1` | `aztec start --local-network` |
 
 ### API Notes
@@ -80,10 +80,10 @@ Notable points about the Aztec SDK surface this code relies on:
 
 ### Testnet Status
 
-The demo targets Aztec public testnet v6. The default node is `https://v6.testnet.rpc.aztec-labs.com`. Override with `NODE_URL` when you need a different node:
+The demo targets Aztec public testnet v6. The default node is `https://aztec-testnet.drpc.org`. Override with `NODE_URL` when you need a different node:
 
 ```bash
-NODE_URL=https://v6.testnet.rpc.aztec-labs.com \
+NODE_URL=https://aztec-testnet.drpc.org \
 AZTEC_NETWORK=aztec:testnet \
 USE_SPONSORED_FPC=true \
 bun run ./packages/demo/src/aztec/setup.ts
@@ -293,7 +293,7 @@ Commit the updated `bun.lock` with the version bump. npm versions are immutable 
 
 | Variable | Default | Description |
 |----------|---------|-------------|
-| `NODE_URL` | `https://v6.testnet.rpc.aztec-labs.com` on testnet, `http://localhost:8080` on the sandbox | Aztec node endpoint |
+| `NODE_URL` | `https://aztec-testnet.drpc.org` on testnet, `http://localhost:8080` on the sandbox | Aztec node endpoint |
 | `AZTEC_NETWORK` | `aztec:sandbox` | CAIP-2 network id |
 | `USE_SPONSORED_FPC` | — | Set to `true` to use Sponsored FPC for gas fees on public networks |
 | `SERVER_URL` | `http://localhost:4402` | x402 demo server endpoint (client only) |
