@@ -56,16 +56,17 @@ In this demo the API provider runs the facilitator inside its own server process
 
 This project uses the **AIP-20 standard token** from [`@aztec-foundation/aztec-standards`](https://github.com/AztecProtocol/aztec-standards). AIP-20 natively supports the `completer` parameter in `initialize_transfer_commitment(to, completer)`, enabling cross-party commitment flows where the server prepares and the client finalizes.
 
-The demo consumes the published `@aztec-foundation/aztec-standards@6.0.0-rc.1` token wrapper and artifact directly. There is no checked-in local token artifact or Noir source copy in this repo.
+The demo consumes the published `@aztec-foundation/aztec-standards@6.0.0-rc.1` token wrapper and artifact directly. There is no checked-in local token artifact or Noir source copy in this repo. That package has no `6.0.0-rc.3` publish; the SDK around it is `6.0.0-rc.3`, and canonical token addresses are the V3 addresses that SDK derives from these artifacts.
 
 ## Aztec Version Compatibility
 
 | Component | Version | Notes |
 |-----------|---------|-------|
-| SDK (`@aztec-labs/aztec.js` etc.) | `6.0.0-rc.1` | Published under `@aztec-labs`; `l1-artifacts` stays `@aztec-foundation` |
-| AIP-20 token artifact | `@aztec-foundation/aztec-standards@6.0.0-rc.1` | Built against the same release |
-| Public testnet | `6.0.0-rc.1` | Rollup `0x8c2fb2A68A3d362ab1DE99E06F83f8903160BbD9`. Default RPC `https://aztec-testnet.drpc.org` |
-| Local network | `6.0.0-rc.1` | `aztec start --local-network` |
+| SDK (`@aztec-labs/aztec.js` etc.) | `6.0.0-rc.3` | Published under `@aztec-labs` |
+| Foundation packages (`l1-artifacts`, `bb.js`) | `6.0.0-rc.6` | What `@aztec-labs/aztec.js@6.0.0-rc.3` depends on. The foundation line has no `6.0.0-rc.3` |
+| AIP-20 token artifact | `@aztec-foundation/aztec-standards@6.0.0-rc.1` | Latest publish. No `6.0.0-rc.3` yet; addresses below use the rc.3 separator |
+| Public testnet | `6.0.0-rc.3` | Contract-address separator is V3, so every contract address differs from rc.1. Default RPC `https://aztec-testnet.drpc.org` |
+| Local network | `6.0.0-rc.3` | `aztec start --local-network` |
 
 ### API Notes
 
@@ -80,7 +81,7 @@ Notable points about the Aztec SDK surface this code relies on:
 
 ### Testnet Status
 
-The demo targets Aztec public testnet v6. The default node is `https://aztec-testnet.drpc.org`. Override with `NODE_URL` when you need a different node:
+The demo targets Aztec public testnet. The default node is `https://aztec-testnet.drpc.org`. Override with `NODE_URL` when you need a different node. The contract-address domain separator is V3, so rc.1 contract addresses are not on this rollup:
 
 ```bash
 NODE_URL=https://aztec-testnet.drpc.org \
@@ -94,8 +95,8 @@ Confirm the Sponsored FPC is deployed on that rollup before relying on `USE_SPON
 ### Running a Local Network
 
 ```bash
-# Install Aztec 6.0.0-rc.1 tooling
-VERSION=6.0.0-rc.1 bash -i <(curl -sL https://install.aztec.network/6.0.0-rc.1)
+# Install Aztec 6.0.0-rc.3 tooling
+VERSION=6.0.0-rc.3 bash -i <(curl -sL https://install.aztec.network/6.0.0-rc.3)
 
 # Start a local Aztec network
 aztec start --local-network

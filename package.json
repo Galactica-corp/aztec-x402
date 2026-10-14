@@ -26,7 +26,7 @@
     "clean": "bun run --filter '*' clean",
     "setup": "NODE_URL=${NODE_URL:-https://aztec-testnet.drpc.org} AZTEC_NETWORK=aztec:testnet USE_SPONSORED_FPC=true bun run ./packages/demo/src/aztec/setup.ts",
     "server": "USE_SPONSORED_FPC=true bun run ./packages/demo/src/aztec/real-server.ts",
-    "setup:usdc": "NODE_URL=${NODE_URL:-https://aztec-testnet.drpc.org} AZTEC_NETWORK=aztec:testnet USE_SPONSORED_FPC=true TOKEN_ADDRESS=0x292f992b7e5db72958bcf1978c54a698fa35967c85e6e5640a40fe5d6fbc39b0 DRIPPER_ADDRESS=0x215737bae89da9d4703a162c1ccb9c3cae8f1f78b969956795e00d102e7f3e4a bun run ./packages/demo/src/aztec/setup.ts",
+    "setup:usdc": "NODE_URL=${NODE_URL:-https://aztec-testnet.drpc.org} AZTEC_NETWORK=aztec:testnet USE_SPONSORED_FPC=true TOKEN_ADDRESS=0x105e7bafa36de6e4946349c0aa2b3a724761168392d1fe2632ed5649ef1a5c22 DRIPPER_ADDRESS=0x1f230236880bf1a0604ae52f7ee111a94c4fa48cb271d2c3973ee1ac8911c49c bun run ./packages/demo/src/aztec/setup.ts",
     "setup:sandbox": "NODE_URL=http://localhost:8080 AZTEC_NETWORK=aztec:sandbox USE_SPONSORED_FPC=true bun run ./packages/demo/src/aztec/setup.ts",
     "demo": "bun run ./packages/demo/src/aztec/real-client.ts",
     "demo:sandbox": "SERVER_URL=http://localhost:4402 USE_SPONSORED_FPC=true bun run ./packages/demo/src/aztec/real-client.ts",
