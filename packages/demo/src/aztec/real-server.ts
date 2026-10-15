@@ -14,8 +14,7 @@ Sentry.init({
   tracesSampleRate: 1.0,
 });
 
-import { createAztecNodeClient } from "@aztec-labs/aztec.js/node";
-import { TokenRegistry } from "@galactica-net/x402-agent/aztec";
+import { createNodeClient, TokenRegistry } from "@galactica-net/x402-agent/aztec";
 import { createPXEWallet } from "./pxe-wallet.js";
 import { readFileSync } from "fs";
 import { join, dirname } from "path";
@@ -71,7 +70,7 @@ const proverEnabled = shouldEnableProver(NETWORK);
 
 // Connect to Aztec
 console.log(`Connecting to Aztec node at ${NODE_URL}...`);
-const node = createAztecNodeClient(NODE_URL);
+const node = createNodeClient(NODE_URL);
 const wallet = await createPXEWallet(node, {
   ephemeral: true,
   pxe: { proverEnabled },

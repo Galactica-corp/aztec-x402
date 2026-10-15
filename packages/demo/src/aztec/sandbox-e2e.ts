@@ -8,8 +8,7 @@
  *
  * Usage: bun run packages/demo/src/aztec/sandbox-e2e.ts
  */
-import { createAztecNodeClient } from "@aztec-labs/aztec.js/node";
-import { TokenRegistry } from "@galactica-net/x402-agent/aztec";
+import { createNodeClient, TokenRegistry } from "@galactica-net/x402-agent/aztec";
 import { readFileSync } from "fs";
 import { join, dirname } from "path";
 import { RealClientAztecSigner } from "./client-signer.js";
@@ -41,7 +40,7 @@ async function refusal(call: () => Promise<unknown>): Promise<string> {
   }
 }
 
-const node = createAztecNodeClient(config.nodeUrl);
+const node = createNodeClient(config.nodeUrl);
 const { wallet, paymentGate } = await openDemoWallet(node, shouldEnableProver(config.network), TOKEN);
 const keys = loadKeys(join(DATA_DIR, "keys.json"));
 const payer = await loadAccount(wallet, keys, "alice");

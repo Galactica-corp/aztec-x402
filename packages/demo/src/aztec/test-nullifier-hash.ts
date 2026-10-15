@@ -2,7 +2,7 @@
  * Compute the expected siloed validity commitment nullifier in TypeScript
  * and compare with what the prepare tx actually emitted.
  */
-import { createAztecNodeClient } from "@aztec-labs/aztec.js/node";
+import { createNodeClient } from "@galactica-net/x402-agent/aztec";
 import { AztecAddress } from "@aztec-labs/aztec.js/addresses";
 import { Fr } from "@aztec-labs/aztec.js/fields";
 import { TokenContract } from "@aztec-foundation/aztec-standards/dist/src/artifacts/Token.js";
@@ -26,7 +26,7 @@ const proverEnabled = shouldEnableProver(NETWORK);
 
 console.log("=== Nullifier Hash Comparison ===\n");
 
-const node = createAztecNodeClient(NODE_URL);
+const node = createNodeClient(NODE_URL);
 const wallet = await createPXEWallet(node, {
   ephemeral: true,
   pxe: { proverEnabled },

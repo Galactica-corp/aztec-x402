@@ -14,7 +14,7 @@
  * Usage: bun run packages/demo/src/aztec/setup.ts
  *
  * Environment variables:
- *   NODE_URL  — Aztec node URL (testnet default: https://v6.testnet.rpc.aztec-labs.com,
+ *   NODE_URL  — Aztec node URL (testnet default: https://aztec-testnet.drpc.org,
  *               sandbox default: http://localhost:8080)
  *   AZTEC_NETWORK — CAIP-2 network id (default: aztec:sandbox)
  *   USE_SPONSORED_FPC — set to "true" to pay fees via the canonical Sponsored FPC
@@ -24,7 +24,7 @@
  *   TOKEN_ADDRESS, DRIPPER_ADDRESS — reuse an existing token and its Dripper instead of
  *                       deploying oUSD (e.g. the canonical testnet tUSDC the agent CLI uses).
  */
-import { createAztecNodeClient } from "@aztec-labs/aztec.js/node";
+import { createNodeClient } from "@galactica-net/x402-agent/aztec";
 import { AztecAddress } from "@aztec-labs/aztec.js/addresses";
 import { TxStatus } from "@aztec-labs/aztec.js/tx";
 import { TokenContract } from "@aztec-foundation/aztec-standards/dist/src/artifacts/Token.js";
@@ -41,7 +41,7 @@ import {
 import { isSandboxNetwork, shouldEnableProver } from "./network-config.js";
 import { setupInferenceToken } from "./setup-inference.js";
 
-const TESTNET_NODE_URL = "https://v6.testnet.rpc.aztec-labs.com";
+const TESTNET_NODE_URL = "https://aztec-testnet.drpc.org";
 const NETWORK = process.env.AZTEC_NETWORK ?? "aztec:sandbox";
 const NODE_URL =
   process.env.NODE_URL ??
@@ -79,7 +79,7 @@ function extractSimulateValue(result: unknown): unknown {
 
 async function main() {
   console.log(`Connecting to Aztec node at ${NODE_URL}...`);
-  const node = createAztecNodeClient(NODE_URL);
+  const node = createNodeClient(NODE_URL);
   const proverEnabled = shouldEnableProver(NETWORK);
   const wallet = await createPXEWallet(node, {
     ephemeral: true,

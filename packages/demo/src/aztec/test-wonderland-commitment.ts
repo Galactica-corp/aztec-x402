@@ -8,7 +8,7 @@
  *
  * Prerequisites: run setup.ts first to deploy token contract.
  */
-import { createAztecNodeClient } from "@aztec-labs/aztec.js/node";
+import { createNodeClient } from "@galactica-net/x402-agent/aztec";
 import { AztecAddress } from "@aztec-labs/aztec.js/addresses";
 import { Fr } from "@aztec-labs/aztec.js/fields";
 import { TokenContract } from "@aztec-foundation/aztec-standards/dist/src/artifacts/Token.js";
@@ -49,7 +49,7 @@ console.log("=== Phase 0: Commitment Pattern Test (AIP-20 TokenContract) ===\n")
 
 // 1. Connect to Aztec node
 console.log(`Connecting to Aztec node at ${NODE_URL}...`);
-const node = createAztecNodeClient(NODE_URL);
+const node = createNodeClient(NODE_URL);
 const wallet = await createPXEWallet(node, {
   ephemeral: true,
   pxe: { proverEnabled },

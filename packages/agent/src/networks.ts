@@ -41,19 +41,19 @@ export interface NetworkConfig {
 }
 
 /**
- * Canonical aztec-standards 6.0.0-rc.1 Dripper and test USDC: universal deploys
- * with salt 1337, so the addresses depend only on the artifacts. The token's
- * minter is the Dripper (anyone may drip). Reproduce with `scripts/deploy-canonical.ts`.
+ * Canonical aztec-standards Dripper and test USDC: universal deploys with salt 1337
+ * under `DOM_SEP__CONTRACT_ADDRESS_V3`, so the addresses depend only on the artifacts.
+ * The token's minter is the Dripper (anyone may drip). Reproduce with `scripts/deploy-canonical.ts`.
  */
-const CANONICAL_DRIPPER = "0x215737bae89da9d4703a162c1ccb9c3cae8f1f78b969956795e00d102e7f3e4a";
-const CANONICAL_TEST_USDC = "0x292f992b7e5db72958bcf1978c54a698fa35967c85e6e5640a40fe5d6fbc39b0";
+const CANONICAL_DRIPPER = "0x0fda74986940cb777bfc0c52ed00b590cb05a267364c599d094d164ff1c795d4";
+const CANONICAL_TEST_USDC = "0x08b5c7a74699f9336cb31f42872d9f067f52aef34afe2d2eb34dd0c3e3b36358";
 
 export const NETWORKS: Record<string, NetworkConfig> = {
   testnet: {
     name: "testnet",
     caip2: "aztec:testnet",
-    // Public v6 testnet RPC.
-    nodeUrl: "https://v6.testnet.rpc.aztec-labs.com",
+    // Public testnet RPC. Contract addresses use the V3 separator, so rc.1 addresses are not on this rollup.
+    nodeUrl: "https://aztec-testnet.drpc.org",
     proverEnabled: true,
     sponsoredFees: true,
     l1ChainId: 11155111,

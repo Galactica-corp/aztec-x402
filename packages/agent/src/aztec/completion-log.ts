@@ -30,7 +30,7 @@ import { SiloedTag, Tag, type LogResult } from "@aztec-labs/stdlib/logs";
 
 /**
  * `aztec::note::partial_note::DOM_SEP__NOTE_COMPLETION_LOG_TAG` from aztec-nr
- * v6.0.0-rc.1. The TypeScript `DomainSeparator` enum no longer includes it, so
+ * v6.0.0-rc.3 (same value as rc.1). The TypeScript `DomainSeparator` enum does not include it, so
  * it is typed as a plain number, which `computeLogTag` still accepts.
  */
 const NOTE_COMPLETION_LOG_TAG: number = 3372669888;

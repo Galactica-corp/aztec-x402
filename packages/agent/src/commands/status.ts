@@ -1,4 +1,4 @@
-import { createAztecNodeClient } from "@aztec-labs/aztec.js/node";
+import { createNodeClient } from "../aztec/node-client.js";
 import { assertNodeVersion } from "../aztec/node-version.js";
 import { loadAccountKeys } from "../aztec/keystore.js";
 import { homeDir, readUserConfig, writeUserConfig, type ResolvedContext } from "../config.js";
@@ -12,7 +12,7 @@ export async function status(ctx: ResolvedContext) {
   const keys = loadAccountKeys(ctx.dataDir);
   let node: { reachable: boolean; blockNumber?: number; nodeVersion?: string; error?: string };
   try {
-    const client = createAztecNodeClient(ctx.network.nodeUrl);
+    const client = createNodeClient(ctx.network.nodeUrl);
     const [blockNumber, info] = await Promise.all([client.getBlockNumber(), client.getNodeInfo()]);
     assertNodeVersion(info.nodeVersion, ctx.network.nodeUrl);
     node = { reachable: true, blockNumber, nodeVersion: info.nodeVersion };

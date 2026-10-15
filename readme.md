@@ -61,20 +61,11 @@ A merchant picks the token it is paid in by setting a route's `asset` to the tok
 | `aip20` | The standard token from [`@aztec-foundation/aztec-standards`](https://github.com/AztecProtocol/aztec-standards) | Anyone may pay anyone | Faucet (Dripper). On testnet: `tUSDC` |
 | `inference-money` | The bridged USDC of [inference-money](https://github.com/Galactica-corp/inference-money) (`@galactica-net/inference-money-core`): the same token plus a merchant list | A user may only pay a listed merchant, so the server's account must be on the list; a request takes one payment | Bridged from Ethereum USDC. On testnet: `USDC`, at the address the SDK ships |
 
-Both build on `initialize_transfer_commitment(to, completer)`: the server opens a request, the client pays it, and the server verifies the same completion log. The adapters live in `packages/agent/src/aztec/tokens/` (exported from `@galactica-net/x402-agent/aztec`); `adapter.ts` says how to add a kind. Artifacts come from the two npm packages; no token source is checked in here.
+Both build on `initialize_transfer_commitment(to, completer)`: the server opens a request, the client pays it, and the server verifies the same completion log. The adapters live in `packages/agent/src/aztec/tokens/` (exported from `@galactica-net/x402-agent/aztec`); `adapter.ts` says how to add a kind. Artifacts come from the two npm packages; no token source is checked in here. The canonical `tUSDC` address is the V3 address the SDK derives from the aztec-standards artifact.
 
 A server that cannot sell in its token (for inference-money: its account is not a listed merchant) fails at start, `RealFacilitatorAztecSigner.assertCanSell`, not at a buyer's first request.
 
-## Aztec Version Compatibility
-
-| Component | Version | Notes |
-|-----------|---------|-------|
-| SDK (`@aztec-labs/aztec.js` etc.) | `6.0.0-rc.1` | Published under `@aztec-labs`; `l1-artifacts` stays `@aztec-foundation` |
-| AIP-20 token artifact | `@aztec-foundation/aztec-standards@6.0.0-rc.1` | Built against the same release |
-| Public testnet | `6.0.0-rc.1` | Rollup `0x8c2fb2A68A3d362ab1DE99E06F83f8903160BbD9`. Default RPC `https://v6.testnet.rpc.aztec-labs.com` |
-| Local network | `6.0.0-rc.1` | `aztec start --local-network` |
-
-### API Notes
+## API Notes
 
 Notable points about the Aztec SDK surface this code relies on:
 
@@ -85,12 +76,12 @@ Notable points about the Aztec SDK surface this code relies on:
 - **Log lookups** go through `getPrivateLogsByTags` / `getPublicLogsByTags`, which take a query object and return `LogResult[][]`
 - **Contract artifacts** must match the SDK/network generation
 
-### Testnet Status
+## Testnet Status
 
-The demo targets Aztec public testnet v6. The default node is `https://v6.testnet.rpc.aztec-labs.com`. Override with `NODE_URL` when you need a different node:
+The demo targets Aztec public testnet. The default node is `https://aztec-testnet.drpc.org`. Override with `NODE_URL` when you need a different node. The contract-address domain separator is V3, so rc.1 contract addresses are not on this rollup:
 
 ```bash
-NODE_URL=https://v6.testnet.rpc.aztec-labs.com \
+NODE_URL=https://aztec-testnet.drpc.org \
 AZTEC_NETWORK=aztec:testnet \
 USE_SPONSORED_FPC=true \
 bun run ./packages/demo/src/aztec/setup.ts
@@ -98,11 +89,11 @@ bun run ./packages/demo/src/aztec/setup.ts
 
 Confirm the Sponsored FPC is deployed on that rollup before relying on `USE_SPONSORED_FPC`. The v6 node image sets `SPONSORED_FPC` off for testnet and on for the local network.
 
-### Running a Local Network
+## Running a Local Network
 
 ```bash
-# Install Aztec 6.0.0-rc.1 tooling
-VERSION=6.0.0-rc.1 bash -i <(curl -sL https://install.aztec.network/6.0.0-rc.1)
+# Install Aztec 6.0.0-rc.3 tooling
+VERSION=6.0.0-rc.3 bash -i <(curl -sL https://install.aztec.network/6.0.0-rc.3)
 
 # Start a local Aztec network
 aztec start --local-network
@@ -310,7 +301,7 @@ Commit the updated `bun.lock` with the version bump. npm versions are immutable 
 
 | Variable | Default | Description |
 |----------|---------|-------------|
-| `NODE_URL` | `https://v6.testnet.rpc.aztec-labs.com` on testnet, `http://localhost:8080` on the sandbox | Aztec node endpoint |
+| `NODE_URL` | `https://aztec-testnet.drpc.org` on testnet, `http://localhost:8080` on the sandbox | Aztec node endpoint |
 | `AZTEC_NETWORK` | `aztec:sandbox` | CAIP-2 network id |
 | `TOKEN` | `aip20` | Which token `setup` prepares: `aip20` or `inference` (local network only) |
 | `L1_RPC_URL` | `http://localhost:8545` | Local network's L1, used by `TOKEN=inference` |

@@ -6,9 +6,8 @@
  *
  * Usage: bun run packages/demo/src/aztec/real-client.ts
  */
-import { createAztecNodeClient } from "@aztec-labs/aztec.js/node";
+import { createNodeClient, TokenRegistry } from "@galactica-net/x402-agent/aztec";
 import { AztecAddress } from "@aztec-labs/aztec.js/addresses";
-import { TokenRegistry } from "@galactica-net/x402-agent/aztec";
 import { readFileSync } from "fs";
 import { join, dirname } from "path";
 
@@ -41,7 +40,7 @@ const proverEnabled = shouldEnableProver(NETWORK);
 
 // Connect to Aztec
 console.log(`Connecting to Aztec node at ${NODE_URL}...`);
-const node = createAztecNodeClient(NODE_URL);
+const node = createNodeClient(NODE_URL);
 const { wallet, paymentGate } = await openDemoWallet(node, proverEnabled, config.tokenAddress);
 
 // Get Alice's wallet (the payer)

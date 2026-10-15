@@ -1,4 +1,5 @@
 export { PXEWallet, createPXEWallet } from "./pxe-wallet.js";
+export { createNodeClient } from "./node-client.js";
 export { RealClientAztecSigner, type TokenSource } from "./client-signer.js";
 export { verifyCompletion, type CompletionLogNode } from "./completion-log.js";
 export type { TokenAdapter, TokenContext, TokenKind } from "./tokens/adapter.js";

@@ -1,6 +1,6 @@
 import { CliError } from "../errors.js";
 
-/** Major Aztec version this client is built against (`@aztec-labs/*@6.0.0-rc.1`). */
+/** Major Aztec version this client is built against (`@aztec-labs/*@6.0.0-rc.3`). */
 export const EXPECTED_AZTEC_MAJOR = 6;
 
 /**

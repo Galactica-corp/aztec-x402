@@ -18,8 +18,7 @@
  * Usage:
  *   bun run packages/demo/src/aztec/test-concurrent-verify.ts
  */
-import { createAztecNodeClient } from "@aztec-labs/aztec.js/node";
-import { TokenRegistry } from "@galactica-net/x402-agent/aztec";
+import { createNodeClient, TokenRegistry } from "@galactica-net/x402-agent/aztec";
 import { readFileSync } from "fs";
 import { join, dirname } from "path";
 import { loadKeys, loadAccount, openDemoWallet, setupSponsoredPayment } from "./wallet-manager.js";
@@ -57,7 +56,7 @@ console.log(`Node: ${NODE_URL}`);
 console.log(`Token: ${TOKEN_ADDRESS}\n`);
 
 console.log("Connecting...");
-const node = createAztecNodeClient(NODE_URL);
+const node = createNodeClient(NODE_URL);
 const { wallet, paymentGate } = await openDemoWallet(node, proverEnabled, TOKEN_ADDRESS);
 
 const paymentMethod = USE_SPONSORED_FPC

@@ -6,8 +6,7 @@
  * then stamps a second prepared payment onto many unpaid resources.
  * Mutated headers must all fail.
  */
-import { createAztecNodeClient } from "@aztec-labs/aztec.js/node";
-import { TokenRegistry } from "@galactica-net/x402-agent/aztec";
+import { createNodeClient, TokenRegistry } from "@galactica-net/x402-agent/aztec";
 import { readFileSync } from "fs";
 import { join, dirname } from "path";
 import { ExactAztecClientScheme } from "@galactica-net/x402-mechanism/exact/client";
@@ -44,7 +43,7 @@ const RUN_ID = crypto.randomUUID().slice(0, 8);
 const NODE_URL = config.nodeUrl;
 const isRemoteNetwork = config.network !== "aztec:sandbox";
 
-const node = createAztecNodeClient(NODE_URL);
+const node = createNodeClient(NODE_URL);
 const { wallet, paymentGate } = await openDemoWallet(node, isRemoteNetwork, config.tokenAddress);
 
 const keys = loadKeys(KEYS_PATH);
