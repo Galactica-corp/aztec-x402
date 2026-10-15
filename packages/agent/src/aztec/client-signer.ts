@@ -14,10 +14,10 @@
  * 3. Client calls finalizePayment() → transfer_private_to_commitment()
  */
 import type { ClientAztecSigner } from "@galactica-net/x402-core";
-import { AztecAddress } from "@aztec/aztec.js/addresses";
-import type { AztecAddressLike, FieldLike, OptionLike } from "@aztec/aztec.js/abi";
-import { Fr } from "@aztec/aztec.js/fields";
-import { TxHash, TxStatus } from "@aztec/aztec.js/tx";
+import { AztecAddress } from "@aztec-labs/aztec.js/addresses";
+import type { AztecAddressLike, FieldLike, OptionLike } from "@aztec-labs/aztec.js/abi";
+import { Fr } from "@aztec-labs/aztec.js/fields";
+import { TxHash, TxStatus } from "@aztec-labs/aztec.js/tx";
 
 interface AztecAccount {
   address: AztecAddress;

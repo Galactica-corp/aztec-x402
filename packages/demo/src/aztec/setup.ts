@@ -10,16 +10,17 @@
  * Usage: bun run packages/demo/src/aztec/setup.ts
  *
  * Environment variables:
- *   NODE_URL  — Aztec node URL (default: http://localhost:8080)
+ *   NODE_URL  — Aztec node URL (testnet default: https://aztec-testnet.drpc.org,
+ *               sandbox default: http://localhost:8080)
  *   AZTEC_NETWORK — CAIP-2 network id (default: aztec:sandbox)
  *   USE_SPONSORED_FPC — set to "true" to pay fees via the canonical Sponsored FPC
  *                       (local-network prints its address at startup; same on testnet).
  *   TOKEN_ADDRESS, DRIPPER_ADDRESS — reuse an existing token and its Dripper instead of
  *                       deploying oUSD (e.g. the canonical testnet USDC the agent CLI uses).
  */
-import { createAztecNodeClient } from "@aztec/aztec.js/node";
-import { AztecAddress } from "@aztec/aztec.js/addresses";
-import { TxStatus } from "@aztec/aztec.js/tx";
+import { createNodeClient } from "@galactica-net/x402-agent/aztec";
+import { AztecAddress } from "@aztec-labs/aztec.js/addresses";
+import { TxStatus } from "@aztec-labs/aztec.js/tx";
 import { TokenContract } from "@aztec-foundation/aztec-standards/dist/src/artifacts/Token.js";
 import { DripperContract } from "@aztec-foundation/aztec-standards/dist/src/artifacts/Dripper.js";
 import { unwrapAztecSdkResult } from "@galactica-net/x402-core";
@@ -33,8 +34,11 @@ import {
 } from "./token-faucet.js";
 import { isSandboxNetwork, shouldEnableProver } from "./network-config.js";
 
-const NODE_URL = process.env.NODE_URL ?? "http://localhost:8080";
+const TESTNET_NODE_URL = "https://aztec-testnet.drpc.org";
 const NETWORK = process.env.AZTEC_NETWORK ?? "aztec:sandbox";
+const NODE_URL =
+  process.env.NODE_URL ??
+  (NETWORK === "aztec:testnet" ? TESTNET_NODE_URL : "http://localhost:8080");
 const USE_SPONSORED_FPC = process.env.USE_SPONSORED_FPC === "true";
 const TOKEN_NAME = "Overcast USD";
 const TOKEN_SYMBOL = "oUSD";
@@ -66,7 +70,7 @@ function extractSimulateValue(result: unknown): unknown {
 
 async function main() {
   console.log(`Connecting to Aztec node at ${NODE_URL}...`);
-  const node = createAztecNodeClient(NODE_URL);
+  const node = createNodeClient(NODE_URL);
   const proverEnabled = shouldEnableProver(NETWORK);
   const wallet = await createPXEWallet(node, {
     ephemeral: true,

@@ -5,7 +5,7 @@
  * Callers then invoke `drip_to_private(token, amount)` to mint into their own
  * private balance — Alice does not need to be the minter.
  */
-import { AztecAddress } from "@aztec/aztec.js/addresses";
+import { AztecAddress } from "@aztec-labs/aztec.js/addresses";
 
 /** Args for Token `constructor_with_minter` when the Dripper is the minter. */
 export function tokenConstructorWithDripperArgs(

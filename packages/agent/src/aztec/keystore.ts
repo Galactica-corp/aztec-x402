@@ -6,7 +6,7 @@
  */
 import { chmodSync, existsSync, readFileSync, writeFileSync } from "fs";
 import { join } from "path";
-import { Fr, GrumpkinScalar } from "@aztec/aztec.js/fields";
+import { Fr, GrumpkinScalar } from "@aztec-labs/aztec.js/fields";
 
 export interface AccountKeys {
   /** Account contract flavour; initializerless accounts need no deploy tx. */
