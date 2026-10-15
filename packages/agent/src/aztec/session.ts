@@ -2,7 +2,7 @@
  * An open wallet session: node client, persistent PXE, the agent's account,
  * and fee payment. Every command that touches private state goes through here.
  */
-import { createAztecNodeClient, type AztecNode } from "@aztec-labs/aztec.js/node";
+import type { AztecNode } from "@aztec-labs/aztec.js/node";
 import { AztecAddress } from "@aztec-labs/aztec.js/addresses";
 import { Fr, GrumpkinScalar } from "@aztec-labs/aztec.js/fields";
 import { SponsoredFeePaymentMethod } from "@aztec-labs/aztec.js/fee";
@@ -13,6 +13,7 @@ import { SponsoredFPCContractArtifact } from "@aztec-labs/noir-contracts.js/Spon
 import { SPONSORED_FPC_SALT } from "@aztec-labs/constants";
 import { TokenContract } from "@aztec-foundation/aztec-standards/dist/src/artifacts/Token.js";
 import { join } from "path";
+import { createNodeClient } from "./node-client.js";
 import { createPXEWallet, type PXEWallet } from "./pxe-wallet.js";
 import { loadAccountKeys, type AccountKeys } from "./keystore.js";
 import type { NetworkConfig } from "../networks.js";
@@ -41,7 +42,7 @@ export async function openWallet(network: NetworkConfig, dataDir: string): Promi
   node: AztecNode;
   wallet: PXEWallet;
 }> {
-  const node = createAztecNodeClient(network.nodeUrl);
+  const node = createNodeClient(network.nodeUrl);
   // Fail fast with a clear code: the PXE needs the node for everything, even key derivation.
   let info;
   try {

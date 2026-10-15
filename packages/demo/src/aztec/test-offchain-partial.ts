@@ -13,7 +13,7 @@
  *
  * Prerequisites: Aztec sandbox running v4.1.0-nightly on localhost:8080
  */
-import { createAztecNodeClient } from "@aztec-labs/aztec.js/node";
+import { createNodeClient } from "@galactica-net/x402-agent/aztec";
 import { Fr } from "@aztec-labs/aztec.js/fields";
 import { AztecAddress } from "@aztec-labs/aztec.js/addresses";
 import { TokenContract, TokenContractArtifact } from "@aztec-labs/noir-contracts.js/Token";
@@ -65,7 +65,7 @@ console.log(`Node: ${NODE_URL}`);
 
 // 1. Connect
 console.log("Connecting...");
-const node = createAztecNodeClient(NODE_URL);
+const node = createNodeClient(NODE_URL);
 const info = await node.getNodeInfo();
 console.log(`Node version: ${info.nodeVersion}\n`);
 

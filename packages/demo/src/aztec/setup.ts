@@ -18,7 +18,7 @@
  *   TOKEN_ADDRESS, DRIPPER_ADDRESS — reuse an existing token and its Dripper instead of
  *                       deploying oUSD (e.g. the canonical testnet USDC the agent CLI uses).
  */
-import { createAztecNodeClient } from "@aztec-labs/aztec.js/node";
+import { createNodeClient } from "@galactica-net/x402-agent/aztec";
 import { AztecAddress } from "@aztec-labs/aztec.js/addresses";
 import { TxStatus } from "@aztec-labs/aztec.js/tx";
 import { TokenContract } from "@aztec-foundation/aztec-standards/dist/src/artifacts/Token.js";
@@ -70,7 +70,7 @@ function extractSimulateValue(result: unknown): unknown {
 
 async function main() {
   console.log(`Connecting to Aztec node at ${NODE_URL}...`);
-  const node = createAztecNodeClient(NODE_URL);
+  const node = createNodeClient(NODE_URL);
   const proverEnabled = shouldEnableProver(NETWORK);
   const wallet = await createPXEWallet(node, {
     ephemeral: true,
