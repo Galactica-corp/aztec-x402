@@ -58,17 +58,7 @@ This project uses the **AIP-20 standard token** from [`@aztec-foundation/aztec-s
 
 The demo consumes the published `@aztec-foundation/aztec-standards` token wrapper and artifact directly. There is no checked-in local token artifact or Noir source copy in this repo. Canonical token addresses are the V3 addresses that SDK derives from these artifacts.
 
-## Aztec Version Compatibility
-
-| Component | Version | Notes |
-|-----------|---------|-------|
-| SDK (`@aztec-labs/aztec.js` etc.) | `6.0.0-rc.3` | Published under `@aztec-labs` |
-| Foundation packages (`l1-artifacts`, `bb.js`) | `6.0.0-rc.6` | What `@aztec-labs/aztec.js@6.0.0-rc.3` depends on. Those packages publish `6.0.0-rc.6` |
-| AIP-20 token artifact | `@aztec-foundation/aztec-standards@6.0.0-rc.3` | Canonical Dripper and USDC are the V3 universal deploys of these artifacts |
-| Public testnet | `6.0.0-rc.3` | Contract-address separator is V3, so every contract address differs from rc.1. Default RPC `https://aztec-testnet.drpc.org` |
-| Local network | `6.0.0-rc.3` | `aztec start --local-network` |
-
-### API Notes
+## API Notes
 
 Notable points about the Aztec SDK surface this code relies on:
 
@@ -79,7 +69,7 @@ Notable points about the Aztec SDK surface this code relies on:
 - **Log lookups** go through `getPrivateLogsByTags` / `getPublicLogsByTags`, which take a query object and return `LogResult[][]`
 - **Contract artifacts** must match the SDK/network generation
 
-### Testnet Status
+## Testnet Status
 
 The demo targets Aztec public testnet. The default node is `https://aztec-testnet.drpc.org`. Override with `NODE_URL` when you need a different node. The contract-address domain separator is V3, so rc.1 contract addresses are not on this rollup:
 
@@ -92,7 +82,7 @@ bun run ./packages/demo/src/aztec/setup.ts
 
 Confirm the Sponsored FPC is deployed on that rollup before relying on `USE_SPONSORED_FPC`. The v6 node image sets `SPONSORED_FPC` off for testnet and on for the local network.
 
-### Running a Local Network
+## Running a Local Network
 
 ```bash
 # Install Aztec 6.0.0-rc.3 tooling
