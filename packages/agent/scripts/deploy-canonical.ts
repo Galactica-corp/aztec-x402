@@ -7,8 +7,8 @@
  * is the Dripper, so anyone can drip testnet USDC to themselves.
  *
  * Addresses printed here (and hard-coded in src/networks.ts) follow the
- * 6.0.0-rc.3 SDK address derivation (contract-address separator V3) applied
- * to the published aztec-standards 6.0.0-rc.1 artifacts.
+ * installed SDK address derivation (contract-address separator V3) applied
+ * to the published aztec-standards artifacts.
  *
  * Safe to re-run: contracts already on-chain are skipped. Fees are paid from
  * the agent wallet of the selected network via Sponsored FPC.

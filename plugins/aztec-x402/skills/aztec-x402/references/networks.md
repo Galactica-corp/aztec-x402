@@ -10,11 +10,11 @@ The CLI carries this registry built in; `aztec-x402 status` prints the live view
 | Node RPC | `https://aztec-testnet.drpc.org`. Override with `AZTEC_X402_NODE_URL`. |
 | x402 network id (CAIP-2) | `aztec:testnet` |
 | L1 | Sepolia (chain id 11155111), public RPC `https://ethereum-sepolia-rpc.publicnode.com` |
-| USDC (AIP-20, 6 decimals) | `0x105e7bafa36de6e4946349c0aa2b3a724761168392d1fe2632ed5649ef1a5c22` |
-| USDC faucet (Dripper, anyone may mint) | `0x1f230236880bf1a0604ae52f7ee111a94c4fa48cb271d2c3973ee1ac8911c49c` |
+| USDC (AIP-20, 6 decimals) | `0x08b5c7a74699f9336cb31f42872d9f067f52aef34afe2d2eb34dd0c3e3b36358` |
+| USDC faucet (Dripper, anyone may mint) | `0x0fda74986940cb777bfc0c52ed00b590cb05a267364c599d094d164ff1c795d4` |
 | Sponsored FPC (pays fees) | `0x2adfb70e860909f0db8268b3fec80bce52a94559963444f5c0341816b8412130` |
 
-USDC and the Dripper are the canonical `aztec-standards` universal deploys (salt 1337). Their addresses are what `@aztec-labs/aztec.js@6.0.0-rc.3` derives from the `@aztec-foundation/aztec-standards@6.0.0-rc.1` artifacts under `DOM_SEP__CONTRACT_ADDRESS_V3` (that package has no rc.3 publish). They still have to be deployed on the rollup before they can be used. The testnet node image does not deploy the Sponsored FPC (`SPONSORED_FPC: false`); the local network does. The Sponsored FPC address is the rc.3 `SponsoredFPC` artifact at `SPONSORED_FPC_SALT`.
+USDC and the Dripper are the canonical `aztec-standards` universal deploys (salt 1337) under `DOM_SEP__CONTRACT_ADDRESS_V3`. They still have to be deployed on the rollup before they can be used. The testnet node image does not deploy the Sponsored FPC (`SPONSORED_FPC: false`); the local network does. The Sponsored FPC address is the `SponsoredFPC` artifact at `SPONSORED_FPC_SALT`.
 
 L1 contracts (Fee Juice portal, fee asset, its faucet) come from the node at run time: `curl -s -X POST <node RPC> -H 'content-type: application/json' -d '{"jsonrpc":"2.0","method":"aztec_getNodeInfo","params":[],"id":1}'` → `result.l1ContractAddresses`.
 
@@ -48,7 +48,7 @@ Both are served by the reference merchant in the aztec-x402 repo: `bun run setup
 
 ## Building transactions without the CLI
 
-- Token artifact: `@aztec-foundation/aztec-standards@6.0.0-rc.1`, `dist/src/artifacts/Token.js` (`TokenContract`), used with `@aztec-labs/*@6.0.0-rc.3`. Methods used: `balance_of_private(owner)` (utility), `transfer_private_to_commitment(from, commitment, amount, 0)`, `offchain_receive(messages)` when the 402 carries `extra.offchainMessage`.
+- Token artifact: `@aztec-foundation/aztec-standards`, `dist/src/artifacts/Token.js` (`TokenContract`). Methods used: `balance_of_private(owner)` (utility), `transfer_private_to_commitment(from, commitment, amount, 0)`, `offchain_receive(messages)` when the 402 carries `extra.offchainMessage`.
 - Faucet: `Dripper.js` → `drip_to_private(token, amount)`.
 - Accounts: initializerless Schnorr (`createSchnorrInitializerlessAccount`), usable without a deploy transaction.
 - Wallet: use the PXE wallet from `@galactica-net/x402-agent/aztec` (`createPXEWallet`). Aztec's stock `EmbeddedWallet` simulates through stub accounts, which breaks the commitment flow on the merchant side.

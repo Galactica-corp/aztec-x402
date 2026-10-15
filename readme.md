@@ -56,15 +56,15 @@ In this demo the API provider runs the facilitator inside its own server process
 
 This project uses the **AIP-20 standard token** from [`@aztec-foundation/aztec-standards`](https://github.com/AztecProtocol/aztec-standards). AIP-20 natively supports the `completer` parameter in `initialize_transfer_commitment(to, completer)`, enabling cross-party commitment flows where the server prepares and the client finalizes.
 
-The demo consumes the published `@aztec-foundation/aztec-standards@6.0.0-rc.1` token wrapper and artifact directly. There is no checked-in local token artifact or Noir source copy in this repo. That package has no `6.0.0-rc.3` publish; the SDK around it is `6.0.0-rc.3`, and canonical token addresses are the V3 addresses that SDK derives from these artifacts.
+The demo consumes the published `@aztec-foundation/aztec-standards` token wrapper and artifact directly. There is no checked-in local token artifact or Noir source copy in this repo. Canonical token addresses are the V3 addresses that SDK derives from these artifacts.
 
 ## Aztec Version Compatibility
 
 | Component | Version | Notes |
 |-----------|---------|-------|
 | SDK (`@aztec-labs/aztec.js` etc.) | `6.0.0-rc.3` | Published under `@aztec-labs` |
-| Foundation packages (`l1-artifacts`, `bb.js`) | `6.0.0-rc.6` | What `@aztec-labs/aztec.js@6.0.0-rc.3` depends on. The foundation line has no `6.0.0-rc.3` |
-| AIP-20 token artifact | `@aztec-foundation/aztec-standards@6.0.0-rc.1` | Latest publish. No `6.0.0-rc.3` yet; addresses below use the rc.3 separator |
+| Foundation packages (`l1-artifacts`, `bb.js`) | `6.0.0-rc.6` | What `@aztec-labs/aztec.js@6.0.0-rc.3` depends on. Those packages publish `6.0.0-rc.6` |
+| AIP-20 token artifact | `@aztec-foundation/aztec-standards@6.0.0-rc.3` | Canonical Dripper and USDC are the V3 universal deploys of these artifacts |
 | Public testnet | `6.0.0-rc.3` | Contract-address separator is V3, so every contract address differs from rc.1. Default RPC `https://aztec-testnet.drpc.org` |
 | Local network | `6.0.0-rc.3` | `aztec start --local-network` |
 

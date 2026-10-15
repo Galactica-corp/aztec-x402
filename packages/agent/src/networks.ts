@@ -40,14 +40,12 @@ export interface NetworkConfig {
 }
 
 /**
- * Canonical aztec-standards Dripper and USDC under the 6.0.0-rc.3 address
- * derivation (`DOM_SEP__CONTRACT_ADDRESS_V3`): universal deploys with salt
- * 1337. The standards package is still 6.0.0-rc.1 (no rc.3 publish); these
- * addresses are what the rc.3 SDK computes from those artifacts. USDC's minter
- * is the Dripper (anyone may drip). Reproduce with `scripts/deploy-canonical.ts`.
+ * Canonical aztec-standards Dripper and USDC: universal deploys with salt 1337
+ * under `DOM_SEP__CONTRACT_ADDRESS_V3`. USDC's minter is the Dripper (anyone may drip).
+ * Reproduce with `scripts/deploy-canonical.ts`.
  */
-const CANONICAL_DRIPPER = "0x1f230236880bf1a0604ae52f7ee111a94c4fa48cb271d2c3973ee1ac8911c49c";
-const CANONICAL_USDC = "0x105e7bafa36de6e4946349c0aa2b3a724761168392d1fe2632ed5649ef1a5c22";
+const CANONICAL_DRIPPER = "0x0fda74986940cb777bfc0c52ed00b590cb05a267364c599d094d164ff1c795d4";
+const CANONICAL_USDC = "0x08b5c7a74699f9336cb31f42872d9f067f52aef34afe2d2eb34dd0c3e3b36358";
 
 export const NETWORKS: Record<string, NetworkConfig> = {
   testnet: {
