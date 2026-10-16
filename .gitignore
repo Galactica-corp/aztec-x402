@@ -9,3 +9,4 @@ coverage/
 store/
 deploy.json
 keys.json
+inference-manifest.json

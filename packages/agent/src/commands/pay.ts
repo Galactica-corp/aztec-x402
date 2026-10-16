@@ -4,8 +4,9 @@
  *
  * Pay flow:
  *   1. Plain request. Not 402 → return the response, nothing paid.
- *   2. Policy check on the 402 challenge — before the merchant is asked to
- *      prepare (prepare is an on-chain tx the merchant pays for).
+ *   2. Policy check on the 402 challenge, then the token's own rules (e.g.
+ *      the payee must be a listed merchant) — before the merchant is asked
+ *      to prepare (prepare is an on-chain tx the merchant pays for).
  *   3. wrapFetchWithPayment runs prepare → transfer_private_to_commitment →
  *      retry with PAYMENT-SIGNATURE. The prepared challenge is re-checked
  *      right before any money moves.
@@ -16,6 +17,7 @@ import { wrapFetchWithPayment } from "@galactica-net/x402-client";
 import { ExactAztecClientScheme } from "@galactica-net/x402-mechanism/exact/client";
 import type { PaymentRequirements, SchemeNetworkClient } from "@galactica-net/x402-mechanism";
 import { SCHEME, parseAztecPaymentExtra } from "@galactica-net/x402-core";
+import { AztecAddress } from "@aztec-labs/aztec.js/addresses";
 import { RealClientAztecSigner } from "../aztec/client-signer.js";
 import { openSession, tokenAt } from "../aztec/session.js";
 import { sameAddress, type ResolvedContext } from "../config.js";
@@ -146,9 +148,10 @@ export async function pay(
   progress(`Price: ${price} ${token.symbol} to ${requirement.payTo} — within policy.`);
 
   progress("Opening wallet and syncing private state...");
-  const session = await openSession(ctx.network, ctx.dataDir);
-  const tokenContract = await tokenAt(session, token.address);
-  const signer = new RealClientAztecSigner(session.account, tokenContract, { fee: session.fee });
+  const session = await openSession(ctx.network, ctx.dataDir, { payingWith: token.address });
+  // Refuse what the token's own rules would, also before the merchant prepares.
+  await (await tokenAt(session, token.address)).preflight(AztecAddress.fromStringUnsafe(requirement.payTo));
+  const signer = new RealClientAztecSigner(session.account, session.tokens);
   const inner = new ExactAztecClientScheme(signer);
 
   let txHash: string | undefined;

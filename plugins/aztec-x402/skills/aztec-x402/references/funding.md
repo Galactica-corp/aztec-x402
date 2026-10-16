@@ -32,7 +32,7 @@ While `fund` or `fund claim` runs it holds the wallet database: run no other wal
 
 Fee Juice deposits are public on L1 by protocol design: the amount and your Aztec address are visible on Sepolia. Payments you make afterwards stay private.
 
-A stablecoin route (USDC: Ethereum → private USDC on Aztec, one Permit2 signature) becomes available with the Aztec 6 testnet. Until then, test USDC comes from `aztec-x402 faucet`.
+A stablecoin route (USDC: Ethereum → private USDC on Aztec, one Permit2 signature) is not in the CLI yet. Until then, the test token `tUSDC` comes from `aztec-x402 faucet`.
 
 ## Recovering
 
