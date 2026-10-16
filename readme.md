@@ -65,6 +65,8 @@ Both build on `initialize_transfer_commitment(to, completer)`: the server opens 
 
 A server that cannot sell in its token (for inference-money: its account is not a listed merchant) fails at start, `RealFacilitatorAztecSigner.assertCanSell`, not at a buyer's first request.
 
+Merchants moving from AIP-20 to the inference-money USDC (alone or next to AIP-20): [docs/inference-money-merchant-guide.md](docs/inference-money-merchant-guide.md).
+
 ## API Notes
 
 Notable points about the Aztec SDK surface this code relies on:
