@@ -42,7 +42,7 @@
     "@aztec-labs/stdlib": "6.0.0-rc.3",
     "@aztec-labs/wallet-sdk": "6.0.0-rc.3",
     "@aztec-labs/wallets": "6.0.0-rc.3",
-    "@galactica-net/inference-money-core": "0.1.0",
+    "@galactica-net/inference-money-core": "0.2.0",
     "@sentry/bun": "^10.43.0",
     "viem": "2.56.7",
     "zod": "^4.4.3"

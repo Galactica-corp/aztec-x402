@@ -12,7 +12,7 @@ The CLI carries this registry built in; `aztec-x402 status` prints the live view
 | L1 | Sepolia (chain id 11155111), public RPC `https://ethereum-sepolia-rpc.publicnode.com` |
 | `tUSDC` (test token, AIP-20, 6 decimals) | `0x08b5c7a74699f9336cb31f42872d9f067f52aef34afe2d2eb34dd0c3e3b36358` |
 | `tUSDC` faucet (Dripper, anyone may mint) | `0x0fda74986940cb777bfc0c52ed00b590cb05a267364c599d094d164ff1c795d4` |
-| `USDC` (inference-money, 6 decimals) | `0x10da653e09b52a37becd30846f5602859b53fdd74f8ee7771e447cd1b9298c22` |
+| `USDC` (inference-money, 6 decimals) | `0x1eab858938906f3f1518b538c304bbba780146c4aa308c7bfd0d1735826b5962` (from the `@galactica-net/inference-money-core` manifest) |
 | Sponsored FPC (pays fees) | `0x2adfb70e860909f0db8268b3fec80bce52a94559963444f5c0341816b8412130` |
 
 `USDC` is Sepolia USDC bridged by inference-money. It has no faucet, and a payment in it only goes through to a merchant on the token's list; the CLI refuses any other payee with `merchant_not_listed` before the merchant prepares anything. The CLI tells the two kinds apart by the contract's class on chain.
