@@ -5,8 +5,9 @@
  * faucet, and a token contract (with the dripper as minter), drips private
  * tokens to the payer, and writes deployment info to a config file.
  *
- * With TOKEN=inference (local network only) it sets up the inference-money
- * USDC instead: see setup-inference.ts. The server and client read the token
+ * With TOKEN=inference it sets up the inference-money USDC instead (a bridge of
+ * its own on a local network, the SDK's deployment on testnet): see
+ * setup-inference.ts. The server and client read the token
  * from the config file and work out its kind themselves.
  *
  * Resumable: saves progress to deploy.json after each step. Safe to restart.
@@ -19,8 +20,9 @@
  *   AZTEC_NETWORK — CAIP-2 network id (default: aztec:sandbox)
  *   USE_SPONSORED_FPC — set to "true" to pay fees via the canonical Sponsored FPC
  *                       (local-network prints its address at startup; same on testnet).
- *   TOKEN — `aip20` (default) or `inference`; L1_RPC_URL — the local network's L1
- *                       (default http://localhost:8545), used by `inference` only.
+ *   TOKEN — `aip20` (default) or `inference`; L1_RPC_URL — the L1 RPC, used by `inference` only
+ *                       (default http://localhost:8545, or a public Sepolia RPC on testnet).
+ *   FUNDING_L1_KEY — testnet `inference` only: a Sepolia key with USDC and ETH that funds the payer.
  *   TOKEN_ADDRESS, DRIPPER_ADDRESS — reuse an existing token and its Dripper instead of
  *                       deploying oUSD (e.g. the canonical testnet tUSDC the agent CLI uses).
  */
@@ -39,7 +41,7 @@ import {
   tokenConstructorWithDripperArgs,
 } from "./token-faucet.js";
 import { isSandboxNetwork, shouldEnableProver } from "./network-config.js";
-import { setupInferenceToken } from "./setup-inference.js";
+import { setupInferenceToken, setupTestnetInferenceToken } from "./setup-inference.js";
 
 const TESTNET_NODE_URL = "https://aztec-testnet.drpc.org";
 const NETWORK = process.env.AZTEC_NETWORK ?? "aztec:sandbox";
@@ -48,7 +50,9 @@ const NODE_URL =
   (NETWORK === "aztec:testnet" ? TESTNET_NODE_URL : "http://localhost:8080");
 const USE_SPONSORED_FPC = process.env.USE_SPONSORED_FPC === "true";
 const TOKEN = process.env.TOKEN ?? "aip20";
-const L1_RPC_URL = process.env.L1_RPC_URL ?? "http://localhost:8545";
+const L1_RPC_URL =
+  process.env.L1_RPC_URL ??
+  (NETWORK === "aztec:testnet" ? "https://ethereum-sepolia-rpc.publicnode.com" : "http://localhost:8545");
 const TOKEN_NAME = "Overcast USD";
 const TOKEN_SYMBOL = "oUSD";
 const TOKEN_DECIMALS = 6;
@@ -75,6 +79,13 @@ function saveConfig(config: Record<string, unknown>) {
 
 function extractSimulateValue(result: unknown): unknown {
   return unwrapAztecSdkResult(result);
+}
+
+function fundingKey(): `0x${string}` | undefined {
+  const key = process.env.FUNDING_L1_KEY;
+  if (!key) return undefined;
+  if (!/^0x[0-9a-fA-F]{64}$/.test(key)) throw new Error("FUNDING_L1_KEY must be a 0x-prefixed 32-byte hex key.");
+  return `0x${key.slice(2)}`;
 }
 
 async function main() {
@@ -138,27 +149,17 @@ async function main() {
   console.log(`  Bob   (server):      ${bob}\n`);
 
   if (TOKEN === "inference") {
-    if (!isSandboxNetwork(NETWORK)) {
-      throw new Error("TOKEN=inference deploys a bridge of its own and only runs against a local network.");
-    }
-    const { tokenAddress } = await setupInferenceToken({
-      node,
-      nodeUrl: NODE_URL,
-      l1RpcUrl: L1_RPC_URL,
-      wallet,
-      merchant: bob,
-      payer: alice,
-      amount: MINT_AMOUNT,
-      manifestPath: join(DATA_DIR, "inference-manifest.json"),
-      log: console.log,
-    });
+    const common = { node, l1RpcUrl: L1_RPC_URL, wallet, merchant: bob, payer: alice, amount: MINT_AMOUNT, log: console.log };
+    const { tokenAddress } = isSandboxNetwork(NETWORK)
+      ? await setupInferenceToken({ ...common, nodeUrl: NODE_URL, manifestPath: join(DATA_DIR, "inference-manifest.json") })
+      : await setupTestnetInferenceToken({ ...common, fundingKey: fundingKey() });
     saveConfig({
       nodeUrl: NODE_URL,
       network: NETWORK,
       aliceAddress: config.aliceAddress,
       bobAddress: config.bobAddress,
       tokenAddress,
-      tokenName: "USD Coin (inference-money, local)",
+      tokenName: `USD Coin (inference-money, ${isSandboxNetwork(NETWORK) ? "local" : "testnet"})`,
       tokenSymbol: "USDC",
       tokenDecimals: String(TOKEN_DECIMALS),
     });

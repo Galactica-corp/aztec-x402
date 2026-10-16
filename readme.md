@@ -89,6 +89,8 @@ bun run ./packages/demo/src/aztec/setup.ts
 
 Confirm the Sponsored FPC is deployed on that rollup before relying on `USE_SPONSORED_FPC`. The v6 node image sets `SPONSORED_FPC` off for testnet and on for the local network.
 
+With `TOKEN=inference` the testnet setup uses the inference-money deployment the SDK ships instead of deploying a token. Two steps need others: the token's merchant admin lists the server account (setup prints the command and checks the listing), and the payer is funded from Sepolia USDC. Set `FUNDING_L1_KEY` to a Sepolia key holding USDC and ETH, for example in a gitignored `.env`; the payer's first claim binds it to that key's address for good.
+
 ## Running a Local Network
 
 ```bash
@@ -303,8 +305,9 @@ Commit the updated `bun.lock` with the version bump. npm versions are immutable 
 |----------|---------|-------------|
 | `NODE_URL` | `https://aztec-testnet.drpc.org` on testnet, `http://localhost:8080` on the sandbox | Aztec node endpoint |
 | `AZTEC_NETWORK` | `aztec:sandbox` | CAIP-2 network id |
-| `TOKEN` | `aip20` | Which token `setup` prepares: `aip20` or `inference` (local network only) |
-| `L1_RPC_URL` | `http://localhost:8545` | Local network's L1, used by `TOKEN=inference` |
+| `TOKEN` | `aip20` | Which token `setup` prepares: `aip20` or `inference` |
+| `L1_RPC_URL` | `http://localhost:8545`, a public Sepolia RPC on testnet | L1 RPC, used by `TOKEN=inference` |
+| `FUNDING_L1_KEY` | — | Testnet `TOKEN=inference` only: Sepolia key with USDC and ETH that funds the payer |
 | `USE_SPONSORED_FPC` | — | Set to `true` to use Sponsored FPC for gas fees on public networks |
 | `SERVER_URL` | `http://localhost:4402` | x402 demo server endpoint (client only) |
 | `REPLAY_CONCURRENCY` | `100` | Concurrent replay burst size (`demo:replay` only) |

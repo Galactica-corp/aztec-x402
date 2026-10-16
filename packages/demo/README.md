@@ -31,7 +31,7 @@ After paying for `/api/buy-x402-achievement`, the agent receives a skill file it
 
 This runs actual private token transfers on a local Aztec network.
 
-The steps below use the AIP-20 token. To run them with the inference-money USDC instead, run the setup step as `TOKEN=inference` (root script: `bun run setup:sandbox:inference`): it deploys a local inference-money bridge, lists the server as a merchant and funds the payer over the bridge. The server and client steps are unchanged; they read the token from `deploy.json`. See "Supported Tokens" in the [root readme](../../readme.md).
+The steps below use the AIP-20 token. To run them with the inference-money USDC instead, run the setup step as `TOKEN=inference` (root script: `bun run setup:sandbox:inference`): it deploys a local inference-money bridge, lists the server as a merchant and funds the payer over the bridge. On testnet, `TOKEN=inference` uses the SDK's deployment instead (see "Testnet Status" in the root readme). The server and client steps are unchanged; they read the token from `deploy.json`. See "Supported Tokens" in the [root readme](../../readme.md).
 
 ### Prerequisites
 
