@@ -14,7 +14,7 @@ The CLI carries this registry built in; `aztec-x402 status` prints the live view
 | USDC faucet (Dripper, anyone may mint) | `0x0fda74986940cb777bfc0c52ed00b590cb05a267364c599d094d164ff1c795d4` |
 | Sponsored FPC (pays fees) | `0x2adfb70e860909f0db8268b3fec80bce52a94559963444f5c0341816b8412130` |
 
-USDC and the Dripper are the canonical `aztec-standards` universal deploys (salt 1337) under `DOM_SEP__CONTRACT_ADDRESS_V3`. They still have to be deployed on the rollup before they can be used. The testnet node image does not deploy the Sponsored FPC (`SPONSORED_FPC: false`); the local network does. The Sponsored FPC address is the `SponsoredFPC` artifact at `SPONSORED_FPC_SALT`.
+USDC and the Dripper are the canonical `aztec-standards` universal deploys (salt 1337) under `DOM_SEP__CONTRACT_ADDRESS_V3`. They still have to be deployed on the rollup before they can be used. The Sponsored FPC is deployed on testnet. Its address is the `SponsoredFPC` artifact at `SPONSORED_FPC_SALT`.
 
 L1 contracts (Fee Juice portal, fee asset, its faucet) come from the node at run time: `curl -s -X POST <node RPC> -H 'content-type: application/json' -d '{"jsonrpc":"2.0","method":"aztec_getNodeInfo","params":[],"id":1}'` → `result.l1ContractAddresses`.
 

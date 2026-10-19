@@ -80,8 +80,6 @@ USE_SPONSORED_FPC=true \
 bun run ./packages/demo/src/aztec/setup.ts
 ```
 
-Confirm the Sponsored FPC is deployed on that rollup before relying on `USE_SPONSORED_FPC`. The v6 node image sets `SPONSORED_FPC` off for testnet and on for the local network.
-
 ## Running a Local Network
 
 ```bash
