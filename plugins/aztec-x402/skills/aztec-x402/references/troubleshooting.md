@@ -6,7 +6,7 @@ Every failure prints `{"ok": false, "error": {"code": …, "message": …}}`. Fi
 | --- | --- | --- |
 | `no_wallet` | no | `aztec-x402 wallet create`. |
 | `node_unreachable` | no | The Aztec node did not answer (`error.nodeUrl`). Check network access; `aztec-x402 status` shows `node.reachable`. Retry after a minute. |
-| `node_version` | no | The node answered, but `error.nodeVersion` is not Aztec 6.x (`error.expectedMajor`). A `nodeUrl` saved before the v6 upgrade still points at the old rollup. Set a 6.x node with `aztec-x402 config set nodeUrl <url>` or `AZTEC_X402_NODE_URL`. |
+| `node_version` | no | The node answered, but its version is not Aztec 6.x (`error.nodeVersion`, `error.expectedMajor`). `status` still prints the wallet and policy, and puts the mismatch on `node.error`. Other commands stop. Set a 6.x node with `aztec-x402 config set nodeUrl <url>` or `AZTEC_X402_NODE_URL`. |
 | `prover_failed` | no (`txSubmitted: false`) | Proof generation failed before anything was sent. On first use the prover downloads its parameters (CRS, ~15 MB) into `~/.bb-crs`: it needs network access to fetch them and a writable home directory. Fix that and retry; a `pay` that fails here can be retried safely. |
 | `usage` | no | Fix the command; `aztec-x402 --help`. |
 | `policy_rejected` (exit 3) | no | Price above `--max-amount`, the per-payment limit, or the 24h limit, or an unexpected token / merchant. Report the message and ask the user. |
