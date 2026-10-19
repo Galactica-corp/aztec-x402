@@ -51,7 +51,7 @@ export const NETWORKS: Record<string, NetworkConfig> = {
   testnet: {
     name: "testnet",
     caip2: "aztec:testnet",
-    // Public testnet RPC. Contract addresses use the V3 separator, so rc.1 addresses are not on this rollup.
+    // Public testnet RPC.
     nodeUrl: "https://aztec-testnet.drpc.org",
     proverEnabled: true,
     sponsoredFees: true,

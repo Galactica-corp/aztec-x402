@@ -71,7 +71,7 @@ Notable points about the Aztec SDK surface this code relies on:
 
 ## Testnet Status
 
-The demo targets Aztec public testnet. The default node is `https://aztec-testnet.drpc.org`. Override with `NODE_URL` when you need a different node. The contract-address domain separator is V3, so rc.1 contract addresses are not on this rollup:
+The demo targets Aztec public testnet. The default node is `https://aztec-testnet.drpc.org`. Override with `NODE_URL` when you need a different node:
 
 ```bash
 NODE_URL=https://aztec-testnet.drpc.org \
