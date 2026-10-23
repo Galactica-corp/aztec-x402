@@ -7,18 +7,19 @@
  *   2. Policy check on the 402 challenge — before the merchant is asked to
  *      prepare (prepare is an on-chain tx the merchant pays for).
  *   3. wrapFetchWithPayment runs prepare → transfer_private_to_commitment →
- *      retry with PAYMENT-SIGNATURE. The prepared challenge is re-checked
- *      right before any money moves.
+ *      retry with PAYMENT-SIGNATURE. The client refuses a prepare response
+ *      whose amount, asset, payTo, or network differ from the original 402.
+ *      Spend policy is re-checked right before any money moves.
  */
 import { mkdirSync, writeFileSync } from "fs";
 import { join } from "path";
-import { wrapFetchWithPayment } from "@galactica-net/x402-client";
+import { PaymentTermsMismatchError, wrapFetchWithPayment } from "@galactica-net/x402-client";
 import { ExactAztecClientScheme } from "@galactica-net/x402-mechanism/exact/client";
 import type { PaymentRequirements, SchemeNetworkClient } from "@galactica-net/x402-mechanism";
 import { SCHEME, parseAztecPaymentExtra } from "@galactica-net/x402-core";
 import { RealClientAztecSigner } from "../aztec/client-signer.js";
 import { openSession, tokenAt } from "../aztec/session.js";
-import { sameAddress, type ResolvedContext } from "../config.js";
+import { type ResolvedContext } from "../config.js";
 import { CliError, PolicyError, UsageError, isProverError, proverFailed } from "../errors.js";
 import { setInflightPayment } from "../inflight.js";
 import { appendLedger, checkPayment, type PaymentLimits } from "../policy.js";
@@ -157,14 +158,8 @@ export async function pay(
     scheme: inner.scheme,
     getSenderAddress: () => inner.getSenderAddress(),
     async createPaymentPayload(x402Version: number, prepared: PaymentRequirements) {
-      // The prepared challenge must be the one we approved, and still within policy.
-      if (
-        prepared.amount !== requirement.amount ||
-        !sameAddress(prepared.asset, requirement.asset) ||
-        !sameAddress(prepared.payTo, requirement.payTo)
-      ) {
-        throw new PolicyError("Prepared challenge differs from the original 402 challenge");
-      }
+      // Terms were bound to the original 402 by the client. Re-check spend policy
+      // before any money moves.
       checkPayment(prepared, opts, ctx.policy, ctx.network, ctx.dataDir);
       nonce = parseAztecPaymentExtra(prepared.extra).nonce;
       appendLedger(ctx.dataDir, {
@@ -224,6 +219,13 @@ export async function pay(
   try {
     response = await payFetch(url, init);
   } catch (error) {
+    if (!txHash && error instanceof PaymentTermsMismatchError) {
+      throw new PolicyError(error.message, {
+        field: error.field,
+        expected: error.expected,
+        actual: error.actual,
+      });
+    }
     if (!txHash) throw error;
     // Money moved but the merchant never answered the retry with proof.
     appendLedger(ctx.dataDir, { id, status: "paid", error: String(error) });

@@ -1,5 +1,5 @@
 import { describe, it, expect, jest, beforeEach } from "bun:test";
-import { wrapFetchWithPayment } from "../client.js";
+import { PaymentTermsMismatchError, wrapFetchWithPayment } from "../client.js";
 import { PaymentRequirementsSchema, type PaymentRequirements } from "@galactica-net/x402-mechanism";
 import { parseAztecPaymentExtra } from "@galactica-net/x402-core";
 import { z } from "zod";
@@ -39,7 +39,10 @@ function createMockScheme() {
   };
 }
 
-function createPaymentRequired(extra: Record<string, unknown> = {}) {
+function createPaymentRequired(
+  extra: Record<string, unknown> = {},
+  overrides: Partial<Omit<PaymentRequirements, "extra">> = {},
+) {
   const requirements: PaymentRequirements = {
     scheme: "exact",
     network: "aztec:sandbox",
@@ -47,6 +50,7 @@ function createPaymentRequired(extra: Record<string, unknown> = {}) {
     amount: "100000",
     payTo: SERVER_ADDRESS,
     maxTimeoutSeconds: 120,
+    ...overrides,
     extra,
   };
 
@@ -56,8 +60,31 @@ function createPaymentRequired(extra: Record<string, unknown> = {}) {
   };
 }
 
-function encode402(extra: Record<string, unknown> = {}): string {
-  return Buffer.from(JSON.stringify(createPaymentRequired(extra))).toString("base64");
+function encode402(
+  extra: Record<string, unknown> = {},
+  overrides: Partial<Omit<PaymentRequirements, "extra">> = {},
+): string {
+  return Buffer.from(JSON.stringify(createPaymentRequired(extra, overrides))).toString("base64");
+}
+
+/** Initial 402, then a prepare 402. No payment response: the call must throw first. */
+function fetchPrepare(preparedExtra: Record<string, unknown>, overrides: Partial<Omit<PaymentRequirements, "extra">> = {}) {
+  return jest
+    .fn()
+    .mockResolvedValueOnce(
+      new Response("Payment Required", {
+        status: 402,
+        headers: { "PAYMENT-REQUIRED": encode402({ nonce: MOCK_NONCE }) },
+      }),
+    )
+    .mockResolvedValueOnce(
+      new Response("Payment Required", {
+        status: 402,
+        headers: {
+          "PAYMENT-REQUIRED": encode402({ nonce: MOCK_NONCE, ...preparedExtra }, overrides),
+        },
+      }),
+    );
 }
 
 describe("wrapFetchWithPayment", () => {
@@ -220,5 +247,46 @@ describe("wrapFetchWithPayment", () => {
     // Should still attempt payment with original requirements
     expect(response.status).toBe(200);
     expect(mockFetch).toHaveBeenCalledTimes(3);
+  });
+
+  const changedTerms = [
+    { field: "amount", overrides: { amount: "999999" }, actual: "999999" },
+    { field: "asset", overrides: { asset: "0x" + "11".repeat(32) }, actual: "0x" + "11".repeat(32) },
+    { field: "payTo", overrides: { payTo: "0x" + "22".repeat(32) }, actual: "0x" + "22".repeat(32) },
+    { field: "network", overrides: { network: "aztec:testnet" as const }, actual: "aztec:testnet" },
+  ] as const;
+
+  for (const { field, overrides, actual } of changedTerms) {
+    it(`refuses a prepare response that changes ${field}`, async () => {
+      const mockFetch = fetchPrepare({ commitment: MOCK_COMMITMENT }, overrides);
+      const wrappedFetch = wrapFetchWithPayment(mockFetch, scheme);
+
+      let thrown: unknown;
+      try {
+        await wrappedFetch("https://api.example.com/data");
+      } catch (error) {
+        thrown = error;
+      }
+
+      expect(thrown).toBeInstanceOf(PaymentTermsMismatchError);
+      if (!(thrown instanceof PaymentTermsMismatchError)) return;
+      expect(thrown.field).toBe(field);
+      expect(thrown.actual).toBe(actual);
+      expect(scheme.createPaymentPayload).not.toHaveBeenCalled();
+      expect(mockFetch).toHaveBeenCalledTimes(2);
+    });
+  }
+
+  it("accepts asset and payTo that differ only by hex case", async () => {
+    const mockFetch = fetchPrepare({ commitment: MOCK_COMMITMENT }, {
+      asset: TOKEN_ADDRESS.toUpperCase(),
+      payTo: SERVER_ADDRESS.toUpperCase(),
+    }).mockResolvedValueOnce(new Response("ok", { status: 200 }));
+
+    const wrappedFetch = wrapFetchWithPayment(mockFetch, scheme);
+    const response = await wrappedFetch("https://api.example.com/data");
+
+    expect(response.status).toBe(200);
+    expect(scheme.createPaymentPayload).toHaveBeenCalledTimes(1);
   });
 });
