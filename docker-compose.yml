@@ -9,6 +9,8 @@ services:
     environment:
       NODE_ENV: production
       SENTRY_DSN: ${SENTRY_DSN:-}
+      # Public v6 testnet RPC. Override with NODE_URL.
+      NODE_URL: ${NODE_URL:-https://aztec-testnet.drpc.org}
     volumes:
       - aztec-data:/app/packages/demo/src/aztec/data
     restart: unless-stopped

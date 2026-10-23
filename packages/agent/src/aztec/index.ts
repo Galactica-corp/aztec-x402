@@ -1,4 +1,5 @@
 export { PXEWallet, createPXEWallet } from "./pxe-wallet.js";
+export { createNodeClient } from "./node-client.js";
 export { RealClientAztecSigner } from "./client-signer.js";
 export {
   openSession,

@@ -6,8 +6,8 @@
  * then stamps a second prepared payment onto many unpaid resources.
  * Mutated headers must all fail.
  */
-import { createAztecNodeClient } from "@aztec/aztec.js/node";
-import { AztecAddress } from "@aztec/aztec.js/addresses";
+import { createNodeClient } from "@galactica-net/x402-agent/aztec";
+import { AztecAddress } from "@aztec-labs/aztec.js/addresses";
 import { TokenContract } from "@aztec-foundation/aztec-standards/dist/src/artifacts/Token.js";
 import { createPXEWallet } from "./pxe-wallet.js";
 import { readFileSync } from "fs";
@@ -46,7 +46,7 @@ const RUN_ID = crypto.randomUUID().slice(0, 8);
 const NODE_URL = config.nodeUrl;
 const isRemoteNetwork = config.network !== "aztec:sandbox";
 
-const node = createAztecNodeClient(NODE_URL);
+const node = createNodeClient(NODE_URL);
 const wallet = await createPXEWallet(node, {
   ephemeral: true,
   pxe: { proverEnabled: isRemoteNetwork },

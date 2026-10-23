@@ -18,8 +18,8 @@
  * Usage:
  *   bun run packages/demo/src/aztec/test-concurrent-verify.ts
  */
-import { createAztecNodeClient } from "@aztec/aztec.js/node";
-import { AztecAddress } from "@aztec/aztec.js/addresses";
+import { createNodeClient } from "@galactica-net/x402-agent/aztec";
+import { AztecAddress } from "@aztec-labs/aztec.js/addresses";
 import { TokenContract } from "@aztec-foundation/aztec-standards/dist/src/artifacts/Token.js";
 import { readFileSync } from "fs";
 import { join, dirname } from "path";
@@ -59,7 +59,7 @@ console.log(`Node: ${NODE_URL}`);
 console.log(`Token: ${TOKEN_ADDRESS}\n`);
 
 console.log("Connecting...");
-const node = createAztecNodeClient(NODE_URL);
+const node = createNodeClient(NODE_URL);
 const wallet = await createPXEWallet(node, {
   ephemeral: true,
   pxe: { proverEnabled },

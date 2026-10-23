@@ -13,7 +13,7 @@
  * link and exits; `fund claim` finishes the deposit later.
  */
 import { spawn } from "child_process";
-import { generateClaimSecret } from "@aztec/aztec.js/ethereum";
+import { generateClaimSecret } from "@aztec-labs/aztec.js/ethereum";
 import { loadAccountKeys } from "../aztec/keystore.js";
 import { openSession, type Session } from "../aztec/session.js";
 import { fundPageUrl, type ResolvedContext } from "../config.js";
@@ -30,7 +30,7 @@ const FUND_TIMEOUT_MS = 60 * 60_000;
 const L1_POLL_MS = 12_000;
 
 async function bridgeFor(ctx: ResolvedContext): Promise<BridgeAdapter> {
-  // One live route on v5 testnet; stablecoin portals become further adapters.
+  // One live route; stablecoin portals become further adapters.
   return FeeJuiceBridge.create(ctx.network);
 }
 

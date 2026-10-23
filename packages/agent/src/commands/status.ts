@@ -1,7 +1,8 @@
-import { createAztecNodeClient } from "@aztec/aztec.js/node";
+import { createNodeClient } from "../aztec/node-client.js";
+import { assertNodeVersion } from "../aztec/node-version.js";
 import { loadAccountKeys } from "../aztec/keystore.js";
 import { homeDir, readUserConfig, writeUserConfig, type ResolvedContext } from "../config.js";
-import { UsageError } from "../errors.js";
+import { CliError, UsageError } from "../errors.js";
 import { NETWORKS } from "../networks.js";
 import { readLedger, spentLast24h } from "../policy.js";
 import { formatTokenAmount } from "../x402.js";
@@ -11,9 +12,15 @@ export async function status(ctx: ResolvedContext) {
   const keys = loadAccountKeys(ctx.dataDir);
   let node: { reachable: boolean; blockNumber?: number; nodeVersion?: string; error?: string };
   try {
-    const client = createAztecNodeClient(ctx.network.nodeUrl);
+    const client = createNodeClient(ctx.network.nodeUrl);
     const [blockNumber, info] = await Promise.all([client.getBlockNumber(), client.getNodeInfo()]);
     node = { reachable: true, blockNumber, nodeVersion: info.nodeVersion };
+    try {
+      assertNodeVersion(info.nodeVersion, ctx.network.nodeUrl);
+    } catch (error) {
+      if (!(error instanceof CliError) || error.code !== "node_version") throw error;
+      node.error = error.message;
+    }
   } catch (error) {
     node = { reachable: false, error: error instanceof Error ? error.message : String(error) };
   }
@@ -36,9 +43,11 @@ export async function status(ctx: ResolvedContext) {
     })),
     nextStep: !node.reachable
       ? "Node unreachable — check network access or AZTEC_X402_NODE_URL."
-      : !keys
-        ? "Run `aztec-x402 wallet create`."
-        : "Ready. Check funds with `aztec-x402 balance`.",
+      : node.error
+        ? "Point this client at an Aztec 6.x node with `aztec-x402 config set nodeUrl <url>` or AZTEC_X402_NODE_URL."
+        : !keys
+          ? "Run `aztec-x402 wallet create`."
+          : "Ready. Check funds with `aztec-x402 balance`.",
   };
 }
 
