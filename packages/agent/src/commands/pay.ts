@@ -7,12 +7,14 @@
  *   2. Policy check on the 402 challenge — before the merchant is asked to
  *      prepare (prepare is an on-chain tx the merchant pays for).
  *   3. wrapFetchWithPayment runs prepare → transfer_private_to_commitment →
- *      retry with PAYMENT-SIGNATURE. The prepared challenge is re-checked
+ *      retry with PAYMENT-SIGNATURE. The client binds the prepare response to
+ *      the 402 it parsed. This command also checks that those terms are the
+ *      requirement it approved and will record, then re-checks spend policy
  *      right before any money moves.
  */
 import { mkdirSync, writeFileSync } from "fs";
 import { join } from "path";
-import { wrapFetchWithPayment } from "@galactica-net/x402-client";
+import { PaymentTermsMismatchError, wrapFetchWithPayment } from "@galactica-net/x402-client";
 import { ExactAztecClientScheme } from "@galactica-net/x402-mechanism/exact/client";
 import type { PaymentRequirements, SchemeNetworkClient } from "@galactica-net/x402-mechanism";
 import { SCHEME, parseAztecPaymentExtra } from "@galactica-net/x402-core";
@@ -157,9 +159,12 @@ export async function pay(
     scheme: inner.scheme,
     getSenderAddress: () => inner.getSenderAddress(),
     async createPaymentPayload(x402Version: number, prepared: PaymentRequirements) {
-      // The prepared challenge must be the one we approved, and still within policy.
+      // The client binds the prepare response to whichever 402 it parsed (the
+      // first accept for this scheme). The ledger records `requirement`, the
+      // accept this command approved. Refuse a transfer that is not that quote.
       if (
         prepared.amount !== requirement.amount ||
+        prepared.network !== requirement.network ||
         !sameAddress(prepared.asset, requirement.asset) ||
         !sameAddress(prepared.payTo, requirement.payTo)
       ) {
@@ -224,6 +229,13 @@ export async function pay(
   try {
     response = await payFetch(url, init);
   } catch (error) {
+    if (!txHash && error instanceof PaymentTermsMismatchError) {
+      throw new PolicyError(error.message, {
+        field: error.field,
+        expected: error.expected,
+        actual: error.actual,
+      });
+    }
     if (!txHash) throw error;
     // Money moved but the merchant never answered the retry with proof.
     appendLedger(ctx.dataDir, { id, status: "paid", error: String(error) });
