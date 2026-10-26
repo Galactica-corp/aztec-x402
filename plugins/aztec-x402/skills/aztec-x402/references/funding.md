@@ -30,7 +30,7 @@ While `fund` or `fund claim` runs it holds the wallet database: run no other wal
 | --- | --- | --- | --- |
 | testnet (Aztec 5.x, Sepolia) | Fee Juice portal | faucet mint of test FEE (if needed), approve, `depositToAztecPublic` | Fee Juice (Aztec gas) in your account, shown by `balance` under `feeJuice`. On testnet you still pay fees through the free sponsored fee payer, so this route mainly demonstrates the deposit flow. |
 
-Fee Juice deposits are public on L1 by protocol design: the amount and your Aztec address are visible on Sepolia. Payments you make afterwards stay private.
+Fee Juice deposits are public on L1 by protocol design: the amount and your Aztec address are visible on Sepolia. Payments you make afterwards hide buyer and merchant addresses from Aztec observers. The payment amount is published in the completion log.
 
 A stablecoin route (USDC: Ethereum → private USDC on Aztec, one Permit2 signature) becomes available with the Aztec 6 testnet. Until then, test USDC comes from `aztec-x402 faucet`.
 

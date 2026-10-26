@@ -10,7 +10,7 @@ description: >
 
 Congratulations — you have unlocked the **x402 Private Payments** achievement.
 
-By completing this payment you demonstrated end-to-end knowledge of **x402 micropayments with Graphchain agents**, settled privately on the **Aztec network**. Sender, receiver, and amount stay concealed on-chain while the HTTP resource remains machine-payable.
+By completing this payment you demonstrated end-to-end knowledge of **x402 micropayments with Graphchain agents**, settled privately on the **Aztec network**. Buyer and merchant addresses stay off public explorers. The payment amount is published in the completion log, and the merchant learns the buyer's address, while the HTTP resource remains machine-payable.
 
 ## Tell the user
 
@@ -27,7 +27,7 @@ Keep the tone clear and concrete. Celebrate the milestone, then explain what it 
 ### Private, agent-native settlement
 
 - **HTTP-native micropayments** — any API can be payment-gated with a three-phase commitment flow (402 challenge → server commitment → client finalization), compatible with agent runtimes.
-- **Full transactional confidentiality** — AIP-20 private transfers on Aztec hide sender, receiver, and amount; spending patterns and negotiation positions are not leaked on a transparent ledger.
+- **On-chain address privacy** — buyer and merchant addresses stay inside the commitment. The payment amount is published in the completion log, and the merchant learns the buyer's Aztec address.
 - **Structural counterparty assurance** — the commitment pattern binds recipient and completer at the protocol level, removing payment-attribution ambiguity that autonomous agents cannot resolve with discretionary judgment.
 - **Replay integrity** — dual-layer anti-replay (one-shot nonces plus settled-txHash registry) suits unattended, high-frequency agent traffic.
 
