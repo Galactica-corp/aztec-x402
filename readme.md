@@ -1,8 +1,9 @@
 # aztec-x402
 
-x402 payment protocol for Aztec private tokens — HTTP-native micropayments with full transaction privacy.
+x402 payment protocol for Aztec private tokens — HTTP-native micropayments settled with private transfers.
 
-This monorepo implements the [x402 protocol](https://www.x402.org) for [Aztec](https://aztec.network), allowing any HTTP API to be payment-gated using private stablecoin transfers. All payments use private transfers — sender, receiver, and amount are hidden on-chain.
+This monorepo implements the [x402 protocol](https://www.x402.org) for [Aztec](https://aztec.network), allowing any HTTP API to be payment-gated using private stablecoin transfers. Private settlement hides the buyer and merchant addresses from chain observers. The payment amount is published in the completion log. See [What is and isn't hidden](#what-is-and-isnt-hidden).
+
 ## Protocol Flow
 
 The x402 protocol uses a 3-phase commitment-based payment flow:
@@ -47,6 +48,16 @@ The server creates the commitment via `initialize_transfer_commitment(serverAddr
 2. **Completer is bound**: only the specified client address can call `transfer_private_to_commitment` for this commitment
 
 This closes the "who did the payment go to?" verification gap that exists with direct `transfer_in_private`.
+
+### What is and isn't hidden
+
+The commitment binds who can complete the note and who receives it. It does not hide the amount. `transfer_private_to_commitment` finishes the partial note with `PartialUintNote::complete_from_private`, and that call publishes the amount.
+
+**Chain observers** see the token contract and the amount. `complete_from_private` writes `[siloed tag, storage slot, amount]` into the transaction's private logs, and those fields are part of the posted transaction data. The storage slot is the token's `private_balances` slot, a constant of the contract, so the amount is recognizable without knowing the commitment. The buyer address stays inside the validity commitment `H(commitment, completer)`. The merchant address stays inside `H(owner, randomness)`.
+
+**The merchant** sees the buyer's Aztec address. The client sends it in `X-402-PREPARE` and again in `PAYMENT-SIGNATURE`, because `initialize_transfer_commitment(merchant, buyer)` has to name the completer. The merchant also knows the amount, from the 402 price and from that log.
+
+**The buyer** sees the merchant address (`payTo`) and the price.
 
 ### Facilitator Model
 
@@ -206,7 +217,8 @@ To charge the canonical testnet USDC that the agent CLI's faucet mints (instead 
 ### Amount Verification via Completion Log Lookup
 
 When the buyer finalizes a partial note via `transfer_*_to_commitment`, the token
-contract emits a completion log keyed by a tag derived from the commitment:
+contract emits a completion log keyed by a tag derived from the commitment. The
+`value` in that payload is plaintext; see [What is and isn't hidden](#what-is-and-isnt-hidden).
 
 ```
 log_tag    = poseidon2(commitment ; DOM_SEP__NOTE_COMPLETION_LOG_TAG)

@@ -55,7 +55,7 @@ Then talk to the agent:
 4. **Guardrail moment: "Now buy it again, but don't spend more than half a cent."** The CLI refuses before any money moves (exit 3, `policy_rejected`), and the agent asks you instead of raising the cap.
 5. **"Help me fund you from my own wallet."** The agent serves a local page — or, when it runs somewhere your browser cannot reach, sends a link to the hosted page at `aztec-x402.unfz.to`. Connect MetaMask on Sepolia (a little Sepolia ETH for gas), sign the planned transactions, and the agent finds the deposit on L1 and claims it on Aztec a few minutes later.
 
-What the audience should notice: the agent pays an HTTP API in a private stablecoin without a human in the loop, the explorer shows no sender, recipient, or amount, and the spend cap is enforced by the tool, not by trusting the model.
+What the audience should notice: the agent pays an HTTP API in a private stablecoin without a human in the loop, the explorer shows no buyer or merchant address, the payment amount is in the completion log, and the spend cap is enforced by the tool, not by trusting the model.
 
 ---
 
