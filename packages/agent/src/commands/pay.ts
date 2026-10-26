@@ -7,9 +7,10 @@
  *   2. Policy check on the 402 challenge — before the merchant is asked to
  *      prepare (prepare is an on-chain tx the merchant pays for).
  *   3. wrapFetchWithPayment runs prepare → transfer_private_to_commitment →
- *      retry with PAYMENT-SIGNATURE. The client refuses a prepare response
- *      whose amount, asset, payTo, or network differ from the original 402.
- *      Spend policy is re-checked right before any money moves.
+ *      retry with PAYMENT-SIGNATURE. The client binds the prepare response to
+ *      the 402 it parsed. This command also checks that those terms are the
+ *      requirement it approved and will record, then re-checks spend policy
+ *      right before any money moves.
  */
 import { mkdirSync, writeFileSync } from "fs";
 import { join } from "path";
@@ -19,7 +20,7 @@ import type { PaymentRequirements, SchemeNetworkClient } from "@galactica-net/x4
 import { SCHEME, parseAztecPaymentExtra } from "@galactica-net/x402-core";
 import { RealClientAztecSigner } from "../aztec/client-signer.js";
 import { openSession, tokenAt } from "../aztec/session.js";
-import { type ResolvedContext } from "../config.js";
+import { sameAddress, type ResolvedContext } from "../config.js";
 import { CliError, PolicyError, UsageError, isProverError, proverFailed } from "../errors.js";
 import { setInflightPayment } from "../inflight.js";
 import { appendLedger, checkPayment, type PaymentLimits } from "../policy.js";
@@ -158,8 +159,17 @@ export async function pay(
     scheme: inner.scheme,
     getSenderAddress: () => inner.getSenderAddress(),
     async createPaymentPayload(x402Version: number, prepared: PaymentRequirements) {
-      // Terms were bound to the original 402 by the client. Re-check spend policy
-      // before any money moves.
+      // The client binds the prepare response to whichever 402 it parsed (the
+      // first accept for this scheme). The ledger records `requirement`, the
+      // accept this command approved. Refuse a transfer that is not that quote.
+      if (
+        prepared.amount !== requirement.amount ||
+        prepared.network !== requirement.network ||
+        !sameAddress(prepared.asset, requirement.asset) ||
+        !sameAddress(prepared.payTo, requirement.payTo)
+      ) {
+        throw new PolicyError("Prepared challenge differs from the original 402 challenge");
+      }
       checkPayment(prepared, opts, ctx.policy, ctx.network, ctx.dataDir);
       nonce = parseAztecPaymentExtra(prepared.extra).nonce;
       appendLedger(ctx.dataDir, {
