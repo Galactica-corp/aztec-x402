@@ -45,8 +45,8 @@ export interface NetworkConfig {
  * under `DOM_SEP__CONTRACT_ADDRESS_V3`, so the addresses depend only on the artifacts.
  * The token's minter is the Dripper (anyone may drip). Reproduce with `scripts/deploy-canonical.ts`.
  */
-const CANONICAL_DRIPPER = "0x0fda74986940cb777bfc0c52ed00b590cb05a267364c599d094d164ff1c795d4";
-const CANONICAL_TEST_USDC = "0x08b5c7a74699f9336cb31f42872d9f067f52aef34afe2d2eb34dd0c3e3b36358";
+const CANONICAL_DRIPPER = "0x057ca5968e5bf2b0aca38f815eb989e44e239059acf6ed8784498ee6d4d8634b";
+const CANONICAL_TEST_USDC = "0x27d92f6c4b7890ca4fca1487f2e042984c7427bd210bbc65a544237c11d61fff";
 
 export const NETWORKS: Record<string, NetworkConfig> = {
   testnet: {

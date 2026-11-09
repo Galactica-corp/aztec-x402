@@ -96,8 +96,8 @@ With `TOKEN=inference` the testnet setup uses the inference-money deployment the
 ## Running a Local Network
 
 ```bash
-# Install Aztec 6.0.0-rc.3 tooling
-VERSION=6.0.0-rc.3 bash -i <(curl -sL https://install.aztec.network/6.0.0-rc.3)
+# Install Aztec 6.0.0 tooling
+VERSION=6.0.0 bash -i <(curl -sL https://install.aztec.network/6.0.0)
 
 # Start a local Aztec network
 aztec start --local-network

@@ -54,10 +54,10 @@ the exact version the x402 packages pin:
 
 ```sh
 npm install @galactica-net/x402-agent @galactica-net/x402-mechanism @galactica-net/x402-middleware \
-  @galactica-net/inference-money-core@0.3.0
+  @galactica-net/inference-money-core@0.4.0
 ```
 
-The SDK pins its `@aztec-labs/*` dependencies exactly (`6.0.0-rc.3` for 0.3.0); use the same release everywhere in
+The SDK pins its `@aztec-labs/*` dependencies exactly (`6.0.0` for 0.4.0); use the same release everywhere in
 your server, or the two copies of the SDK disagree about artifacts and addresses. Never set `SEED` in a process that
 loads the SDK: importing it throws.
 
@@ -71,11 +71,11 @@ import { TESTNET_MANIFEST } from "@galactica-net/inference-money-core/deployment
 const USDC = TESTNET_MANIFEST.l2.token.address; // 6 decimals, like tUSDC
 ```
 
-| Testnet (Aztec 6.0.0-rc.3, SDK 0.3.0) | Address |
+| Testnet (Aztec 6.0.0, SDK 0.4.0) | Address |
 |---|---|
-| USDC (inference-money) | `0x23d496050d4e697a0c8960fdc54fbe4ec4cdbbfd8487d296ff7c79b90c950eb2` |
-| tUSDC (AIP-20, faucet) | `0x08b5c7a74699f9336cb31f42872d9f067f52aef34afe2d2eb34dd0c3e3b36358` |
-| Sponsored FPC (pays fees) | `0x2adfb70e860909f0db8268b3fec80bce52a94559963444f5c0341816b8412130` |
+| USDC (inference-money) | `0x2609810ea3dbc6b7da45970fcda8c60b2f33cf5d030cf7758075e1e14eb3ef44` |
+| tUSDC (AIP-20, faucet) | `0x27d92f6c4b7890ca4fca1487f2e042984c7427bd210bbc65a544237c11d61fff` |
+| Sponsored FPC (pays fees) | `0x2d8fff82a3b0c15d0a89169e7d8d043e079ab94d52031f1de1e4972ebad169d3` |
 | Sepolia USDC (Circle) | `0x1c7D4B196Cb0C7B01d743Fbc6116a902379C7238` |
 | Bridge on Sepolia: portal, router | `TESTNET_MANIFEST.l1.portal`, `TESTNET_MANIFEST.l1.router` |
 
