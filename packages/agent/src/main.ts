@@ -6,7 +6,8 @@ import { appendLedger } from "./policy.js";
 import { hasPrinted, printJson, resetOutput, setQuiet } from "./output.js";
 import { walletCreate, walletShow } from "./commands/wallet.js";
 import { balance, faucet } from "./commands/balance.js";
-import { inspect, pay } from "./commands/pay.js";
+import { inspect, pay, resumePayment } from "./commands/pay.js";
+import { collectChange } from "./commands/pay-split.js";
 import { configGet, configSet, history, status } from "./commands/status.js";
 import { fund, fundClaim } from "./commands/fund.js";
 
@@ -25,6 +26,15 @@ Commands:
   pay <url> --max-amount N    Fetch a URL, paying its x402 challenge privately
         [--expect-asset SYM|ADDR] [--expect-pay-to ADDR]
         [-X METHOD] [-d BODY] [-H "Name: value"]... [-o FILE]
+                              Pays without showing the amount on chain when
+                              the merchant offers it (inference-money USDC)
+  pay <url> --max-amount N --from-ethereum [--deposit USDC]
+        [--hosted [--no-wait]] [--port P] [--host H] [--no-open]
+                              Pay from the user's Ethereum wallet in one
+                              deposit they sign on a page; the agent collects
+                              the change later with \`fund change\`
+  pay --resume ID             Deliver a payment made earlier again (after a
+                              lost response or a crash); never pays twice
   history [--limit N]         Recent payments from the local ledger
   fund [--amount N] [--port P] [--host H] [--no-open]
                               Serve a local page where the user signs an L1
@@ -32,6 +42,7 @@ Commands:
   fund --hosted [--no-wait]   Same, via a link to the hosted page (for a user
                               browser that cannot reach this machine)
   fund claim                  Finish deposits left pending
+  fund change [--allow-bind]  Collect the change of payments from Ethereum
   config get | set <key> <value>
                               Keys: network, nodeUrl, policy.maxPerPayment,
                               policy.dailyLimit
@@ -67,6 +78,10 @@ const OPTIONS = {
   "no-open": { type: "boolean" },
   hosted: { type: "boolean" },
   "no-wait": { type: "boolean" },
+  "from-ethereum": { type: "boolean" },
+  deposit: { type: "string" },
+  resume: { type: "string" },
+  "allow-bind": { type: "boolean" },
 } as const;
 
 async function run(argv: string[]): Promise<object> {
@@ -104,6 +119,7 @@ async function run(argv: string[]): Promise<object> {
       if (!sub) throw new UsageError("Usage: aztec-x402 inspect <url>");
       return inspect(ctx, sub, request);
     case "pay": {
+      if (values.resume) return resumePayment(ctx, values.resume, { maxAmount: "0", output: values.output });
       if (!sub) throw new UsageError("Usage: aztec-x402 pay <url> --max-amount N");
       const maxAmount = values["max-amount"];
       if (!maxAmount) {
@@ -115,12 +131,20 @@ async function run(argv: string[]): Promise<object> {
         expectAsset: values["expect-asset"],
         expectPayTo: values["expect-pay-to"],
         output: values.output,
+        fromEthereum: Boolean(values["from-ethereum"]),
+        deposit: values.deposit,
+        hosted: Boolean(values.hosted),
+        wait: !values["no-wait"],
+        open: !values["no-open"],
+        port: values.port ? Number(values.port) : undefined,
+        host: values.host,
       });
     }
     case "history":
       return history(ctx, { limit: values.limit ? Number(values.limit) : undefined });
     case "fund":
       if (sub === "claim") return fundClaim(ctx);
+      if (sub === "change") return collectChange(ctx, { allowBind: Boolean(values["allow-bind"]) });
       if (sub !== undefined) throw new UsageError(`Unknown fund subcommand "${sub}"`);
       return fund(ctx, {
         host: values.host,

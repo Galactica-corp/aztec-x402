@@ -2,7 +2,7 @@
  * Reading x402 challenges from HTTP responses, independent of any wallet.
  */
 import { PaymentRequiredSchema, type ParsedPaymentRequirements } from "@galactica-net/x402-mechanism";
-import { SCHEME, formatAmount } from "@galactica-net/x402-core";
+import { SCHEME, formatAmount, parseAztecPaymentExtra, type PaymentMode } from "@galactica-net/x402-core";
 import type { NetworkConfig, TokenInfo } from "./networks.js";
 import { findToken } from "./config.js";
 
@@ -36,6 +36,15 @@ export function decodePaymentRequired(response: Response): DecodedChallenge | un
   };
 }
 
+/** The payment mode of an `accepts` entry: `commitment` when it names none (servers before modes existed). */
+export function modeOf(req: { extra?: Record<string, unknown> }): PaymentMode {
+  try {
+    return parseAztecPaymentExtra(req.extra).mode ?? "commitment";
+  } catch {
+    return "commitment";
+  }
+}
+
 /** The requirement this agent can pay: our scheme on our network. */
 export function selectRequirement(
   challenge: DecodedChallenge,
@@ -54,6 +63,8 @@ export interface PriceView {
   amountBaseUnits: string;
   payTo: string;
   maxTimeoutSeconds: number;
+  /** `ref` (private amount), `split` (pay from Ethereum) or `commitment`. */
+  mode: PaymentMode;
   payable: boolean;
   reason?: string;
 }
@@ -73,6 +84,7 @@ export function describeRequirement(req: ParsedPaymentRequirements, network: Net
     amountBaseUnits: req.amount,
     payTo: req.payTo,
     maxTimeoutSeconds: req.maxTimeoutSeconds,
+    mode: modeOf(req),
     payable: reason === undefined,
     reason,
   };
