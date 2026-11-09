@@ -4,6 +4,7 @@ import { PaymentPayloadSchema } from "@galactica-net/x402-mechanism";
 import {
   AztecPrepareRequestSchema,
   OFFCHAIN_MESSAGE_TTL_MS,
+  PAYMENT_ALREADY_USED,
   RefAztecPayloadSchema,
   parseAztecPaymentExtra,
   payloadMode,
@@ -356,7 +357,7 @@ export function createPaymentMiddleware(
     }
 
     sweepStore(store);
-    if (await store.isServed(paymentRef)) return refuse("payment already used");
+    if (await store.isServed(paymentRef)) return refuse(PAYMENT_ALREADY_USED);
 
     // Kept so a crash during verification loses nothing. Anyone who has seen
     // the 402 can send proofs under its reference, and the store keeps only a
@@ -409,7 +410,7 @@ export function createPaymentMiddleware(
           updatedAt: now,
         });
       }
-      if (!(await store.markServed(paymentRef, nonce))) return refuse("payment already used");
+      if (!(await store.markServed(paymentRef, nonce))) return refuse(PAYMENT_ALREADY_USED);
 
       const settled = await config.facilitator.settle(paymentPayload, requirements);
       res.setHeader("PAYMENT-RESPONSE", Buffer.from(JSON.stringify(settled)).toString("base64"));

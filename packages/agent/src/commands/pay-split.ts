@@ -62,6 +62,8 @@ import type { PayOptions, SerializedRequest } from "./pay.js";
 const L1_POLL_MS = 6_000;
 /** The permit lives 30 min from drafting; a deposit not seen well after that will not come. */
 const DEPOSIT_WAIT_MS = 40 * 60_000;
+/** Deposit hashes the local page may report per payment; each is checked on L1. */
+const MAX_DEPOSIT_HINTS = 8;
 
 const usdc = (v: bigint) => formatTokenAmount(v, { symbol: "USDC", name: "USDC", address: "", decimals: 6 });
 
@@ -120,7 +122,7 @@ export async function paySplit(ctx: ResolvedContext, s: SplitStart) {
     () => latest.timestamp,
     await syncMerchantList(node, AztecAddress.fromStringUnsafe(m.l2.token.address)),
   );
-  let record: SplitRecord = {
+  const record: SplitRecord = {
     id: s.id,
     createdAt: new Date().toISOString(),
     url: s.url,
@@ -151,6 +153,10 @@ export async function paySplit(ctx: ResolvedContext, s: SplitStart) {
 
   let phase: "signing" | "waiting_l1" | "paying" | "done" | "failed" = "signing";
   let error: string | undefined;
+  // What the page reports is a hint, never trusted: finishSplit uses a hash
+  // only once it confirms as this draft's deposit, and searches L1 for the
+  // deposit all the same. A caller with the page token cannot pin a wrong one.
+  const hints = new Set<string>();
   let server: Awaited<ReturnType<typeof startFundServer>> | undefined;
   if (s.opts.hosted) {
     const link = `${fundPageUrl()}#${encodePlan(plan)}`;
@@ -172,11 +178,10 @@ export async function paySplit(ctx: ResolvedContext, s: SplitStart) {
           return { plan, phase, error };
         },
         async submitted({ l1TxHash }) {
-          if (record.l1TxHash) return { accepted: false, reason: "already submitted" };
-          record = { ...record, l1TxHash };
-          saveSplitRecord(ctx.dataDir, record);
-          phase = "waiting_l1";
-          progress(`User sent the deposit ${l1TxHash}.`);
+          if (hints.size >= MAX_DEPOSIT_HINTS) return { accepted: false, reason: "too many reports" };
+          hints.add(l1TxHash.toLowerCase());
+          if (phase === "signing") phase = "waiting_l1";
+          progress(`The page reports the deposit ${l1TxHash}; checking it on L1.`);
           return { accepted: true };
         },
       },
@@ -188,7 +193,7 @@ export async function paySplit(ctx: ResolvedContext, s: SplitStart) {
   progress(`Ask the user to open it, connect a ${ctx.network.l1ChainName} wallet with ${usdc(amount)} USDC, and sign. Waiting for the deposit...`);
 
   try {
-    const result = await finishSplit(ctx, record, m, s.x402Version, s.opts, (p) => (phase = p));
+    const result = await finishSplit(ctx, record, m, s.x402Version, s.opts, (p) => (phase = p), () => [...hints]);
     phase = "done";
     if (server) await new Promise((r) => setTimeout(r, 6000));
     return result;
@@ -202,7 +207,48 @@ export async function paySplit(ctx: ResolvedContext, s: SplitStart) {
   }
 }
 
-/** From a stored record: find the deposit, confirm it, hand the merchant the proof. */
+export class DepositTimeoutError extends Error {}
+
+/**
+ * Waits for a split deposit and confirms it. Each round searches L1 for it
+ * (`find`, by the draft's secret hash) and tries every reported hash
+ * (`hints`). A candidate that `confirm` rejects with a CliError is not this
+ * draft's deposit and is never tried again; any other error means not mined
+ * or not visible yet. Gives up at `deadline` unless the search has found the
+ * deposit (then it waits for it to confirm).
+ */
+export async function awaitSplitDeposit<T>(o: {
+  find: () => Promise<string | undefined>;
+  confirm: (hash: string) => Promise<T>;
+  hints: () => string[];
+  deadline: number;
+  pollMs: number;
+  onFound?: (hash: string) => void;
+}): Promise<{ ticket: T; l1TxHash: string }> {
+  const rejected = new Set<string>();
+  for (;;) {
+    const found = (await o.find().catch(() => undefined))?.toLowerCase();
+    const candidates = [...new Set([...(found ? [found] : []), ...o.hints().map((h) => h.toLowerCase())])].filter((h) => !rejected.has(h));
+    for (const candidate of candidates) {
+      try {
+        return { ticket: await o.confirm(candidate), l1TxHash: candidate };
+      } catch (error) {
+        if (error instanceof CliError) rejected.add(candidate);
+      }
+    }
+    const live = found !== undefined && !rejected.has(found);
+    if (!live && Date.now() > o.deadline) throw new DepositTimeoutError();
+    if (live) o.onFound?.(found);
+    await new Promise((r) => setTimeout(r, o.pollMs));
+  }
+}
+
+/**
+ * From a stored record: find the deposit, confirm it, hand the merchant the
+ * proof. The deposit is searched on L1 by this draft's secret hash; hashes
+ * reported by the page (`hints`) are tried too, and dropped when they are not
+ * this draft's deposit. A hash is stored only once it confirms.
+ */
 async function finishSplit(
   ctx: ResolvedContext,
   start: SplitRecord,
@@ -210,6 +256,7 @@ async function finishSplit(
   x402Version: number,
   opts: PayOptions,
   onPhase: (p: "waiting_l1" | "paying") => void = () => {},
+  hints: () => string[] = () => [],
 ) {
   const { deliver } = await import("./pay.js");
   const l1 = splitL1(ctx.network.l1RpcUrl);
@@ -219,27 +266,30 @@ async function finishSplit(
 
   let ticket = ticketOf(record);
   if (!ticket) {
-    const deadline = Date.parse(record.createdAt) + DEPOSIT_WAIT_MS;
-    let l1TxHash = record.l1TxHash;
-    while (!l1TxHash) {
-      l1TxHash = current().l1TxHash ?? (await findSplitDeposit(l1, m, draft, BigInt(record.l1FromBlock)).catch(() => undefined));
-      if (l1TxHash) break;
-      if (Date.now() > deadline) {
+    const fromBlock = BigInt(record.l1FromBlock);
+    const stored = record.l1TxHash;
+    let announced = false;
+    const confirmed = await awaitSplitDeposit({
+      find: () => findSplitDeposit(l1, m, draft, fromBlock),
+      confirm: (hash) => confirmSplitDeposit(l1, m, draft, toHex(hash)),
+      // A hash stored by an older version is a hint like any other.
+      hints: () => [...hints(), ...(stored ? [stored] : [])],
+      deadline: Date.parse(record.createdAt) + DEPOSIT_WAIT_MS,
+      pollMs: L1_POLL_MS,
+      onFound(hash) {
+        if (announced) return;
+        announced = true;
+        onPhase("waiting_l1");
+        progress(`Found the deposit ${hash}; waiting for it to be mined...`);
+      },
+    }).catch((error: unknown) => {
+      if (error instanceof DepositTimeoutError) {
         throw new CliError(`No deposit seen on L1 for payment ${record.id}; its permit has expired, so it can no longer be sent.`, "deposit_timeout");
       }
-      await new Promise((r) => setTimeout(r, L1_POLL_MS));
-    }
-    onPhase("waiting_l1");
-    progress(`Found the deposit ${l1TxHash}; waiting for it to be mined...`);
-    for (;;) {
-      try {
-        ticket = await confirmSplitDeposit(l1, m, draft, toHex(l1TxHash));
-        break;
-      } catch (error) {
-        if (error instanceof CliError) throw error;
-        await new Promise((r) => setTimeout(r, L1_POLL_MS));
-      }
-    }
+      throw error;
+    });
+    ticket = confirmed.ticket;
+    const l1TxHash = confirmed.l1TxHash;
     record = { ...current(), l1TxHash, ticket: encodeTicket("claim", ticket), status: "deposited" };
     saveSplitRecord(ctx.dataDir, record);
   }
@@ -262,7 +312,8 @@ async function finishSplit(
     saveSplitRecord(ctx.dataDir, { ...current(), status: "served" });
     return { ...result, change: { amount: usdc(BigInt(record.amount) - BigInt(record.price)), collect: "aztec-x402 fund change" } };
   } catch (error) {
-    saveSplitRecord(ctx.dataDir, { ...current(), status: "not_served", error: messageOf(error) });
+    const lost = error instanceof CliError && error.code === "response_lost";
+    saveSplitRecord(ctx.dataDir, { ...current(), status: lost ? "response_lost" : "not_served", error: messageOf(error) });
     throw error;
   }
 }
@@ -273,6 +324,13 @@ export function resumeSplit(ctx: ResolvedContext, id: string, opts: PayOptions):
   if (!record) return undefined;
   if (record.status === "served" || record.status.startsWith("change_")) {
     return Promise.reject(new UsageError(`Payment ${id} was already delivered; it is not served twice.`, "already_delivered"));
+  }
+  if (record.status === "response_lost") {
+    return Promise.reject(
+      new CliError(`The merchant served payment ${id}, but its response was lost; it cannot be delivered again.`, "response_lost", {
+        payment: { id, l1TxHash: record.l1TxHash },
+      }),
+    );
   }
   progress(`Resuming payment ${id} from Ethereum...`);
   return finishSplit(ctx, record, manifestFor(ctx), 2, opts);

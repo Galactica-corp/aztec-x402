@@ -13,8 +13,10 @@ type FetchFunction = typeof fetch;
 export interface PaymentFetchOptions {
   /**
    * Called with the full payment payload before it is sent. A `ref` payload
-   * holds the only copy of the merchant's note: persist it here, so a crash or
-   * a lost response can be recovered by resending it ({@link sendPayment}).
+   * holds the only copy of the merchant's note: persist it here, so a payment
+   * that did not reach the server can be resent ({@link sendPayment}). A
+   * server serves each payment once, so a response lost after it served is
+   * not recoverable this way.
    */
   onPayload?(payload: PaymentPayload): Promise<void> | void;
   /** Resend the same payload while the server answers 402 marked retryable (e.g. not mined or confirmed yet). */
@@ -216,7 +218,7 @@ export function wrapFetchWithPayment(
 
 /**
  * Sends a payment payload with the request, as is: also how a stored payload
- * is resent after a crash or a lost response. While the server answers 402
+ * is resent after a crash or a failed send. While the server answers 402
  * marked `retryable`, waits and resends the same payload.
  */
 export async function sendPayment(

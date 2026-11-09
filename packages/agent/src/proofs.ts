@@ -6,6 +6,10 @@
  * is lost before the merchant has it, the money is spent and the merchant can
  * never serve. So it is written here the moment the payment returns, before it
  * is sent, and kept until the merchant answers 2xx. Each file is 0600.
+ *
+ * Resending helps only while the merchant has not served the payment. Once it
+ * has, it refuses the same payment again (a reference is served once), even
+ * when its response never arrived; the payment is then closed here.
  */
 import { existsSync, mkdirSync, readdirSync, readFileSync, renameSync, writeFileSync } from "fs";
 import { join } from "path";
@@ -21,6 +25,8 @@ export interface StoredPayment {
   createdAt: string;
   /** Set once the merchant answered 2xx. */
   acknowledgedAt?: string;
+  /** Set when the merchant had served the payment but its response was lost: it cannot be delivered again. */
+  responseLostAt?: string;
 }
 
 const dir = (dataDir: string) => join(dataDir, "proofs");
@@ -47,12 +53,16 @@ export function acknowledgeStoredPayment(dataDir: string, id: string): void {
   saveStoredPayment(dataDir, { ...readStoredPayment(dataDir, id), acknowledgedAt: new Date().toISOString() });
 }
 
-/** Payments the merchant has not acknowledged yet, oldest first. */
+export function markResponseLost(dataDir: string, id: string): void {
+  saveStoredPayment(dataDir, { ...readStoredPayment(dataDir, id), responseLostAt: new Date().toISOString() });
+}
+
+/** Payments that may still be delivered (not acknowledged, response not lost), oldest first. */
 export function unacknowledgedPayments(dataDir: string): StoredPayment[] {
   if (!existsSync(dir(dataDir))) return [];
   return readdirSync(dir(dataDir))
     .filter((f) => f.endsWith(".json"))
     .map((f): StoredPayment => JSON.parse(readFileSync(join(dir(dataDir), f), "utf-8")))
-    .filter((p) => !p.acknowledgedAt)
+    .filter((p) => !p.acknowledgedAt && !p.responseLostAt)
     .sort((a, b) => a.createdAt.localeCompare(b.createdAt));
 }

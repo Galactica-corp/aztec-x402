@@ -187,7 +187,7 @@ and no switch-off is scheduled.
 |---|---|---|
 | `invalid payment reference` | no | The reference is not this server's for that nonce and price (a replay for another request, a lowered price) |
 | `invalid or expired payment nonce` | no | More than the quote's timeout plus 26 h old |
-| `payment already used` | no | This reference was served already |
+| `payment already used` | no | This reference was served already. A reference is served once, also to the buyer who paid it: if your response did not reach the buyer, it cannot fetch it again with the same payment |
 | `… not-mined` / `… unconfirmed` (with `retryable: true`) | yes, same payload | The transaction is not mined yet, or the deposit is not deep enough |
 | `… underpaid` / `no-payment` / `foreign` / `not-found` / `before-listing` | no | The proof does not pay this request |
 

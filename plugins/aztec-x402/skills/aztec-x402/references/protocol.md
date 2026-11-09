@@ -10,7 +10,7 @@ x402 turns HTTP 402 Payment Required into a machine-payable invoice. This flavou
 
 ## Paying without showing the amount (`ref`)
 
-With the inference-money `USDC`, the merchant's 402 also offers a **payment under a reference**: a random reference instead of a commitment, no prepare step. The client makes a private transfer to the merchant with `pay_private`, which records the reference, and retries the request with the transaction's encrypted messages (the proof) instead of publishing them. The merchant decrypts them, checks the reference and the amount, and serves. Nothing on chain shows the amount or names the merchant, and the merchant sends no transaction. The client keeps the proof until the merchant answers, so a lost response is fixed by sending it again (`pay --resume`).
+With the inference-money `USDC`, the merchant's 402 also offers a **payment under a reference**: a random reference instead of a commitment, no prepare step. The client makes a private transfer to the merchant with `pay_private`, which records the reference, and retries the request with the transaction's encrypted messages (the proof) instead of publishing them. The merchant decrypts them, checks the reference and the amount, and serves. Nothing on chain shows the amount or names the merchant, and the merchant sends no transaction. The client keeps the proof until the merchant answers, so a payment that did not reach the merchant is sent again (`pay --resume`). Once the merchant has served a reference it never serves it again, not even to the buyer: if its response is lost after that, the content is gone (`response_lost`).
 
 ## Paying from Ethereum in one step (`split`)
 
@@ -22,7 +22,7 @@ A merchant with an Ethereum connection also offers a **split deposit**: the user
 - **Only this client can pay this invoice.** The commitment names the client as the only completer.
 - **Right amount.** The merchant reads the amount from chain data, not from what the client claims.
 - **No replay.** The nonce is single-use and expires; a settled tx hash cannot pay twice. A reference is bound to its nonce and price, and is served once.
-- **Not guaranteed: delivery.** Payment and delivery are separate steps. A merchant that takes the payment and then fails to respond keeps the money; the client holds the tx hash as proof (`not_delivered`).
+- **Not guaranteed: delivery.** Payment and delivery are separate steps. A merchant that takes the payment and then fails to respond keeps the money; the client holds the tx hash as proof (`not_delivered`). The client has to stay connected until the content arrives: a response lost after the merchant served is not sent again, because serving each payment once is what stops replays (`response_lost`).
 - **Spend cap.** The CLI refuses any challenge above the user's `--max-amount`, the per-payment policy, or the 24h limit — before the merchant is asked to prepare, and again right before the transfer is proven.
 
 ## What stays private

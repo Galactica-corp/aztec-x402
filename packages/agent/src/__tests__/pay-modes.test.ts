@@ -47,41 +47,48 @@ const middleware = createPaymentMiddleware(
 );
 
 let up = true;
+/** The merchant serves, then its response is lost on the way (a proxy error stands in for the dropped connection). */
+let loseResponse = false;
 const server = Bun.serve({
   port: 0,
   async fetch(req) {
     if (!up) return new Response("down", { status: 503 });
-    const url = new URL(req.url);
-    return new Promise<Response>((resolve) => {
-      let status = 200;
-      const headers: Record<string, string> = {};
-      const res: MiddlewareResponse = {
-        statusCode: 200,
-        status(code) {
-          status = code;
-          return res;
-        },
-        setHeader(k, v) {
-          headers[k] = v;
-          return res;
-        },
-        json(d) {
-          resolve(new Response(JSON.stringify(d), { status, headers: { ...headers, "content-type": "application/json" } }));
-          return res;
-        },
-        end() {
-          resolve(new Response(null, { status, headers }));
-          return res;
-        },
-      };
-      const h: Record<string, string> = {};
-      req.headers.forEach((v, k) => (h[k] = v));
-      void middleware({ path: url.pathname, method: req.method, url: req.url, headers: h }, res, () =>
-        resolve(new Response(JSON.stringify({ secret: "the content" }), { headers: { ...headers, "content-type": "application/json" } })),
-      );
-    });
+    const response = await handle(req);
+    return loseResponse && response.ok ? new Response("bad gateway", { status: 502 }) : response;
   },
 });
+
+function handle(req: Request): Promise<Response> {
+  const url = new URL(req.url);
+  return new Promise<Response>((resolve) => {
+    let status = 200;
+    const headers: Record<string, string> = {};
+    const res: MiddlewareResponse = {
+      statusCode: 200,
+      status(code) {
+        status = code;
+        return res;
+      },
+      setHeader(k, v) {
+        headers[k] = v;
+        return res;
+      },
+      json(d) {
+        resolve(new Response(JSON.stringify(d), { status, headers: { ...headers, "content-type": "application/json" } }));
+        return res;
+      },
+      end() {
+        resolve(new Response(null, { status, headers }));
+        return res;
+      },
+    };
+    const h: Record<string, string> = {};
+    req.headers.forEach((v, k) => (h[k] = v));
+    void middleware({ path: url.pathname, method: req.method, url: req.url, headers: h }, res, () =>
+      resolve(new Response(JSON.stringify({ secret: "the content" }), { headers: { ...headers, "content-type": "application/json" } })),
+    );
+  });
+}
 const URL_PAID = `http://127.0.0.1:${server.port}/paid`;
 
 // ---------------------------------------------------------------------------
@@ -120,6 +127,7 @@ afterEach(() => {
   verdict = async () => ({ isValid: true, amountFound: 10_000n });
   splitTerms = async () => undefined;
   up = true;
+  loseResponse = false;
 });
 
 async function cli(argv: string[]): Promise<{ code: number; out: Record<string, unknown> }> {
@@ -190,6 +198,29 @@ describe("pay (ref)", () => {
     expect(existsSync(proofFile(id))).toBe(true);
     up = true;
     expect((await cli(["pay", "--resume", id])).code).toBe(0);
+  });
+});
+
+describe("a response lost after the merchant served", () => {
+  test("cannot be delivered again: the payment is closed as response_lost, without resume", async () => {
+    loseResponse = true;
+    const before = payPrivate.mock.calls.length;
+    const failed = await cli(["pay", URL_PAID, "--max-amount", "0.02"]);
+    expect(field(failed.out, "error", "code")).toBe("not_delivered");
+    const id = String(field(failed.out, "error", "payment", "id"));
+    loseResponse = false;
+
+    // The merchant refuses the same payment: it was served once.
+    const resumed = await cli(["pay", "--resume", id]);
+    expect(resumed.code).toBe(1);
+    expect(field(resumed.out, "error", "code")).toBe("response_lost");
+    expect(field(resumed.out, "error", "resume")).toBeUndefined();
+    expect(JSON.parse(readFileSync(proofFile(id), "utf-8")).responseLostAt).toBeDefined();
+
+    // Asking again answers from the stored state, and nothing was paid twice.
+    const again = await cli(["pay", "--resume", id]);
+    expect(field(again.out, "error", "code")).toBe("response_lost");
+    expect(payPrivate.mock.calls.length).toBe(before + 1);
   });
 });
 

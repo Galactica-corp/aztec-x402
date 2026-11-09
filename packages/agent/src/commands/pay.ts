@@ -9,7 +9,9 @@
  *   3. When the merchant offers `ref` and the token can pay it: a private
  *      transfer under the merchant's reference (pay_private). Its proof is
  *      stored before it is sent and resent unchanged until the merchant
- *      answers 2xx (`pay --resume <id>` after a crash or a lost response).
+ *      answers 2xx (`pay --resume <id>` after a crash or a failed send).
+ *      The merchant serves a reference once: a response lost after it
+ *      served cannot be fetched again (`response_lost`).
  *   4. Otherwise the commitment flow, checked before the merchant is asked to
  *      prepare (prepare is an on-chain tx the merchant pays for):
  *      wrapFetchWithPayment runs prepare → transfer_private_to_commitment →
@@ -24,7 +26,7 @@ import { join } from "path";
 import { PaymentTermsMismatchError, sendPayment, wrapFetchWithPayment } from "@galactica-net/x402-client";
 import { ExactAztecClientScheme } from "@galactica-net/x402-mechanism/exact/client";
 import type { PaymentPayload, PaymentRequirements, SchemeNetworkClient } from "@galactica-net/x402-mechanism";
-import { SCHEME, parseAztecPaymentExtra } from "@galactica-net/x402-core";
+import { PAYMENT_ALREADY_USED, SCHEME, parseAztecPaymentExtra } from "@galactica-net/x402-core";
 import { AztecAddress } from "@aztec-labs/aztec.js/addresses";
 import { RealClientAztecSigner } from "../aztec/client-signer.js";
 import { openSession, tokenAt } from "../aztec/session.js";
@@ -33,7 +35,7 @@ import { CliError, PolicyError, UsageError, isProverError, proverFailed } from "
 import { setInflightPayment } from "../inflight.js";
 import { appendLedger, checkPayment, type PaymentLimits } from "../policy.js";
 import { decodePaymentRequired, describeRequirement, formatTokenAmount, modeOf } from "../x402.js";
-import { acknowledgeStoredPayment, readStoredPayment, saveStoredPayment } from "../proofs.js";
+import { acknowledgeStoredPayment, markResponseLost, readStoredPayment, saveStoredPayment } from "../proofs.js";
 import type { TokenInfo } from "../networks.js";
 import { paySplit, resumeSplit } from "./pay-split.js";
 import { progress } from "../output.js";
@@ -280,6 +282,11 @@ function failedPayment(ctx: ResolvedContext, id: string, error: unknown): unknow
  * Sends a stored payment and returns the merchant's content. Anything but 2xx
  * leaves the payment stored for `pay --resume <id>`; the same payload is sent
  * every time, so the merchant serves it once.
+ *
+ * A merchant that answers PAYMENT_ALREADY_USED had served this payment
+ * before, and its response was lost (the agent died or the connection
+ * dropped after the merchant served). It never serves a reference twice, so
+ * the payment is closed: `response_lost`, with no `resume`.
  */
 export async function deliver(
   ctx: ResolvedContext,
@@ -307,6 +314,10 @@ export async function deliver(
     const rejected = decodePaymentRequired(response);
     const reason = rejected?.error ?? `HTTP ${response.status}`;
     appendLedger(ctx.dataDir, { id, status: "paid", error: reason });
+    if (reason === PAYMENT_ALREADY_USED) {
+      markResponseLost(ctx.dataDir, id);
+      throw responseLost(id, payment);
+    }
     throw new CliError(`Paid, but the merchant did not deliver: ${reason}. Retry with \`${resume}\`.`, "not_delivered", {
       status: response.status,
       payment,
@@ -317,6 +328,15 @@ export async function deliver(
   return { url, status: response.status, paid: true, payment, ...(await readBody(response, ctx.dataDir, id, output)) };
 }
 
+function responseLost(id: string, payment: Record<string, unknown>): CliError {
+  return new CliError(
+    `Paid, and the merchant served payment ${id} already, but its response never reached the agent. ` +
+      "A merchant serves a payment once, so it cannot be delivered again. Keep the payment details as proof of payment.",
+    "response_lost",
+    { payment },
+  );
+}
+
 /** Delivers a stored payment again, unchanged: no new money moves. */
 export async function resumePayment(ctx: ResolvedContext, id: string, opts: PayOptions) {
   const split = resumeSplit(ctx, id, opts);
@@ -324,6 +344,10 @@ export async function resumePayment(ctx: ResolvedContext, id: string, opts: PayO
   const stored = readStoredPayment(ctx.dataDir, id);
   if (stored.acknowledgedAt) {
     throw new UsageError(`Payment ${id} was already delivered (${stored.acknowledgedAt}); it is not served twice.`, "already_delivered");
+  }
+  if (stored.responseLostAt) {
+    const accepted = stored.payload.accepted;
+    throw responseLost(id, { id, amountBaseUnits: accepted.amount, payTo: accepted.payTo, mode: modeOf(accepted) });
   }
   progress(`Delivering stored payment ${id} to ${stored.url} again...`);
   const accepted = stored.payload.accepted;

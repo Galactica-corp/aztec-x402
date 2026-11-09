@@ -33,8 +33,8 @@ Commands:
                               Pay from the user's Ethereum wallet in one
                               deposit they sign on a page; the agent collects
                               the change later with \`fund change\`
-  pay --resume ID             Deliver a payment made earlier again (after a
-                              lost response or a crash); never pays twice
+  pay --resume ID             Deliver a payment made earlier again when it did
+                              not reach the merchant; never pays twice
   history [--limit N]         Recent payments from the local ledger
   fund [--amount N] [--port P] [--host H] [--no-open]
                               Serve a local page where the user signs an L1

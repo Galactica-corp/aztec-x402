@@ -36,6 +36,29 @@ if (!config.manifestPath || !config.l1RpcUrl) throw new Error("Run `bun run setu
 const m = parseManifest(JSON.parse(readFileSync(config.manifestPath, "utf-8")));
 const PORT = 4499;
 const BASE = `http://127.0.0.1:${PORT}`;
+
+/**
+ * A proxy between the agent and the server that loses a payment on the way:
+ * "request" drops a request that carries a payment before the server sees it,
+ * "response" forwards it and drops the server's 2xx answer.
+ */
+let lose: "nothing" | "request" | "response" = "nothing";
+const proxy = Bun.serve({
+  port: 0,
+  hostname: "127.0.0.1",
+  async fetch(req) {
+    const url = new URL(req.url);
+    const paying = req.headers.has("PAYMENT-SIGNATURE");
+    if (paying && lose === "request") return new Response("bad gateway", { status: 502 });
+    const headers = new Headers(req.headers);
+    headers.delete("host");
+    const body = req.method === "GET" || req.method === "HEAD" ? undefined : await req.arrayBuffer();
+    const answer = await fetch(`${BASE}${url.pathname}${url.search}`, { method: req.method, headers, body });
+    if (paying && lose === "response" && answer.ok) return new Response("bad gateway", { status: 502 });
+    return answer;
+  },
+});
+const VIA_PROXY = `http://127.0.0.1:${proxy.port}`;
 /** The agent funds from, and pays splits from, this anvil account: its first claim binds the agent to it. */
 const AGENT_L1_INDEX = 7;
 
@@ -184,13 +207,31 @@ try {
   });
   check("a retried request with the same proof is not served twice", replay.status === 402);
 
-  // 2. The agent dies right after the payment returned (the proof is stored first): resume delivers it.
-  const killed = await agent(["pay", `${BASE}/api/weather/2`, "--max-amount", "0.02"], { killWhen: /Paid in tx/ });
+  // 2. The payment never reaches the server (the proof is stored first): resume delivers it.
+  lose = "request";
+  const lostRequest = await agent(["pay", `${VIA_PROXY}/api/weather/2`, "--max-amount", "0.02"]);
+  lose = "nothing";
   const proofs = readdirSync(join(agentHome, "local", "proofs")).filter((f) => f.endsWith(".json"));
   const pendingIds = proofs.map((f) => JSON.parse(readFileSync(join(agentHome, "local", "proofs", f), "utf-8"))).filter((p) => !p.acknowledgedAt);
-  check("the killed agent left its paid proof on disk", killed.code !== 0 && pendingIds.length === 1, `${pendingIds.length} pending`);
+  check(
+    "a payment lost before the server leaves its proof on disk, with resume",
+    lostRequest.code !== 0 && get(lostRequest.out, "error", "code") === "not_delivered" && pendingIds.length === 1,
+    `${pendingIds.length} pending`,
+  );
   const resumed = await agent(["pay", "--resume", String(pendingIds[0]?.id)]);
   check("pay --resume delivers it and is served", resumed.code === 0, resumed.stderr.slice(-300));
+
+  // 2b. The server serves, and its response is lost: a reference is served once, so it is not delivered again.
+  lose = "response";
+  const lostResponse = await agent(["pay", `${VIA_PROXY}/api/weather/2b`, "--max-amount", "0.02"]);
+  lose = "nothing";
+  const lostId = String(get(lostResponse.out, "error", "payment", "id"));
+  const refused = await agent(["pay", "--resume", lostId]);
+  check(
+    "a response lost after serving ends as response_lost, not served twice",
+    get(refused.out, "error", "code") === "response_lost" && get(refused.out, "error", "resume") === undefined,
+    JSON.stringify(get(refused.out, "error", "code")),
+  );
 
   // 3. The server dies after storing a proof, before taking it in; on restart it takes it in.
   await stopServer();

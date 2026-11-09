@@ -39,7 +39,15 @@ export const SIGNATURE_WORD = "{signature}";
 const SIGNATURE_SENTINEL: Hex = `0x${"5a".repeat(65)}`;
 const OWNER_SENTINEL: Hex = "0x00000000000000000000000000000000000a11ce";
 
-export type SplitStatus = "awaiting_deposit" | "deposited" | "served" | "not_served" | "change_collected" | "change_returned";
+/** `response_lost`: the merchant served the deposit, but its response never arrived; the change is still collected. */
+export type SplitStatus =
+  | "awaiting_deposit"
+  | "deposited"
+  | "served"
+  | "not_served"
+  | "response_lost"
+  | "change_collected"
+  | "change_returned";
 
 export interface SplitRecord {
   id: string;
