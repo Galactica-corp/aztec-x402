@@ -12,6 +12,7 @@ import {
   type PaymentStateStore,
 } from "@galactica-net/x402-core";
 import { assertSecret, derivePaymentRef, isPaymentRefFor, nonceCreatedAt } from "./reference.js";
+import { payloadDigest } from "./store/memory.js";
 import type {
   RouteConfig,
   RoutesConfig,
@@ -357,20 +358,28 @@ export function createPaymentMiddleware(
     sweepStore(store);
     if (await store.isServed(paymentRef)) return refuse("payment already used");
 
-    const stored = await store.saveProof({
+    // Kept so a crash during verification loses nothing. Anyone who has seen
+    // the 402 can send proofs under its reference, and the store keeps only a
+    // few per reference, so a full store must not turn the buyer away: such a
+    // proof is verified unstored (the buyer keeps it and resends it after a
+    // crash) and served if valid.
+    const payload = JSON.stringify(paymentPayload.payload);
+    await store.saveProof({
       paymentRef,
       nonce,
       mode,
       asset: routeConfig.asset,
-      payload: JSON.stringify(paymentPayload.payload),
+      payload,
       price,
       receivedAt: Date.now(),
       takenIn: false,
     });
-    if (!stored) return refuse("too many different proofs for this payment reference");
 
-    if (verifying.has(paymentRef)) return refuse("payment verification in progress", true);
-    verifying.add(paymentRef);
+    // One verification per proof at a time. Other proofs of the reference do
+    // not wait on it: markServed decides which one is served.
+    const lock = `${paymentRef}:${payloadDigest(payload)}`;
+    if (verifying.has(lock)) return refuse("payment verification in progress", true);
+    verifying.add(lock);
     try {
       const requirements: PaymentRequirements = {
         ...baseRequirements,
@@ -409,7 +418,7 @@ export function createPaymentMiddleware(
       const message = error instanceof Error ? error.message : String(error);
       return refuse(`verification error: ${message}`, true);
     } finally {
-      verifying.delete(paymentRef);
+      verifying.delete(lock);
     }
   }
 

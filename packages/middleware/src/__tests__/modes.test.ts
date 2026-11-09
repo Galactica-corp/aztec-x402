@@ -3,7 +3,7 @@ import { mkdtempSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { v7 as uuidv7 } from "uuid";
-import type { FacilitatorAztecSigner, ModeVerification, PaymentStateStore } from "@galactica-net/x402-core";
+import type { FacilitatorAztecSigner, ModeVerification, PaymentStateStore, RefPaymentProof } from "@galactica-net/x402-core";
 import { ExactAztecFacilitatorScheme } from "@galactica-net/x402-mechanism/exact/facilitator";
 import type { PaymentPayload, PaymentRequirements } from "@galactica-net/x402-mechanism";
 import { createPaymentMiddleware } from "../middleware.js";
@@ -255,13 +255,39 @@ describe("ref payments", () => {
     expect((await pay(mw, tooLate.accepted, refProof(tooLate.paymentRef))).challenge.error).toBe("invalid or expired payment nonce");
   });
 
-  it("refuse more distinct proofs per reference than the store keeps", async () => {
-    const { mw } = setup({ signer: signer({ receiveRefPayment: jest.fn(async () => ok({ isValid: false, reason: "no-payment" })) }) });
+  it("still serve the buyer's proof after junk proofs filled the reference's slots", async () => {
+    const valid = H("99");
+    const receiveRefPayment = jest.fn(async (_asset: string, proof: RefPaymentProof) =>
+      proof.txHash === valid ? ok() : ok({ isValid: false, reason: "no-payment" }),
+    );
+    const store = memoryStateStore();
+    const { mw } = setup({ signer: signer({ receiveRefPayment }), store });
     const accepted = await offer(mw, "ref");
     const ref = refOf(accepted);
-    for (let i = 0; i < 8; i++) await pay(mw, accepted, refProof(ref, { txHash: "0x" + i.toString(16).padStart(64, "0") }));
-    const ninth = await pay(mw, accepted, refProof(ref, { txHash: H("99") }));
-    expect(ninth.challenge.error).toContain("too many");
+    for (let i = 0; i < 12; i++) {
+      const junk = await pay(mw, accepted, refProof(ref, { txHash: "0x" + i.toString(16).padStart(64, "0") }));
+      expect(junk.served).toBe(false);
+    }
+    // The store keeps a bounded number; the buyer's proof is verified and served anyway.
+    expect((await store.proofsNotTakenIn(0)).length).toBe(8);
+    expect((await pay(mw, accepted, refProof(ref, { txHash: valid }))).served).toBe(true);
+  });
+
+  it("do not make the buyer's proof wait on another proof's verification", async () => {
+    let release!: () => void;
+    const gate = new Promise<void>((r) => (release = r));
+    const valid = H("99");
+    const receiveRefPayment = jest.fn(async (_asset: string, proof: RefPaymentProof) =>
+      proof.txHash === valid ? ok() : (await gate, ok({ isValid: false, reason: "no-payment" })),
+    );
+    const { mw } = setup({ signer: signer({ receiveRefPayment }) });
+    const accepted = await offer(mw, "ref");
+    const ref = refOf(accepted);
+    const junk = pay(mw, accepted, refProof(ref, { txHash: H("01") }));
+    await new Promise((r) => setTimeout(r, 10));
+    expect((await pay(mw, accepted, refProof(ref, { txHash: valid }))).served).toBe(true);
+    release();
+    expect((await junk).served).toBe(false);
   });
 
   it("are refused on a route that does not offer them", async () => {

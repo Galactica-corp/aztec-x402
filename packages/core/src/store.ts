@@ -45,7 +45,12 @@ export interface StoredSplitClaim {
   updatedAt: number;
 }
 
-/** Distinct proofs kept per reference: a buyer retries with the same one, so a few cover every honest case. */
+/**
+ * Distinct proofs kept per reference: a buyer retries with the same one, so a
+ * few cover every honest case. It bounds storage only; a caller must not
+ * refuse a proof because the reference is full, since anyone who saw the 402
+ * can fill it with junk.
+ */
 export const MAX_PROOFS_PER_REF = 8;
 
 export interface PaymentStateStore {
@@ -53,7 +58,8 @@ export interface PaymentStateStore {
    * Stores a presented proof. Every distinct payload of a reference is kept,
    * so a junk proof sent later never displaces the one that pays; an
    * identical one is stored once. False when the reference already holds
-   * {@link MAX_PROOFS_PER_REF} distinct proofs (nothing stored).
+   * {@link MAX_PROOFS_PER_REF} distinct proofs (nothing stored); the caller
+   * then verifies the proof without a stored copy.
    */
   saveProof(proof: StoredProof): Promise<boolean>;
   /** The payment of `paymentRef` is in the merchant's wallet: none of its proofs needs replaying. */
