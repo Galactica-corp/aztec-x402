@@ -1,1 +1,1 @@
-export { wrapFetchWithPayment } from "./client.js";
+export { PaymentTermsMismatchError, wrapFetchWithPayment } from "./client.js";

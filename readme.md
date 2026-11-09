@@ -1,8 +1,9 @@
 # aztec-x402
 
-x402 payment protocol for Aztec private tokens — HTTP-native micropayments with full transaction privacy.
+x402 payment protocol for Aztec private tokens — HTTP-native micropayments settled with private transfers.
 
-This monorepo implements the [x402 protocol](https://www.x402.org) for [Aztec](https://aztec.network), allowing any HTTP API to be payment-gated using private stablecoin transfers. All payments use private transfers — sender, receiver, and amount are hidden on-chain.
+This monorepo implements the [x402 protocol](https://www.x402.org) for [Aztec](https://aztec.network), allowing any HTTP API to be payment-gated using private stablecoin transfers. Private settlement hides the buyer and merchant addresses from chain observers. The payment amount is published in the completion log. See [What is and isn't hidden](#what-is-and-isnt-hidden).
+
 ## Protocol Flow
 
 The x402 protocol uses a 3-phase commitment-based payment flow:
@@ -48,6 +49,16 @@ The server creates the commitment via `initialize_transfer_commitment(serverAddr
 
 This closes the "who did the payment go to?" verification gap that exists with direct `transfer_in_private`.
 
+### What is and isn't hidden
+
+The commitment binds who can complete the note and who receives it. It does not hide the amount. `transfer_private_to_commitment` finishes the partial note with `PartialUintNote::complete_from_private`, and that call publishes the amount.
+
+**Chain observers** see the token contract and the amount. `complete_from_private` writes `[siloed tag, storage slot, amount]` into the transaction's private logs, and those fields are part of the posted transaction data. The storage slot is the token's `private_balances` slot, a constant of the contract, so the amount is recognizable without knowing the commitment. The buyer address stays inside the validity commitment `H(commitment, completer)`. The merchant address stays inside `H(owner, randomness)`.
+
+**The merchant** sees the buyer's Aztec address. The client sends it in `X-402-PREPARE` and again in `PAYMENT-SIGNATURE`, because `initialize_transfer_commitment(merchant, buyer)` has to name the completer. The merchant also knows the amount, from the 402 price and from that log.
+
+**The buyer** sees the merchant address (`payTo`) and the price.
+
 ### Facilitator Model
 
 In this demo the API provider runs the facilitator inside its own server process. That is different from the common EVM x402 shape where a merchant can ask an external facilitator to verify a prepared payment. For Aztec private payments, the receiver's Aztec account creates the commitment first, so the facilitator needs access to the merchant/server Aztec wallet or to an explicitly delegated service that can create commitments for that merchant. A third-party facilitator is possible later, but it must own that delegation and the retry/rate-limit policy around prepare transactions.
@@ -80,7 +91,7 @@ Notable points about the Aztec SDK surface this code relies on:
 
 ## Testnet Status
 
-The demo targets Aztec public testnet. The default node is `https://aztec-testnet.drpc.org`. Override with `NODE_URL` when you need a different node. The contract-address domain separator is V3, so rc.1 contract addresses are not on this rollup:
+The demo targets Aztec public testnet. The default node is `https://aztec-testnet.drpc.org`. Override with `NODE_URL` when you need a different node:
 
 ```bash
 NODE_URL=https://aztec-testnet.drpc.org \
@@ -88,8 +99,6 @@ AZTEC_NETWORK=aztec:testnet \
 USE_SPONSORED_FPC=true \
 bun run ./packages/demo/src/aztec/setup.ts
 ```
-
-Confirm the Sponsored FPC is deployed on that rollup before relying on `USE_SPONSORED_FPC`. The v6 node image sets `SPONSORED_FPC` off for testnet and on for the local network.
 
 With `TOKEN=inference` the testnet setup uses the inference-money deployment the SDK ships instead of deploying a token. Two steps need others: the token's merchant admin lists the server account (setup prints the command and checks the listing), and the payer is funded from Sepolia USDC. Set `FUNDING_L1_KEY` to a Sepolia key holding USDC and ETH, for example in a gitignored `.env`; the payer's first claim binds it to that key's address for good.
 
@@ -228,7 +237,8 @@ To charge the canonical testnet `tUSDC` that the agent CLI's faucet mints (inste
 ### Amount Verification via Completion Log Lookup
 
 When the buyer finalizes a partial note via `transfer_*_to_commitment`, the token
-contract emits a completion log keyed by a tag derived from the commitment:
+contract emits a completion log keyed by a tag derived from the commitment. The
+`value` in that payload is plaintext; see [What is and isn't hidden](#what-is-and-isnt-hidden).
 
 ```
 log_tag    = poseidon2(commitment ; DOM_SEP__NOTE_COMPLETION_LOG_TAG)

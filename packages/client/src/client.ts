@@ -1,12 +1,54 @@
 import type {
   SchemeNetworkClient,
   PaymentPayload,
+  PaymentRequirements,
   ParsedPaymentRequired,
+  ParsedPaymentRequirements,
 } from "@galactica-net/x402-mechanism";
 import { PaymentRequiredSchema } from "@galactica-net/x402-mechanism";
 import { parseAztecPaymentExtra } from "@galactica-net/x402-core";
 
 type FetchFunction = typeof fetch;
+
+/** Fields of a 402 accept that a prepare response must not change. */
+type PaymentTerm = "amount" | "asset" | "payTo" | "network";
+
+/**
+ * The prepare response changed a payment term from the original 402.
+ * No transfer is attempted.
+ */
+export class PaymentTermsMismatchError extends Error {
+  readonly field: PaymentTerm;
+  readonly expected: string;
+  readonly actual: string;
+
+  constructor(field: PaymentTerm, expected: string, actual: string) {
+    super(`Prepared challenge ${field} does not match the original 402 challenge`);
+    this.name = "PaymentTermsMismatchError";
+    this.field = field;
+    this.expected = expected;
+    this.actual = actual;
+  }
+}
+
+function termsMatch(field: PaymentTerm, expected: string, actual: string): boolean {
+  // Aztec addresses are hex; merchants may echo them in either case.
+  if (field === "asset" || field === "payTo") {
+    return expected.toLowerCase() === actual.toLowerCase();
+  }
+  return expected === actual;
+}
+
+function assertSamePaymentTerms(original: PaymentRequirements, prepared: PaymentRequirements): void {
+  const fields: PaymentTerm[] = ["amount", "asset", "payTo", "network"];
+  for (const field of fields) {
+    const expected = original[field];
+    const actual = prepared[field];
+    if (!termsMatch(field, expected, actual)) {
+      throw new PaymentTermsMismatchError(field, expected, actual);
+    }
+  }
+}
 
 /**
  * Wraps a fetch function with automatic x402 payment handling.
@@ -18,6 +60,9 @@ type FetchFunction = typeof fetch;
  *
  * The server creates the commitment for its own address during the prepare
  * phase, providing structural recipient verification.
+ *
+ * A prepare response may add commitment data in `extra`. Its amount, asset,
+ * payTo, and network must match the original 402; otherwise no payment is made.
  *
  * Non-402 responses pass through unchanged.
  */
@@ -91,18 +136,22 @@ export function wrapFetchWithPayment(
       if (prepareResponse.status === 402) {
         const prepareHeader = prepareResponse.headers.get("PAYMENT-REQUIRED");
         if (prepareHeader) {
+          // A malformed prepare header falls through. A commitment whose
+          // payment terms differ from the original 402 must not.
+          let preparedMatch: ParsedPaymentRequirements | undefined;
           try {
             const prepared = PaymentRequiredSchema.parse(
               JSON.parse(Buffer.from(prepareHeader, "base64").toString()),
             );
-            const preparedMatch = prepared.accepts.find(
+            preparedMatch = prepared.accepts.find(
               (a) => a.scheme === scheme.scheme,
             );
-            if (preparedMatch && parseAztecPaymentExtra(preparedMatch.extra).commitment) {
-              preparedRequirements = preparedMatch;
-            }
           } catch {
-            // Fall through with original requirements
+            preparedMatch = undefined;
+          }
+          if (preparedMatch && parseAztecPaymentExtra(preparedMatch.extra).commitment) {
+            assertSamePaymentTerms(matching, preparedMatch);
+            preparedRequirements = preparedMatch;
           }
         }
       }

@@ -21,7 +21,7 @@ x402 turns HTTP 402 Payment Required into a machine-payable invoice. This flavou
 
 | Who | Learns |
 | --- | --- |
-| Public observers of Aztec | That some transactions happened. Not sender, recipient, amount, or token balances. |
+| Public observers of Aztec | That some transactions happened, which token contract they touched, and the payment amount. The amount is plaintext in the note-completion log, next to the token's `private_balances` slot. Buyer and merchant addresses stay inside commitments. Private balances stay hidden. |
 | The merchant | That this request was paid, by which Aztec address, and how much. Required to serve it. |
 | Observers of Ethereum (L1) | Deposits from L1 into Aztec, when the user funds the agent from Ethereum (see funding.md). |
 

@@ -17,7 +17,7 @@ The CLI carries this registry built in; `aztec-x402 status` prints the live view
 
 `USDC` is Sepolia USDC bridged by inference-money. It has no faucet, and a payment in it only goes through to a merchant on the token's list; the CLI refuses any other payee with `merchant_not_listed` before the merchant prepares anything. The CLI tells the two kinds apart by the contract's class on chain.
 
-`tUSDC` and the Dripper are the canonical `aztec-standards` universal deploys (salt 1337) under `DOM_SEP__CONTRACT_ADDRESS_V3`: their addresses follow from the artifacts alone. They still have to be deployed on the rollup before they can be used. The testnet node image does not deploy the Sponsored FPC (`SPONSORED_FPC: false`); the local network does. The Sponsored FPC address is the `SponsoredFPC` artifact at `SPONSORED_FPC_SALT`.
+`tUSDC` and the Dripper are the canonical `aztec-standards` universal deploys (salt 1337) under `DOM_SEP__CONTRACT_ADDRESS_V3`: their addresses follow from the artifacts alone. They still have to be deployed on the rollup before they can be used. The Sponsored FPC is deployed on testnet. Its address is the `SponsoredFPC` artifact at `SPONSORED_FPC_SALT`.
 
 L1 contracts (Fee Juice portal, fee asset, its faucet) come from the node at run time: `curl -s -X POST <node RPC> -H 'content-type: application/json' -d '{"jsonrpc":"2.0","method":"aztec_getNodeInfo","params":[],"id":1}'` → `result.l1ContractAddresses`.
 

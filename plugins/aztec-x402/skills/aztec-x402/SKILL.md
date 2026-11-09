@@ -5,7 +5,7 @@ description: Pay for HTTP resources privately with x402 on Aztec, and manage the
 
 # Private x402 payments on Aztec
 
-You hold an Aztec wallet and pay for HTTP resources with private stablecoin transfers: sender, recipient, and amount stay off public explorers. Every action goes through the `aztec-x402` CLI, which also enforces the spend policy.
+You hold an Aztec wallet and pay for HTTP resources with private stablecoin transfers. Buyer and merchant addresses stay off public explorers. The payment amount is published in the completion log, and the merchant learns your Aztec address. Every action goes through the `aztec-x402` CLI, which also enforces the spend policy.
 
 ## Running the CLI
 
