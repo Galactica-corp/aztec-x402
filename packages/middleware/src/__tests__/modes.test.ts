@@ -335,6 +335,53 @@ describe("the commitment flow on a route with modes", () => {
   });
 });
 
+describe("a route that does not list commitment", () => {
+  const commitmentPayload = { senderAddress: H("aa"), correlationId: "c", txHash: H("cc"), timestamp: new Date().toISOString() };
+  const noCommitment = (modes: RouteConfig["modes"]) => route({ modes });
+
+  it("offers no commitment when the facilitator has none of the listed modes now", async () => {
+    for (const modes of [["ref"], ["ref", "split"]] as const) {
+      const { mw } = setup({ route: noCommitment([...modes]), signer: signer({ paymentModes: async () => [] }) });
+      const { challenge } = await call(mw);
+      expect(challenge.accepts).toEqual([]);
+      expect(challenge.error).toContain("no payment method");
+    }
+  });
+
+  it("offers no commitment when the facilitator cannot be asked", async () => {
+    const { mw } = setup({
+      route: noCommitment(["ref", "split"]),
+      signer: signer({ paymentModes: async () => Promise.reject(new Error("node down")) }),
+    });
+    expect((await call(mw)).challenge.accepts).toEqual([]);
+  });
+
+  it("offers only the listed modes the facilitator has", async () => {
+    const { mw } = setup({ route: noCommitment(["ref", "split"]), signer: signer({ splitTerms: async () => undefined }) });
+    const { challenge } = await call(mw);
+    expect(challenge.accepts.map((a: PaymentRequirements) => a.extra.mode)).toEqual(["ref"]);
+  });
+
+  it("refuses a commitment prepare and payment for a nonce it issued", async () => {
+    const prepareCommitment = jest.fn(async () => H("ff"));
+    const verifyPayment = jest.fn(async () => ({ isValid: true, amountFound: 10_000n }));
+    const { mw } = setup({ route: noCommitment(["ref"]), signer: signer({ prepareCommitment, verifyPayment }) });
+    const nonce = (await call(mw)).challenge.accepts[0].extra.nonce;
+
+    const prepare = Buffer.from(JSON.stringify({ nonce, senderAddress: H("aa") })).toString("base64");
+    const prepared = await call(mw, { "x-402-prepare": prepare });
+    expect(prepared.challenge.error).toBe('payment mode "commitment" is not offered for this resource');
+
+    const { modes: _modes, ...terms } = route();
+    const accepted: PaymentRequirements = { ...terms, scheme: "exact", extra: { nonce, commitment: H("ff") } };
+    const paid = await pay(mw, accepted, commitmentPayload);
+    expect(paid.served).toBe(false);
+    expect(paid.challenge.error).toBe('payment mode "commitment" is not offered for this resource');
+    expect(prepareCommitment).not.toHaveBeenCalled();
+    expect(verifyPayment).not.toHaveBeenCalled();
+  });
+});
+
 describe("across restarts (SQLite)", () => {
   const dirs: string[] = [];
   afterEach(() => dirs.splice(0).forEach((d) => rmSync(d, { recursive: true, force: true })));

@@ -165,6 +165,10 @@ on one nonce; `extra.mode` tells them apart. A client that does not know `extra.
 commitment flow on its nonce, so existing clients keep working. `split` is offered only while your listing has landed
 and no switch-off is scheduled.
 
+A mode you leave out is never offered or accepted. Leave out `commitment` and no payment shows its amount on chain, but
+clients that only know the commitment flow cannot pay you. When none of your listed modes is available (say `split`
+alone while a switch-off is scheduled), the 402 has no `accepts` entries and says so in `error`.
+
 ### Your duties
 
 - **Back up the store and the PXE together.** The middleware stores every proof before taking it in. A stored proof can

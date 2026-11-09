@@ -80,6 +80,8 @@ export function createPaymentMiddleware(
     req.params = params;
 
     const timeoutMs = (routeConfig.maxTimeoutSeconds ?? 120) * 1000;
+    const takesCommitment = modesOf(routeConfig).includes("commitment");
+    const COMMITMENT_NOT_OFFERED = 'payment mode "commitment" is not offered for this resource';
 
     // Build payment requirements
     const requirements: PaymentRequirements = {
@@ -95,6 +97,9 @@ export function createPaymentMiddleware(
     // Phase 2: Prepare — client sends its address, server creates commitment
     const prepareHeader = getHeader(req, "x-402-prepare");
     if (prepareHeader) {
+      if (!takesCommitment) {
+        return send402(res, requirements, routeConfig.description, COMMITMENT_NOT_OFFERED);
+      }
       let prepareData: AztecPrepareRequest;
       try {
         prepareData = AztecPrepareRequestSchema.parse(
@@ -204,6 +209,10 @@ export function createPaymentMiddleware(
         return handleModePayment(mode, nonce, paymentPayload, routeConfig, requirements, timeoutMs, res, next);
       }
 
+      if (!takesCommitment) {
+        return send402(res, requirements, routeConfig.description, COMMITMENT_NOT_OFFERED);
+      }
+
       const paymentEntry = pendingPayments.get(nonce);
       if (!paymentEntry) {
         return send402(res, requirements, routeConfig.description, "invalid or expired payment nonce");
@@ -273,19 +282,27 @@ export function createPaymentMiddleware(
 
     // Phase 1: Initial request — generate nonce, return 402
     const nonce = uuidv7();
-    pendingPayments.set(nonce, { createdAt: Date.now(), timeoutMs });
+    // Only the commitment flow needs the nonce held here; ref and split derive their reference from it.
+    if (takesCommitment) pendingPayments.set(nonce, { createdAt: Date.now(), timeoutMs });
     requirements.extra = { nonce };
 
     // Lazy-sweep expired entries
     sweepExpiredPayments(pendingPayments);
 
-    return send402(res, await offers(nonce, routeConfig, requirements), routeConfig.description);
+    const accepts = await offers(nonce, routeConfig, requirements);
+    return send402(
+      res,
+      accepts,
+      routeConfig.description,
+      accepts.length === 0 ? "no payment method for this resource is available right now" : undefined,
+    );
   };
 
   /**
    * One `accepts` entry per mode the facilitator can take now, all with this
-   * nonce. The commitment flow's entry alone when the route offers nothing
-   * else, or when asking the facilitator fails (the buyer can still pay).
+   * nonce, and never a mode the route does not list. When the facilitator
+   * offers nothing or cannot be asked, the commitment flow's entry alone if
+   * the route lists it (the buyer can still pay), otherwise none.
    */
   async function offers(
     nonce: string,
@@ -293,17 +310,18 @@ export function createPaymentMiddleware(
     requirements: PaymentRequirements,
   ): Promise<PaymentRequirements[]> {
     const modes = modesOf(routeConfig);
-    const commitmentOnly = [{ ...requirements, extra: { nonce } }];
+    const fallback = modes.includes("commitment") ? [{ ...requirements, extra: { nonce } }] : [];
     if (!modes.some((m) => m !== "commitment") || !config.facilitator.offerPayment || !config.secret) {
-      return commitmentOnly;
+      return fallback;
     }
     const paymentRef = derivePaymentRef(config.secret, termsOf(nonce, routeConfig, routeConfig.amount));
     try {
       const { offers } = await config.facilitator.offerPayment(routeConfig.asset, routeConfig.amount, modes, paymentRef);
-      if (offers.length === 0) return commitmentOnly;
-      return offers.map((o) => ({ ...requirements, extra: { nonce, ...o.extra } }));
+      const listed = offers.filter((o) => modes.includes(o.mode));
+      if (listed.length === 0) return fallback;
+      return listed.map((o) => ({ ...requirements, extra: { nonce, ...o.extra } }));
     } catch {
-      return modes.includes("commitment") ? commitmentOnly : [];
+      return fallback;
     }
   }
 
