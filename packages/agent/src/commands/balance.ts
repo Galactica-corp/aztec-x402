@@ -1,4 +1,3 @@
-import { unwrapAztecSdkResult } from "@galactica-net/x402-core";
 import { AztecAddress } from "@aztec-labs/aztec.js/addresses";
 import { DripperContract } from "@aztec-foundation/aztec-standards/dist/src/artifacts/Dripper.js";
 import { openSession, tokenAt, type Session } from "../aztec/session.js";
@@ -11,11 +10,6 @@ import type { TokenInfo } from "../networks.js";
 import { parseAmount } from "../policy.js";
 import { formatTokenAmount } from "../x402.js";
 import { progress } from "../output.js";
-
-function toBigInt(result: unknown): bigint {
-  const value = unwrapAztecSdkResult(result);
-  return typeof value === "bigint" ? value : BigInt(String(value));
-}
 
 function resolveTokens(ctx: ResolvedContext, token?: string): TokenInfo[] {
   if (!token) return ctx.network.tokens;
@@ -30,8 +24,7 @@ function resolveTokens(ctx: ResolvedContext, token?: string): TokenInfo[] {
 }
 
 export async function privateBalance(session: Session, token: TokenInfo): Promise<bigint> {
-  const contract = await tokenAt(session, token.address);
-  return toBigInt(await contract.methods.balance_of_private(session.address).simulate({ from: session.address }));
+  return (await tokenAt(session, token.address)).privateBalance();
 }
 
 export async function balance(ctx: ResolvedContext, opts: { token?: string }) {
@@ -67,7 +60,12 @@ export async function balance(ctx: ResolvedContext, opts: { token?: string }) {
 export async function faucet(ctx: ResolvedContext, opts: { token?: string; amount?: string }) {
   const [token] = resolveTokens(ctx, opts.token ?? ctx.network.tokens.find((t) => t.dripper)?.symbol);
   if (!token?.dripper) {
-    throw new UsageError(`No faucet for ${token?.symbol ?? "any token"} on ${ctx.network.name}.`, "no_faucet");
+    const withFaucet = ctx.network.tokens.filter((t) => t.dripper).map((t) => t.symbol);
+    throw new UsageError(
+      `No faucet for ${token?.symbol ?? "any token"} on ${ctx.network.name}.` +
+        (withFaucet.length > 0 ? ` Tokens with a faucet: ${withFaucet.join(", ")}.` : ""),
+      "no_faucet",
+    );
   }
   const amountText = opts.amount ?? token.faucetAmount ?? "1";
   const amount = parseAmount(amountText, token, "--amount");

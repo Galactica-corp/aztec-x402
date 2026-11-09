@@ -32,6 +32,7 @@ const { Fr } = await import("@aztec-labs/aztec.js/fields");
 const { TxHash } = await import("@aztec-labs/aztec.js/tx");
 const { AztecAddress } = await import("@aztec-labs/aztec.js/addresses");
 const { RealFacilitatorAztecSigner } = await import("../aztec/facilitator-signer.js");
+const { Aip20Token } = await import("@galactica-net/x402-agent/aztec");
 
 /** Valid Aztec address (within BN254 field modulus) */
 const SERVER_ADDRESS_STR =
@@ -171,6 +172,23 @@ function createMockToken(opts?: unknown | MockTokenOptions) {
   };
 }
 
+/** A token source that knows one AIP-20 token, backed by a mock contract. */
+function createMockTokens(token: ReturnType<typeof createMockToken>) {
+  const adapter = new Aip20Token(
+    createMockAccount(),
+    AztecAddress.fromStringUnsafe(TOKEN_ADDRESS_STR),
+    token,
+  );
+  return {
+    get: async (address: string) => {
+      if (address.toLowerCase() !== TOKEN_ADDRESS_STR) {
+        throw new Error(`Token contract ${address} is not deployed on this network.`);
+      }
+      return adapter;
+    },
+  };
+}
+
 function createSigner(
   nodeOpts?: string | MockNodeOptions,
   tokenOpts?: unknown | MockTokenOptions,
@@ -178,7 +196,7 @@ function createSigner(
   return new RealFacilitatorAztecSigner(
     createMockAccount(),
     createMockNode(nodeOpts),
-    tokenOpts !== undefined ? createMockToken(tokenOpts) : createMockToken(),
+    createMockTokens(tokenOpts !== undefined ? createMockToken(tokenOpts) : createMockToken()),
   );
 }
 
@@ -434,7 +452,7 @@ describe("RealFacilitatorAztecSigner", () => {
       expect(result.error).toContain("invalid commitment");
     });
 
-    it("rejects wrong token address when the contract address is known", async () => {
+    it("rejects a token this server does not sell in", async () => {
       const signer = createSigner("proposed");
       const prepared = await signer.prepareCommitment(TOKEN_ADDRESS_STR, CLIENT_ADDRESS_STR);
       const result = await signer.verifyPayment(
@@ -451,7 +469,11 @@ describe("RealFacilitatorAztecSigner", () => {
   describe("prepareCommitment", () => {
     it("calls initialize_transfer_commitment with facilitator and completer addresses", async () => {
       const token = createMockToken();
-      const signer = new RealFacilitatorAztecSigner(createMockAccount(), createMockNode("proposed"), token);
+      const signer = new RealFacilitatorAztecSigner(
+        createMockAccount(),
+        createMockNode("proposed"),
+        createMockTokens(token),
+      );
       await signer.prepareCommitment(TOKEN_ADDRESS_STR, CLIENT_ADDRESS_STR);
       expect(token.methods.initialize_transfer_commitment).toHaveBeenCalled();
     });

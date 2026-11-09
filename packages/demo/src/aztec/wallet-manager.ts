@@ -18,7 +18,8 @@ import { NO_FROM } from "@aztec-labs/aztec.js/account";
 import { TxStatus } from "@aztec-labs/aztec.js/tx";
 import { getInitialTestAccountsData } from "@aztec-labs/accounts/testing";
 import type { AztecNode } from "@aztec-labs/aztec.js/node";
-import type { PXEWallet } from "./pxe-wallet.js";
+import { paymentGateFor } from "@galactica-net/x402-agent/aztec";
+import { createPXEWallet, type PXEWallet } from "./pxe-wallet.js";
 import type { AccountManager } from "@aztec-labs/aztec.js/wallet";
 import { readFileSync, writeFileSync, existsSync } from "fs";
 
@@ -32,6 +33,19 @@ export interface KeySet {
 export interface StoredKeys {
   alice: KeySet;
   bob: KeySet;
+}
+
+/**
+ * An ephemeral PXE wallet for a demo script. A script that pays names its
+ * token in `payingWith`: some token kinds need the payer's wallet built
+ * through their payment gate.
+ */
+export async function openDemoWallet(node: AztecNode, proverEnabled: boolean, payingWith?: string) {
+  const create = (walletNode: AztecNode) =>
+    createPXEWallet(walletNode, { ephemeral: true, pxe: { proverEnabled } });
+  const paymentGate = payingWith ? await paymentGateFor(node, payingWith) : undefined;
+  const wallet = paymentGate ? await paymentGate.bindWallet(create) : await create(node);
+  return { wallet, paymentGate };
 }
 
 async function createKeySet(
