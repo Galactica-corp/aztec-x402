@@ -37,7 +37,6 @@ import {
 } from "@galactica-net/inference-money-core";
 import { addMerchants, BRIDGE_EVM_ARTIFACTS, l1Signer, startBlockHeartbeat, writeEvm } from "@galactica-net/inference-money-core/deploy";
 import { derivePaymentRef } from "@galactica-net/x402-middleware";
-import { randomBytes } from "crypto";
 import { Fr } from "@aztec-labs/aztec.js/fields";
 import { mnemonicToAccount, privateKeyToAccount } from "viem/accounts";
 import { TESTNET_MANIFEST } from "@galactica-net/inference-money-core/deployments";

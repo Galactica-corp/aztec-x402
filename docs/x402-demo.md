@@ -36,7 +36,7 @@ You do not need a separate Aztec wallet, a bridge, or mainnet funds. This run is
 
 The paid resource is an **agent skill**: a markdown file the runtime can load after payment. It stands in for any HTTP resource an agent might purchase — an API, a data feed, another skill.
 
-On success you unlock **x402 Private Payments**. The agent uses that file to tell you, in plain language, what the payment just proved: HTTP-native micropayments, confidential settlement on Aztec, and spend controls that belong in an agent runtime.
+On success you unlock **x402 Private Payments**. The agent uses that file to tell you, in plain language, what the payment just proved: HTTP-native micropayments, private settlement on Aztec, and spend controls that belong in an agent runtime.
 
 ---
 
@@ -46,7 +46,7 @@ The chat is a FireFlow graph talking to you through a room. On first use the gra
 
 When you ask it to buy the skill, the graph hits a payment-gated URL. The server answers **HTTP 402**. Under a spend cap, the agent completes a **private** Testnet Stablecoin transfer on Aztec, retries with proof, and receives the file.
 
-Privacy on the Aztec leg: sender, recipient, and amount are not visible on a public explorer. The merchant still learns that *this request* was paid, which is required to serve the resource.
+Privacy on the Aztec leg: buyer and merchant addresses stay off a public explorer. The payment amount is published in the completion log. The merchant learns the buyer's Aztec address, and that this request was paid, which is required to serve the resource.
 
 ```mermaid
 sequenceDiagram

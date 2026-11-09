@@ -29,7 +29,7 @@ A merchant with an Ethereum connection also offers a **split deposit**: the user
 
 | Who | Learns |
 | --- | --- |
-| Public observers of Aztec | That some transactions happened. Not sender, recipient, amount, or token balances. |
+| Public observers of Aztec | That some transactions happened and which token contract they touched. Buyer and merchant addresses stay hidden, and so do private balances. With the commitment flow they also see the amount: it is plaintext in the note-completion log, next to the token's `private_balances` slot. With `ref` the amount travels offchain to the merchant and is not on chain. |
 | The merchant | That this request was paid and how much. With the commitment flow also by which Aztec address; with `ref` not even that. With `split`, the user's Ethereum address. |
 | Observers of Ethereum (L1) | Deposits from L1 into Aztec, when the user funds the agent from Ethereum (see funding.md). |
 

@@ -14,10 +14,14 @@ export async function status(ctx: ResolvedContext) {
   try {
     const client = createNodeClient(ctx.network.nodeUrl);
     const [blockNumber, info] = await Promise.all([client.getBlockNumber(), client.getNodeInfo()]);
-    assertNodeVersion(info.nodeVersion, ctx.network.nodeUrl);
     node = { reachable: true, blockNumber, nodeVersion: info.nodeVersion };
+    try {
+      assertNodeVersion(info.nodeVersion, ctx.network.nodeUrl);
+    } catch (error) {
+      if (!(error instanceof CliError) || error.code !== "node_version") throw error;
+      node.error = error.message;
+    }
   } catch (error) {
-    if (error instanceof CliError && error.code === "node_version") throw error;
     node = { reachable: false, error: error instanceof Error ? error.message : String(error) };
   }
   return {
@@ -39,9 +43,11 @@ export async function status(ctx: ResolvedContext) {
     })),
     nextStep: !node.reachable
       ? "Node unreachable — check network access or AZTEC_X402_NODE_URL."
-      : !keys
-        ? "Run `aztec-x402 wallet create`."
-        : "Ready. Check funds with `aztec-x402 balance`.",
+      : node.error
+        ? "Point this client at an Aztec 6.x node with `aztec-x402 config set nodeUrl <url>` or AZTEC_X402_NODE_URL."
+        : !keys
+          ? "Run `aztec-x402 wallet create`."
+          : "Ready. Check funds with `aztec-x402 balance`.",
   };
 }
 

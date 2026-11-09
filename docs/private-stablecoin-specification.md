@@ -47,7 +47,7 @@ What this means in practice:
 - **AIP-20 is the integration surface.** A token that implements Wonderland AIP-20 private balances and `initialize_transfer_commitment(to, completer)` can be used for x402 without a fork of the token contract.
 - **x402 is token-agnostic.** The 402 challenge names an `asset` (token contract address), `amount`, and `payTo`. The same three-phase flow works for any supported token.
 - **The protocol can be extended per token.** Depending on the stablecoin and its compliance requirements, Overcast x402 can grow extra steps on top of this baseline — for example attaching conclave signatures on private transfers (zk.money) or carrying ZK KYC compliance proofs when a use case requires them. Those extensions are adapters, not a different payment protocol.
-- **Payments are private on-chain.** Sender, recipient, and amount stay in Aztec private state. The HTTP layer carries only what the merchant needs to correlate and verify a payment (nonce, commitment, tx hash).
+- **Addresses are private on-chain.** Buyer and merchant addresses stay inside commitments. The payment amount is published in the completion log. The HTTP layer also carries the buyer's address, which the merchant needs to name the completer, plus the nonce, commitment, and tx hash.
 - **The buyer is assumed to already hold the private token on Aztec.** Cross-chain on-ramping is a next step, not part of the current settlement path.
 
 The local demo still deploys a sandbox token branded **Overcast USD (oUSD)**. That is a fixture for development and tests, not a product token.
@@ -91,7 +91,7 @@ Solved in the current protocol by **partial notes** (commitment pattern) and the
 
 **Story:** As a privacy-conscious user, I want the shop, amount, and my Aztec identity to stay off public explorers for the Aztec leg of the payment.
 
-The current system covers the **Aztec private-transfer leg**. It does not yet hide the fact that a user funded an Aztec account from a public chain; that waits on cross-chain onboarding (§9).
+The current system hides the buyer and merchant addresses on the Aztec leg. The payment amount is published in the completion log, and the merchant learns the buyer's address. It does not yet hide the fact that a user funded an Aztec account from a public chain; that waits on cross-chain onboarding (§9).
 
 ### 2.4 Out of scope for this revision
 
@@ -285,7 +285,7 @@ FireFlow does not reimplement this protocol; it composes it from graph nodes. Se
 1. **Request.** Buyer (person or agent) requests a resource over HTTPS.
 2. **402.** Merchant returns requirements and a nonce. No on-chain action yet.
 3. **Prepare.** Buyer announces its Aztec address. Merchant creates a partial note for itself, completer = buyer.
-4. **Settlement.** Buyer spends private balance notes into that commitment (`transfer_private_to_commitment`, or a token-specific billing adapter such as zk.money conclave). Sender, recipient, and amount stay private.
+4. **Settlement.** Buyer spends private balance notes into that commitment (`transfer_private_to_commitment`, or a token-specific billing adapter such as zk.money conclave). Buyer and merchant addresses stay inside commitments. The completion log publishes the amount.
 5. **Proof.** Buyer sends tx hash + nonce. Merchant checks anti-replay, then the commitment-tagged completion log.
 6. **Delivery.** Merchant returns 200 and the resource. Delivery of the *good* is off-chain (HTTP), so a public observer cannot link an Aztec tx to “this API call” from chain data alone.
 

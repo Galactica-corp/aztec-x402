@@ -21,7 +21,7 @@ The person chatting with the agent does not need to understand 402 headers. The 
 3. If the server asks for payment, completes a private transfer under a **spend cap**.
 4. Retries with proof and returns the resource to the rest of the flow.
 
-Privacy on the Aztec leg: sender, recipient, and amount are not visible on a public explorer. The merchant still learns that *this* request was paid, which is required to serve the resource.
+Privacy on the Aztec leg: buyer and merchant addresses stay off a public explorer. The payment amount is published in the completion log. The merchant learns the buyer's Aztec address, and that this request was paid, which is required to serve the resource.
 
 ---
 
