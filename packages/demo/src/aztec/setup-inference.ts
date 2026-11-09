@@ -51,11 +51,11 @@ import { mnemonicToAccount, privateKeyToAccount } from "viem/accounts";
 import { createPXEWallet, type PXEWallet } from "./pxe-wallet.js";
 
 /** Anvil's public test mnemonic: the local network's own keys, not a credential. */
-const ANVIL_MNEMONIC = "test test test test test test test test test test test junk";
+export const ANVIL_MNEMONIC = "test test test test test test test test test test test junk";
 /** Not index 0: that is the local node's block publisher, and sharing it would race its nonces. */
-const ANVIL_ACCOUNT_INDEX = 9;
+export const ANVIL_ACCOUNT_INDEX = 9;
 /** A fixed local-only secret (like anvil's keys): its account deploys the bridge and stays merchant admin. */
-const LOCAL_ADMIN_SECRET = new Fr(0x402_1ce_c0ffeen);
+export const LOCAL_ADMIN_SECRET = new Fr(0x402_1ce_c0ffeen);
 
 export interface InferenceSetup {
   node: AztecNode;
@@ -206,7 +206,7 @@ export async function setupTestnetInferenceToken(s: TestnetInferenceSetup): Prom
   return { tokenAddress: manifest.l2.token.address };
 }
 
-async function l1ChainId(rpcUrl: string): Promise<number> {
+export async function l1ChainId(rpcUrl: string): Promise<number> {
   const response = await fetch(rpcUrl, {
     method: "POST",
     headers: { "content-type": "application/json" },

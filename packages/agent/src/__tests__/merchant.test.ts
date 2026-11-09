@@ -17,7 +17,7 @@ const INFERENCE = "0x0a" + "b2".repeat(31);
 const MERCHANT = AztecAddress.fromStringUnsafe("0x09ee8a90f9c3d7db87b55fb92a3bbfc69e65be5b8d4d135c756ecbfec37a1c01");
 const USER = AztecAddress.fromStringUnsafe("0x0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef");
 const REF = "0x" + "0f".repeat(32);
-const H = (b: string) => "0x" + b.repeat(32);
+const H = (b: string): `0x${string}` => `0x${b.repeat(32)}`;
 const inferenceClassId = (await getContractClassFromArtifact(sdk.tokenArtifact)).id;
 
 const proof = {
@@ -87,7 +87,7 @@ describe("split claims", () => {
   test("survive serialization with every field", () => {
     const claim: sdk.SplitClaim = {
       amount: 5_000_000n,
-      depositor: "0x" + "12".repeat(20),
+      depositor: `0x${"12".repeat(20)}`,
       leafIndex: 7n,
       messageHash: H("34"),
       merchant: MERCHANT,

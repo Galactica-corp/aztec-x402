@@ -7,7 +7,7 @@ import { TESTNET_MANIFEST } from "@galactica-net/inference-money-core/deployment
 
 const MERCHANT = AztecAddress.fromStringUnsafe("0x09ee8a90f9c3d7db87b55fb92a3bbfc69e65be5b8d4d135c756ecbfec37a1c01");
 const OTHER = AztecAddress.fromStringUnsafe("0x0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef");
-const H = (b: string) => "0x" + b.repeat(32);
+const H = (b: string): `0x${string}` => `0x${b.repeat(32)}`;
 const REF = H("0f");
 const manifest = sdk.parseManifest(TESTNET_MANIFEST);
 const LISTED_AT = 1_000n;
@@ -15,7 +15,7 @@ const LISTED_AT = 1_000n;
 const proof = { l1TxHash: H("ee"), price: "10000", paymentRef: REF, changeCommitment: H("01"), salt: H("02") };
 const claim: sdk.SplitClaim = {
   amount: 1_000_000n,
-  depositor: "0x" + "12".repeat(20),
+  depositor: `0x${"12".repeat(20)}`,
   leafIndex: 3n,
   messageHash: H("34"),
   merchant: MERCHANT,
