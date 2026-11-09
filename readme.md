@@ -108,13 +108,20 @@ bun run setup:sandbox:inference   # inference-money USDC: see below
 bun run server:sandbox
 bun run demo:sandbox
 bun run e2e:sandbox               # opens, pays and verifies a request, and checks the token's refusals
+# inference-money only:
+bun run e2e:split                 # pays from L1 in one deposit, claims, collects the change (local only)
+bun run e2e:http                  # server and agent CLI as processes: ref and split payments, crashes, restarts
 ```
+
+For the inference-money USDC the server offers three payments per 402: `ref` (private amount: a private transfer under a reference, its proof handed over with the retry), `split` (one Ethereum deposit, when the server knows an L1 RPC) and the commitment flow. It keeps a persistent PXE, a SQLite store and a reference secret under `DATA_DIR`; see the [merchant guide](docs/inference-money-merchant-guide.md#2b-private-amounts-and-payment-from-ethereum-ref-and-split). The inference-money repository's `bun run net:up` brings up a matching local network (anvil and an Aztec 6.0.0 node).
 
 `setup:sandbox:inference` deploys an inference-money bridge of its own on the local network (Permit2 and a mock USDC on the local L1, then portal, router, token and bridge), lists the server as a merchant, and funds the payer with a private deposit. It needs the local L1 RPC (`L1_RPC_URL`, default `http://localhost:8545`) and keeps the deployment in `inference-manifest.json` next to `deploy.json`. Both setups write the token to `deploy.json`; the server and client need no other switch.
 
 ## Anti-Replay Protection
 
-The middleware uses a two-layer defense against payment replay attacks:
+For `ref` and `split` payments, a reference is an HMAC of the nonce and the quoted terms under the server's secret: a proof is accepted only for the nonce and price it was quoted for, and the store marks each reference served once (one atomic insert), across restarts and every process sharing the store. The commitment flow keeps the in-memory defense below.
+
+The middleware uses a two-layer defense against payment replay attacks for the commitment flow:
 
 **Layer 1 — Nonce (middleware):** Each 402 response includes a server-generated UUID v7 nonce in `extra.nonce`. The client echoes it back automatically via `accepted.extra`. The nonce is one-shot (consumed on use) and expires after `maxTimeoutSeconds`. This binds each payment to a specific 402 challenge.
 

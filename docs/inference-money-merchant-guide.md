@@ -11,8 +11,8 @@ The SDK is [`@galactica-net/inference-money-core`](https://www.npmjs.com/package
 
 ## What changes and what does not
 
-Unchanged: the HTTP protocol (402, prepare, pay, retry), the middleware and the client packages, the route
-configuration, and how a payment is verified (the token's completion log). A buyer infers the token kind from the
+Unchanged for the commitment flow: the HTTP protocol (402, prepare, pay, retry), the middleware and the client
+packages, the route configuration, and how a payment is verified (the token's completion log). A buyer infers the token kind from the
 route's `asset`, so nothing extra goes into the 402.
 
 New for the merchant:
@@ -23,6 +23,12 @@ New for the merchant:
    If you have a front end, give it a deposit flow (below).
 3. **Each request takes exactly one payment.** A second payment into the same request is refused, so buyers keep a
    record of what they paid (the SDK's `PaymentGate`).
+4. **Two more ways to be paid** (section 2b), offered next to the commitment flow in the same 402:
+   - **`ref`, private amount.** The buyer makes a private transfer under a reference you hand out and gives you the
+     transaction's offchain messages with the retried request. Nothing on chain shows the amount or names you, and you
+     send no transaction per request. The trade-off: you store each payment proof and consolidate your notes regularly.
+   - **`split`, pay from Ethereum in one step.** The buyer makes one round-amount deposit on Ethereum that pays you the
+     price; you serve once it is two blocks deep and claim on Aztec in the background. The buyer collects the change.
 
 ## 1. Get your merchant account listed
 
@@ -124,6 +130,67 @@ app.use(createPaymentMiddleware(routes, { facilitator }));
 `amount` is in base units (6 decimals: `10000` is $0.01). Allow enough `maxTimeoutSeconds` for the buyer to prove on
 their device; the demo uses 600 on testnet.
 
+## 2b. Private amounts and payment from Ethereum (ref and split)
+
+The commitment flow publishes each payment's amount, and with public prices the amount names you. `ref` payments hide
+it; `split` payments let a buyer without USDC on Aztec pay in one Ethereum transaction. The demo server wires both
+(`packages/demo/src/aztec/merchant.ts`, about 130 lines; copy it with `facilitator-signer.ts`).
+
+### What your server needs
+
+| Need | Why | In the demo |
+|---|---|---|
+| A **persistent** merchant PXE | A ref payment's note reaches you offchain, in the proof. Until you consolidate, it lives only in your wallet's store | `createPXEWallet(node, { ephemeral: false, pxe: { dataDirectory } })` |
+| A durable store (`PaymentStateStore`) | Proofs are stored before you act on them, a reference is served once across restarts and instances, and split claims hold the salt you claim with | `sqliteStateStore(path)` from `@galactica-net/x402-middleware` (one host; several processes may share it) |
+| A reference secret (≥ 32 random bytes) | References are an HMAC of the nonce and the quoted price, so a 402 writes nothing. Share it across instances and keep it across restarts | `X402_REF_SECRET`, or a 0600 file in `DATA_DIR` |
+| An Ethereum RPC (split only) | Deposits are verified on L1 | `L1_RPC_URL` |
+| Background jobs | Take in proofs stored before a crash, consolidate every 12 h, claim split deposits | `MerchantJobs` from `@galactica-net/x402-agent/aztec` |
+
+```ts
+import { MerchantJobs, SplitMerchant, TokenRegistry } from "@galactica-net/x402-agent/aztec";
+import { createPaymentMiddleware, sqliteStateStore } from "@galactica-net/x402-middleware";
+
+const store = sqliteStateStore("./x402-state.sqlite");
+const split = await SplitMerchant.create({ manifest, l1: createPublicClient({ transport: http(L1_RPC_URL) }), node, wallet, merchant: merchant.address });
+const signer = new RealFacilitatorAztecSigner(merchant, node, tokens, split);
+const jobs = new MerchantJobs({ store, receive: (asset, proof, exp) => usdcAdapter.receivePayment(proof, exp), consolidate: async () => { await usdcAdapter.consolidate(); }, split });
+await jobs.start();
+
+const routes = { "/api/infer": { network: "aztec:testnet", asset: USDC, amount: "10000", payTo: MERCHANT, maxTimeoutSeconds: 600, modes: ["ref", "split", "commitment"] } };
+app.use(createPaymentMiddleware(routes, { facilitator: new ExactAztecFacilitatorScheme(signer, ["aztec:testnet"]), store, secret }));
+```
+
+A route's `modes` lists the payments to offer, most private first. Each offered mode gets its own `accepts` entry, all
+on one nonce; `extra.mode` tells them apart. A client that does not know `extra.mode` takes the first entry and runs the
+commitment flow on its nonce, so existing clients keep working. `split` is offered only while your listing has landed
+and no switch-off is scheduled.
+
+### Your duties
+
+- **Back up the store and the PXE together.** The middleware stores every proof before taking it in. A stored proof can
+  be taken in again only within 26 h of the buyer's transaction (the offchain-message lifetime). `MerchantJobs.start()`
+  does this for proofs stored before a crash.
+- **Consolidate at least every 12 h** (`MerchantJobs` does). Consolidation merges your notes into one note you send
+  yourself on chain, recoverable from your keys alone. Until then your funds depend on the stored messages.
+- **Claim split deposits promptly.** Once a switch-off of yours takes effect, buyers can take back deposits you have not
+  claimed. The claim job retries with backoff and rebuilds a claim that an Ethereum reorg moved. A claim it marks
+  `failed` (the deposit no longer verifies on L1) was served unpaid.
+- **Choose your split confirmation depth.** The default is 2 blocks (about 24 s). Until your claim lands, a reorg or a
+  bridge pause risks the price of that request. `SplitMerchant`'s `finalizedAbove` makes prices at or above it wait for
+  L1 finality.
+- **Listing time.** A deposit made before your listing landed could be returned to the buyer after you served it.
+  `SplitMerchant` reads your listing's block time at start and refuses such deposits (`before-listing`).
+
+### Refusals your server sends (402)
+
+| `error` | Retry? | Meaning |
+|---|---|---|
+| `invalid payment reference` | no | The reference is not this server's for that nonce and price (a replay for another request, a lowered price) |
+| `invalid or expired payment nonce` | no | More than the quote's timeout plus 26 h old |
+| `payment already used` | no | This reference was served already |
+| `… not-mined` / `… unconfirmed` (with `retryable: true`) | yes, same payload | The transaction is not mined yet, or the deposit is not deep enough |
+| `… underpaid` / `no-payment` / `foreign` / `not-found` / `before-listing` | no | The proof does not pay this request |
+
 ## 3. Buyer changes (x402 clients you ship)
 
 A buyer that pays in USDC needs two things that AIP-20 didn't:
@@ -143,6 +210,13 @@ const wallet = gate ? await gate.bindWallet(create) : await create(node);
 const tokens = new TokenRegistry({ node, wallet, account: buyer.address, fee, paymentGate: gate });
 const fetchWithPayment = wrapFetchWithPayment(fetch, new ExactAztecClientScheme(new RealClientAztecSigner(buyer, tokens)));
 ```
+
+`RealClientAztecSigner` also pays `ref` offers (`payPrivate`). `ExactAztecClientScheme` picks the first entry its
+signer can pay. **Persist the proof before sending it**: pass `onPayload` to `wrapFetchWithPayment` and store the payload.
+If the response is lost, send the same payload again with `sendPayment` (never pay again: the gate refuses a second
+payment of one reference). A `split` offer is paid by a client with an L1 wallet; `packages/demo/src/aztec/split-buyer.ts`
+shows it, and the agent CLI has `pay --from-ethereum`. A buyer checks the offer's `chainId` and `portal` against its
+own manifest, and deposits a round amount, never the bare price.
 
 The signer checks `payTo` before asking you to prepare: an unlisted payee is refused with `merchant_not_listed`.
 Nothing is opened or paid in that case. The `aztec-x402` agent CLI does all of this already. `PXEWallet` builds on
@@ -222,8 +296,9 @@ All refusal strings: "Refusals" in the [integration doc](https://github.com/Gala
 
 ## 6. Privacy notes for merchants
 
-- **Your prices are public, so the amount of a payment usually identifies you as its recipient.** Avoid unique
-  prices if that matters to you.
+- **Your prices are public, so the amount of a commitment payment usually identifies you as its recipient.** Offer
+  `ref` first: it shows no amount and does not name you. A `split` deposit shows the buyer's Ethereum address and a
+  round amount, never you or the price.
 - **Use the sponsor for fees** (as above). An account that pays its own fees is named as fee payer in public.
 - **Keep request commitments out of logs and URLs.** Anyone who knows a commitment can tell whether it was paid and
   by which account.
@@ -240,6 +315,8 @@ The full list: "What each action makes public" in the integration doc.
 - [ ] USDC address read from `TESTNET_MANIFEST`; one route per token.
 - [ ] Facilitator signer through `TokenRegistry`; `assertCanSell` for every asset at start; `createNodeClient`.
 - [ ] Buyers you ship pay through a `PaymentGate` with a persistent store.
+- [ ] For `ref` / `split`: persistent PXE, SQLite (or shared) store and secret backed up together; `MerchantJobs`
+  running (proof replay, 12-hourly consolidation, split claims); an L1 RPC for split.
 - [ ] Front end: deposit with stored drafts and tickets, binding consent, claim with progress and recovery.
-- [ ] Tested on a local network first: `bun run setup:sandbox:inference` and `bun run e2e:sandbox` in this
-  repository ([readme](../readme.md)).
+- [ ] Tested on a local network first: `bun run setup:sandbox:inference`, then `bun run e2e:sandbox`,
+  `bun run e2e:split` and `bun run e2e:http` in this repository ([readme](../readme.md)).

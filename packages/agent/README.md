@@ -24,11 +24,14 @@ Node 22+ (or Bun). Proofs are generated locally; expect 1–3 minutes per paying
 | `balance [--token SYM]` | Private token balances and Fee Juice | seconds |
 | `faucet [--token SYM] [--amount N]` | Mint testnet `tUSDC` privately to the agent | ~1 min |
 | `inspect <url>` | Price of a URL, without paying | < 1s |
-| `pay <url> --max-amount N` | Fetch, paying the x402 challenge if within policy | 1–3 min |
+| `pay <url> --max-amount N` | Fetch, paying the x402 challenge if within policy (privately under a reference when the merchant offers it) | 1–3 min |
+| `pay <url> --max-amount N --from-ethereum [--deposit USDC]` | Pay from the user's Ethereum wallet: one round deposit they sign on a page; the change comes back to the agent | until served |
+| `pay --resume <id>` | Deliver a stored payment again after a lost response or a crash; never pays twice | seconds |
 | `history [--limit N]` | Local payment ledger | < 1s |
 | `fund [--amount N]` | Local page: user signs an L1 deposit, agent claims it | until claimed |
 | `fund --hosted [--no-wait]` | Same via a link to the hosted page, for a browser that cannot reach the agent | until claimed / instant |
 | `fund claim` | Find pending deposits on L1 and claim them | minutes |
+| `fund change [--allow-bind]` | Collect the change of payments made from Ethereum | minutes |
 | `config get` / `config set <key> <value>` | `network`, `nodeUrl`, `policy.maxPerPayment`, `policy.dailyLimit` | < 1s |
 
 Every command prints one JSON document on stdout (`"ok": true|false`) and progress on stderr. Exit codes: 0 ok, 1 error, 2 usage, 3 refused by the spend policy.
@@ -67,6 +70,8 @@ config.json                 network, policy, extra tokens
 <network>/payments.jsonl    payment ledger
 <network>/requests.json     inference-money payment records: a request is never paid twice
 <network>/deposits.json     pending deposits with claim secrets, mode 0600
+<network>/proofs/           payments not yet acknowledged by the merchant (ref proofs hold its only note), mode 0600
+<network>/split-payments.json  payments from Ethereum, with the salts that collect the change, mode 0600
 <network>/downloads/        large or binary paid responses
 ```
 
