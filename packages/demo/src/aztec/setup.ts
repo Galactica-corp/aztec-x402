@@ -150,8 +150,9 @@ async function main() {
 
   if (TOKEN === "inference") {
     const common = { node, l1RpcUrl: L1_RPC_URL, wallet, merchant: bob, payer: alice, amount: MINT_AMOUNT, log: console.log };
+    const manifestPath = join(DATA_DIR, "inference-manifest.json");
     const { tokenAddress } = isSandboxNetwork(NETWORK)
-      ? await setupInferenceToken({ ...common, nodeUrl: NODE_URL, manifestPath: join(DATA_DIR, "inference-manifest.json") })
+      ? await setupInferenceToken({ ...common, nodeUrl: NODE_URL, manifestPath })
       : await setupTestnetInferenceToken({ ...common, fundingKey: fundingKey() });
     saveConfig({
       nodeUrl: NODE_URL,
@@ -162,6 +163,9 @@ async function main() {
       tokenName: `USD Coin (inference-money, ${isSandboxNetwork(NETWORK) ? "local" : "testnet"})`,
       tokenSymbol: "USDC",
       tokenDecimals: String(TOKEN_DECIMALS),
+      // The server takes split payments from this L1; a local bridge's manifest is kept here, testnet's ships with the SDK.
+      l1RpcUrl: L1_RPC_URL,
+      ...(isSandboxNetwork(NETWORK) ? { manifestPath } : {}),
     });
     console.log(`\nConfig written to ${CONFIG_PATH}`);
     console.log("\nSetup complete!");

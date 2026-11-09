@@ -70,6 +70,8 @@ for (const [name, make] of stores) {
       await s.saveSplitClaim({ ...claim, claim: '{"other":1}' });
       await s.updateSplitClaim("0xref", { attempts: 2, lastError: "sponsor busy", nextTryAt: 5 });
       expect(await s.splitClaims("pending")).toMatchObject([{ claim: "{}", attempts: 2, lastError: "sponsor busy", nextTryAt: 5 }]);
+      await s.updateSplitClaim("0xref", { claim: '{"rebuilt":1}' });
+      expect((await s.splitClaims("pending"))[0]?.claim).toBe('{"rebuilt":1}');
       await s.updateSplitClaim("0xref", { status: "claimed" });
       expect(await s.splitClaims("pending")).toHaveLength(0);
       expect(await s.splitClaims()).toHaveLength(1);

@@ -31,8 +31,10 @@
         "@galactica-net/x402-core": "workspace:*",
         "@galactica-net/x402-mechanism": "workspace:*",
         "viem": "npm:@aztec/viem@2.38.3",
+        "zod": "^4.4.3",
       },
       "devDependencies": {
+        "@galactica-net/x402-middleware": "workspace:*",
         "typescript": "^5.5.0",
       },
     },

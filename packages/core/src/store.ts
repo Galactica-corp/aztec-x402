@@ -69,7 +69,7 @@ export interface PaymentStateStore {
   saveSplitClaim(claim: StoredSplitClaim): Promise<void>;
   updateSplitClaim(
     paymentRef: string,
-    patch: Partial<Pick<StoredSplitClaim, "status" | "attempts" | "nextTryAt" | "lastError">>,
+    patch: Partial<Pick<StoredSplitClaim, "claim" | "status" | "attempts" | "nextTryAt" | "lastError">>,
   ): Promise<void>;
   splitClaims(status?: SplitClaimStatus): Promise<StoredSplitClaim[]>;
 

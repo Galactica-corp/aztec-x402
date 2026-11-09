@@ -23,3 +23,12 @@ export {
   accountKeysPath,
   type AccountKeys,
 } from "./keystore.js";
+export {
+  SplitMerchant,
+  serializeSplitClaim,
+  parseSplitClaim,
+  type SplitMerchantOptions,
+  type SplitL1Client,
+  type SplitClaimOutcome,
+} from "./split-merchant.js";
+export { MerchantJobs, type MerchantJobsOptions, type SplitClaimer } from "./merchant-jobs.js";

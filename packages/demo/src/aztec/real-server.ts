@@ -14,9 +14,9 @@ Sentry.init({
   tracesSampleRate: 1.0,
 });
 
-import { createNodeClient, TokenRegistry } from "@galactica-net/x402-agent/aztec";
+import { createNodeClient } from "@galactica-net/x402-agent/aztec";
 import { createPXEWallet } from "./pxe-wallet.js";
-import { readFileSync } from "fs";
+import { existsSync, readFileSync, writeFileSync } from "fs";
 import { join, dirname } from "path";
 import { loadKeys, loadAccount, setupSponsoredPayment } from "./wallet-manager.js";
 import { shouldEnableProver } from "./network-config.js";
@@ -32,7 +32,7 @@ import type {
   NextFunction,
   RoutesConfig,
 } from "@galactica-net/x402-middleware";
-import { RealFacilitatorAztecSigner } from "./facilitator-signer.js";
+import { openMerchant } from "./merchant.js";
 import {
   X402_ACHIEVEMENT_CONTENT_TYPE,
   X402_ACHIEVEMENT_SKILL,
@@ -62,6 +62,7 @@ try {
 }
 
 const NODE_URL = config.nodeUrl;
+const PORT_ENV = process.env.PORT ? Number(process.env.PORT) : undefined;
 const NETWORK = parseAztecNetwork(config.network);
 const TOKEN_ADDRESS = config.tokenAddress;
 const TOKEN_SYMBOL = config.tokenSymbol ?? "tokens";
@@ -71,9 +72,10 @@ const proverEnabled = shouldEnableProver(NETWORK);
 // Connect to Aztec
 console.log(`Connecting to Aztec node at ${NODE_URL}...`);
 const node = createNodeClient(NODE_URL);
+// Persistent: a note a buyer delivers offchain (ref payments) lives only in this wallet until the next consolidation.
 const wallet = await createPXEWallet(node, {
-  ephemeral: true,
-  pxe: { proverEnabled },
+  ephemeral: false,
+  pxe: { proverEnabled, dataDirectory: join(DATA_DIR, "server-pxe") },
 });
 
 // Get Bob's wallet (the server/facilitator)
@@ -88,14 +90,24 @@ const paymentMethod = USE_SPONSORED_FPC
 const fee = paymentMethod ? { paymentMethod } : undefined;
 
 // The token is whatever setup put in deploy.json; its kind is read from the chain.
-const tokens = new TokenRegistry({ node, wallet, account: bob, fee });
-const facilitatorSigner = new RealFacilitatorAztecSigner(bobAccount, node, tokens);
-const sellingIn = await tokens.get(TOKEN_ADDRESS);
+const merchant = await openMerchant({
+  config: { network: NETWORK, tokenAddress: TOKEN_ADDRESS, l1RpcUrl: process.env.L1_RPC_URL ?? config.l1RpcUrl, manifestPath: config.manifestPath },
+  dataDir: DATA_DIR,
+  node,
+  wallet,
+  account: bobAccount,
+  fee,
+  noSplit: process.env.SPLIT === "off",
+  finalizedAbove: process.env.SPLIT_FINALIZED_ABOVE ? BigInt(process.env.SPLIT_FINALIZED_ABOVE) : undefined,
+});
+const sellingIn = merchant.token;
 // Fail now, not at the first buyer, if this account may not charge in the token.
-await facilitatorSigner.assertCanSell(TOKEN_ADDRESS);
-console.log(`Charging in token ${TOKEN_ADDRESS} (${sellingIn.kind})`);
-const facilitator = new ExactAztecFacilitatorScheme(facilitatorSigner, [NETWORK]);
+await merchant.signer.assertCanSell(TOKEN_ADDRESS);
+console.log(`Charging in token ${TOKEN_ADDRESS} (${sellingIn.kind}); payment modes: ${merchant.modes.join(", ")}`);
+const facilitator = new ExactAztecFacilitatorScheme(testHooks(merchant.signer), [NETWORK]);
 await facilitator.initialize();
+// Takes in proofs stored before a crash, then consolidates and claims on schedule.
+await merchant.jobs.start();
 
 // Configure payment-gated routes
 const routes: RoutesConfig = {
@@ -106,6 +118,7 @@ const routes: RoutesConfig = {
     payTo: SERVER_ADDRESS,
     maxTimeoutSeconds: 600,
     description: "Current weather data — costs $0.01 per resource (real Aztec payment)",
+    modes: merchant.modes,
   },
   [ACHIEVEMENT_PATH]: {
     network: NETWORK,
@@ -115,10 +128,31 @@ const routes: RoutesConfig = {
     maxTimeoutSeconds: 600,
     description:
       "x402 Private Payments achievement skill (markdown) — costs $0.01 per unlock",
+    modes: merchant.modes,
   },
 };
 
-const middleware = createPaymentMiddleware(routes, { facilitator });
+const middleware = createPaymentMiddleware(routes, { facilitator, store: merchant.store, secret: merchant.secret });
+
+/**
+ * Test-only: with X402_TEST_CRASH_BEFORE_TAKE_IN=<file>, the first ref payment
+ * makes the server exit after its proof is stored and before it is taken in
+ * (once: the file marks it done), so a restart must replay it.
+ */
+function testHooks(signer: typeof merchant.signer): typeof merchant.signer {
+  const marker = process.env.X402_TEST_CRASH_BEFORE_TAKE_IN;
+  if (!marker) return signer;
+  const receive = signer.receiveRefPayment.bind(signer);
+  signer.receiveRefPayment = async (...args) => {
+    if (!existsSync(marker)) {
+      writeFileSync(marker, "crashed\n");
+      console.log("TEST HOOK: exiting after storing a proof, before taking it in.");
+      process.exit(75);
+    }
+    return receive(...args);
+  };
+  return signer;
+}
 
 // Bun.serve adapter (same as mock demo)
 async function handleRequest(req: Request): Promise<Response> {
@@ -131,6 +165,7 @@ async function handleRequest(req: Request): Promise<Response> {
         network: NETWORK,
         tokenAddress: TOKEN_ADDRESS,
         tokenKind: sellingIn.kind,
+        paymentModes: merchant.modes,
         serverAddress: SERVER_ADDRESS,
         gatedRoutes: Object.keys(routes),
       }),
@@ -216,7 +251,7 @@ async function handleRequest(req: Request): Promise<Response> {
 }
 
 const server = Bun.serve({
-  port: PORT,
+  port: PORT_ENV ?? PORT,
   idleTimeout: 255,
   fetch: handleRequest,
   error(error) {
