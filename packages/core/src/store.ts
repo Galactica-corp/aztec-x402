@@ -1,0 +1,85 @@
+/**
+ * Durable server-side state for `ref` and `split` payments.
+ *
+ * References are not stored when issued: the middleware derives each from the
+ * nonce and the quoted terms under a server secret, so a 402 writes nothing.
+ * Rows appear only once a buyer presents a payment.
+ *
+ * A merchant must not lose what it learned from a buyer: a ref proof holds the
+ * only copy of the merchant's note until the merchant consolidates, a split
+ * claim holds the salt without which the price cannot be claimed, and a served
+ * reference must stay served across restarts and every server instance.
+ *
+ * The interface is async so an implementation can sit on any database; the
+ * middleware package ships an in-memory one (tests) and a SQLite one.
+ */
+import type { PaymentMode } from "./modes.js";
+
+/** A proof a buyer presented, stored before the merchant acts on it. */
+export interface StoredProof {
+  paymentRef: string;
+  nonce: string;
+  mode: Exclude<PaymentMode, "commitment">;
+  asset: string;
+  /** The payment payload as JSON. */
+  payload: string;
+  price: string;
+  receivedAt: number;
+  /** Ref: the merchant's wallet holds the payment (`receivePayment` succeeded). */
+  takenIn: boolean;
+}
+
+export type SplitClaimStatus = "pending" | "claimed" | "consumed-unknown" | "failed";
+
+/** A verified split deposit the merchant still has to claim on Aztec. */
+export interface StoredSplitClaim {
+  paymentRef: string;
+  asset: string;
+  /** The SDK's `SplitClaim`, serialized by the merchant side. Holds the salt: keep the store private. */
+  claim: string;
+  status: SplitClaimStatus;
+  attempts: number;
+  /** Earliest time of the next attempt. */
+  nextTryAt: number;
+  lastError?: string;
+  updatedAt: number;
+}
+
+/** Distinct proofs kept per reference: a buyer retries with the same one, so a few cover every honest case. */
+export const MAX_PROOFS_PER_REF = 8;
+
+export interface PaymentStateStore {
+  /**
+   * Stores a presented proof. Every distinct payload of a reference is kept,
+   * so a junk proof sent later never displaces the one that pays; an
+   * identical one is stored once. False when the reference already holds
+   * {@link MAX_PROOFS_PER_REF} distinct proofs (nothing stored).
+   */
+  saveProof(proof: StoredProof): Promise<boolean>;
+  /** The payment of `paymentRef` is in the merchant's wallet: none of its proofs needs replaying. */
+  markTakenIn(paymentRef: string): Promise<void>;
+  /** Ref proofs not yet taken in, received at or after `since`: replayed on start. */
+  proofsNotTakenIn(since: number): Promise<StoredProof[]>;
+
+  /** Marks the reference served; false when it already was. Atomic across every user of the store. */
+  markServed(paymentRef: string, nonce: string): Promise<boolean>;
+  isServed(paymentRef: string): Promise<boolean>;
+
+  /** Insert a split claim; a second save of one reference keeps the first. */
+  saveSplitClaim(claim: StoredSplitClaim): Promise<void>;
+  updateSplitClaim(
+    paymentRef: string,
+    patch: Partial<Pick<StoredSplitClaim, "status" | "attempts" | "nextTryAt" | "lastError">>,
+  ): Promise<void>;
+  splitClaims(status?: SplitClaimStatus): Promise<StoredSplitClaim[]>;
+
+  /**
+   * Drops served marks and proofs received before `before`: a reference
+   * older than its retention is refused before the store is asked, and a
+   * proof older than the offchain-message lifetime can no longer be taken in.
+   * Split claims are kept. Returns the rows removed.
+   */
+  sweep(before: number): Promise<number>;
+
+  close?(): void;
+}

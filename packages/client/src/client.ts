@@ -8,6 +8,24 @@ import { parseAztecPaymentExtra } from "@galactica-net/x402-core";
 
 type FetchFunction = typeof fetch;
 
+export interface PaymentFetchOptions {
+  /**
+   * Called with the full payment payload before it is sent. A `ref` payload
+   * holds the only copy of the merchant's note: persist it here, so a crash or
+   * a lost response can be recovered by resending it ({@link sendPayment}).
+   */
+  onPayload?(payload: PaymentPayload): Promise<void> | void;
+  /** Resend the same payload while the server answers 402 marked retryable (e.g. not mined or confirmed yet). */
+  retry?: RetryOptions;
+}
+
+export interface RetryOptions {
+  attempts: number;
+  delayMs: number;
+}
+
+const DEFAULT_RETRY: RetryOptions = { attempts: 0, delayMs: 0 };
+
 /**
  * Wraps a fetch function with automatic x402 payment handling.
  *
@@ -24,6 +42,7 @@ type FetchFunction = typeof fetch;
 export function wrapFetchWithPayment(
   fetchFn: FetchFunction,
   scheme: SchemeNetworkClient,
+  options: PaymentFetchOptions = {},
 ): FetchFunction {
   return async (
     input: RequestInfo | URL,
@@ -54,17 +73,36 @@ export function wrapFetchWithPayment(
     }
 
     // Find matching scheme in accepts
-    const matching = paymentRequired.accepts.find(
+    const ofScheme = paymentRequired.accepts.filter(
       (a) => a.scheme === scheme.scheme,
     );
+    const matching = scheme.selectRequirement
+      ? scheme.selectRequirement(ofScheme)
+      : ofScheme[0];
     if (!matching) {
       return response;
     }
 
     // Get nonce from the initial 402 response
-    const nonce = parseAztecPaymentExtra(matching.extra).nonce;
+    const { nonce, mode } = parseAztecPaymentExtra(matching.extra);
     if (!nonce) {
       return response;
+    }
+
+    // ref and split need no prepare: the reference is already in the 402.
+    if (mode === "ref" || mode === "split") {
+      const payloadResult = await scheme.createPaymentPayload(
+        paymentRequired.x402Version,
+        matching,
+      );
+      const fullPayload: PaymentPayload = {
+        x402Version: payloadResult.x402Version,
+        accepted: matching,
+        payload: payloadResult.payload,
+        extensions: payloadResult.extensions,
+      };
+      await options.onPayload?.(fullPayload);
+      return sendPayment(fetchFn, input, init, fullPayload, options.retry);
     }
 
     // Phase 2: Prepare — send our address to get a commitment
@@ -122,18 +160,51 @@ export function wrapFetchWithPayment(
       extensions: payloadResult.extensions,
     };
 
-    // Encode as base64
-    const encoded = Buffer.from(JSON.stringify(fullPayload)).toString("base64");
+    await options.onPayload?.(fullPayload);
+    return sendPayment(fetchFn, input, init, fullPayload, options.retry);
+  };
+}
 
-    // Retry with payment
-    return fetchFn(input, {
+/**
+ * Sends a payment payload with the request, as is: also how a stored payload
+ * is resent after a crash or a lost response. While the server answers 402
+ * marked `retryable`, waits and resends the same payload.
+ */
+export async function sendPayment(
+  fetchFn: FetchFunction,
+  input: RequestInfo | URL,
+  init: RequestInit | undefined,
+  payload: PaymentPayload,
+  retry: RetryOptions = DEFAULT_RETRY,
+): Promise<Response> {
+  const encoded = Buffer.from(JSON.stringify(payload)).toString("base64");
+  const request = () =>
+    fetchFn(input, {
       ...init,
       headers: {
-        ...existingHeaders,
+        ...extractHeaders(init),
         "PAYMENT-SIGNATURE": encoded,
       },
     });
-  };
+  let response = await request();
+  for (let attempt = 0; attempt < retry.attempts && isRetryable402(response); attempt++) {
+    await new Promise((resolve) => setTimeout(resolve, retry.delayMs));
+    response = await request();
+  }
+  return response;
+}
+
+/** A 402 whose PAYMENT-REQUIRED marks the presented payment as one that may verify later. */
+export function isRetryable402(response: Response): boolean {
+  if (response.status !== 402) return false;
+  const header = response.headers.get("PAYMENT-REQUIRED");
+  if (!header) return false;
+  try {
+    const decoded: unknown = JSON.parse(Buffer.from(header, "base64").toString());
+    return typeof decoded === "object" && decoded !== null && Reflect.get(decoded, "retryable") === true;
+  } catch {
+    return false;
+  }
 }
 
 function extractHeaders(init?: RequestInit): Record<string, string> {

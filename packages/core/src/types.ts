@@ -16,6 +16,14 @@
  * can finalize the transfer.
  */
 
+import type {
+  ModeVerification,
+  PaymentMode,
+  RefPaymentProof,
+  SplitPaymentProof,
+  SplitTerms,
+} from "./modes.js";
+
 // ---------------------------------------------------------------------------
 // Network & Asset
 // ---------------------------------------------------------------------------
@@ -118,6 +126,28 @@ export interface ClientAztecSigner {
     commitment: string,
     amount: bigint,
   ): Promise<string>;
+
+  /**
+   * `ref` mode: pay `amount` to `payTo` privately under `paymentRef` and
+   * return the proof to hand the merchant. The proof is the only copy of the
+   * merchant's note: the caller must persist it before anything else.
+   */
+  payPrivate?(
+    tokenAddress: string,
+    payTo: string,
+    amount: bigint,
+    paymentRef: string,
+  ): Promise<RefPaymentProof>;
+
+  /**
+   * `split` mode: deposit on Ethereum for the offered terms and return the
+   * proof once the deposit is mined. Only signers holding an L1 wallet
+   * implement it.
+   */
+  paySplit?(
+    tokenAddress: string,
+    terms: SplitTerms & { paymentRef: string },
+  ): Promise<SplitPaymentProof>;
 }
 
 /** Result of preparing a commitment, including optional offchain message (v4.1.0+) */
@@ -174,6 +204,35 @@ export interface FacilitatorAztecSigner {
     requiredAmount: bigint,
     commitment?: string,
   ): Promise<PaymentNoteVerification>;
+
+  /**
+   * The modes this signer can take payments in for `tokenAddress` right now,
+   * out of `wanted`. Without it, only `commitment` is offered.
+   */
+  paymentModes?(tokenAddress: string, wanted: PaymentMode[]): Promise<PaymentMode[]>;
+
+  /** `split` terms to offer for a price, besides the reference; undefined when split payments cannot be taken now. */
+  splitTerms?(tokenAddress: string, price: bigint): Promise<SplitTerms | undefined>;
+
+  /**
+   * `ref` mode: take the buyer's proof into the merchant's wallet and check it
+   * pays at least `price` under `paymentRef`. Idempotent.
+   */
+  receiveRefPayment?(
+    tokenAddress: string,
+    proof: RefPaymentProof,
+    expected: { paymentRef: string; price: bigint },
+  ): Promise<ModeVerification>;
+
+  /**
+   * `split` mode: check the buyer's deposit on L1 for these terms; on success
+   * `splitClaim` holds what the merchant persists and claims later.
+   */
+  verifySplitDeposit?(
+    tokenAddress: string,
+    proof: SplitPaymentProof,
+    expected: { paymentRef: string; price: bigint },
+  ): Promise<ModeVerification>;
 }
 
 // ---------------------------------------------------------------------------

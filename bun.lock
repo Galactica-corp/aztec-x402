@@ -100,11 +100,11 @@
         "@galactica-net/x402-core": "workspace:*",
         "@galactica-net/x402-mechanism": "workspace:*",
         "uuid": "^13.0.0",
+        "zod": "^4.4.3",
       },
       "devDependencies": {
         "@types/uuid": "^11.0.0",
         "typescript": "^5.5.0",
-        "zod": "^4.4.3",
       },
     },
   },

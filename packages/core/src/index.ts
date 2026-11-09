@@ -45,3 +45,34 @@ export {
   type AztecPrepareRequest,
   type AztecOffchainMessage,
 } from "./schemas.js";
+
+export {
+  PAYMENT_MODES,
+  PaymentModeSchema,
+  OFFCHAIN_MESSAGE_TTL_MS,
+  MAX_PROOF_MESSAGES,
+  MAX_CIPHERTEXT_FIELDS,
+  RefProofMessageSchema,
+  RefPaymentProofSchema,
+  SplitPaymentProofSchema,
+  RefAztecPayloadSchema,
+  SplitAztecPayloadSchema,
+  SplitTermsSchema,
+  payloadMode,
+  type PaymentMode,
+  type RefProofMessage,
+  type RefPaymentProof,
+  type SplitPaymentProof,
+  type RefAztecPayload,
+  type SplitAztecPayload,
+  type SplitTerms,
+  type ModeVerification,
+} from "./modes.js";
+
+export { MAX_PROOFS_PER_REF } from "./store.js";
+export type {
+  StoredProof,
+  StoredSplitClaim,
+  SplitClaimStatus,
+  PaymentStateStore,
+} from "./store.js";
