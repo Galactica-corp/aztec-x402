@@ -118,7 +118,7 @@ async function fundPayer(s: InferenceSetup, l1: L1Signer, m: BridgeManifest): Pr
 }
 
 /** Deposits `s.amount` of the L1 key's USDC privately for the payer and claims it on Aztec. */
-async function depositAndClaim(
+export async function depositAndClaim(
   s: Omit<InferenceSetup, "nodeUrl" | "manifestPath">,
   l1: L1Signer,
   m: BridgeManifest,

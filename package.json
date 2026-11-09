@@ -34,7 +34,8 @@
     "demo:sandbox": "SERVER_URL=http://localhost:4402 USE_SPONSORED_FPC=true bun run ./packages/demo/src/aztec/real-client.ts",
     "server:sandbox": "USE_SPONSORED_FPC=true bun run ./packages/demo/src/aztec/real-server.ts",
     "demo:replay": "bun run ./packages/demo/src/aztec/replay-test.ts",
-    "e2e:split": "bun run ./packages/demo/src/aztec/split-e2e.ts"
+    "e2e:split": "bun run ./packages/demo/src/aztec/split-e2e.ts",
+    "e2e:http": "bun run ./packages/demo/src/aztec/http-e2e.ts"
   },
   "devDependencies": {
     "@types/node": "^25.9.9",

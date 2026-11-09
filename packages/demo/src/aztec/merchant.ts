@@ -45,6 +45,8 @@ export interface MerchantOptions {
   noSplit?: boolean;
   /** Split deposits at or above this price wait for L1 finality. */
   finalizedAbove?: bigint;
+  /** How often pending split claims are retried (default 30 s). */
+  claimPollMs?: number;
   log?: (message: string) => void;
 }
 
@@ -123,6 +125,7 @@ export async function openMerchant(o: MerchantOptions): Promise<Merchant> {
         }
       : undefined,
     split,
+    claimPollMs: o.claimPollMs,
     log,
   });
   let modes: PaymentMode[] = ["commitment"];

@@ -99,6 +99,7 @@ const merchant = await openMerchant({
   fee,
   noSplit: process.env.SPLIT === "off",
   finalizedAbove: process.env.SPLIT_FINALIZED_ABOVE ? BigInt(process.env.SPLIT_FINALIZED_ABOVE) : undefined,
+  claimPollMs: process.env.X402_CLAIM_POLL_MS ? Number(process.env.X402_CLAIM_POLL_MS) : undefined,
 });
 const sellingIn = merchant.token;
 // Fail now, not at the first buyer, if this account may not charge in the token.
