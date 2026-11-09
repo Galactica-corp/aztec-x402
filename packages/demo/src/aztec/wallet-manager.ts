@@ -18,6 +18,8 @@ import { NO_FROM } from "@aztec-labs/aztec.js/account";
 import { TxStatus } from "@aztec-labs/aztec.js/tx";
 import { getInitialTestAccountsData } from "@aztec-labs/accounts/testing";
 import type { AztecNode } from "@aztec-labs/aztec.js/node";
+import { computeSiloedPrivateInitializationNullifier } from "@aztec-labs/stdlib/hash";
+import { MerkleTreeId } from "@aztec-labs/stdlib/trees";
 import { paymentGateFor } from "@galactica-net/x402-agent/aztec";
 import { createPXEWallet, type PXEWallet } from "./pxe-wallet.js";
 import type { AccountManager } from "@aztec-labs/aztec.js/wallet";
@@ -184,6 +186,18 @@ async function createAccountFromKeys(
 }
 
 /**
+ * Whether an account contract was deployed. Its instance is not published (the
+ * node's `getContract` does not know it), but its constructor always emits the
+ * private initialization nullifier.
+ */
+async function isAccountDeployed(node: AztecNode, account: AccountManager): Promise<boolean> {
+  const instance = await account.getInstance();
+  const nullifier = await computeSiloedPrivateInitializationNullifier(instance.address, instance.initializationHash);
+  const [index] = await node.findLeavesIndexes("latest", MerkleTreeId.NULLIFIER_TREE, [nullifier]);
+  return index !== undefined || (await node.getContract(instance.address)) !== undefined;
+}
+
+/**
  * Register genesis test accounts (sandbox) or deploy Schnorr accounts (remote).
  *
  * Genesis accounts need no deploy tx. Remote deploys use `NO_FROM` + Sponsored FPC.
@@ -213,8 +227,7 @@ export async function deployAccounts(
     if (genesis) {
       console.log(`  ${name} registered (genesis-funded) at ${account.address}`);
     } else {
-      const onChain = await node.getContract(account.address);
-      if (onChain) {
+      if (await isAccountDeployed(node, account)) {
         console.log(`  ${name} already deployed on-chain — skipping.`);
       } else {
         console.log(`  Deploying ${name} account...`);
