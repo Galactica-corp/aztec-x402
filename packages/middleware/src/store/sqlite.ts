@@ -43,7 +43,8 @@ CREATE TABLE IF NOT EXISTS taken_in (
 CREATE TABLE IF NOT EXISTS served (
   payment_ref TEXT PRIMARY KEY,
   nonce TEXT NOT NULL,
-  served_at INTEGER NOT NULL
+  served_at INTEGER NOT NULL,
+  payment TEXT
 );
 CREATE INDEX IF NOT EXISTS served_at ON served (served_at);
 CREATE TABLE IF NOT EXISTS split_claims (
@@ -82,6 +83,8 @@ const ClaimRowSchema = z.object({
 });
 
 const CountSchema = z.object({ n: int });
+const ServedRowSchema = z.object({ nonce: z.string(), served_at: int, payment: z.string().nullable() });
+const ColumnSchema = z.object({ name: z.string() });
 
 const toClaim = (r: z.infer<typeof ClaimRowSchema>): StoredSplitClaim => ({
   paymentRef: r.payment_ref,
@@ -107,6 +110,9 @@ export function sqliteStateStore(path: string, opts: SqliteStateStoreOptions = {
   db.exec("PRAGMA journal_mode = WAL");
   db.exec("PRAGMA synchronous = FULL");
   db.exec(SCHEMA);
+  // Stores created before served marks named their payment.
+  const servedColumns = z.array(ColumnSchema).parse(db.prepare("PRAGMA table_info(served)").all());
+  if (!servedColumns.some((c) => c.name === "payment")) db.exec("ALTER TABLE served ADD COLUMN payment TEXT");
 
   const q = {
     proofExists: db.prepare("SELECT 1 FROM proofs WHERE payment_ref = ? AND digest = ?"),
@@ -121,8 +127,18 @@ export function sqliteStateStore(path: string, opts: SqliteStateStoreOptions = {
        AND NOT EXISTS (SELECT 1 FROM taken_in t WHERE t.payment_ref = p.payment_ref)
        ORDER BY p.received_at`,
     ),
-    markServed: db.prepare("INSERT INTO served (payment_ref, nonce, served_at) VALUES (?, ?, ?) ON CONFLICT DO NOTHING"),
+    markServed: db.prepare("INSERT INTO served (payment_ref, nonce, served_at, payment) VALUES (?, ?, ?, ?) ON CONFLICT DO NOTHING"),
     isServed: db.prepare("SELECT 1 FROM served WHERE payment_ref = ?"),
+    served: db.prepare("SELECT nonce, served_at, payment FROM served WHERE payment_ref = ?"),
+    // Written only with a new served mark, so a row already there is an orphan (a crash, or an older version that
+    // saved claims before serving): the served deposit's claim replaces it.
+    servedClaim: db.prepare(
+      `INSERT INTO split_claims (payment_ref, asset, claim, status, attempts, next_try_at, last_error, updated_at)
+       VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+       ON CONFLICT (payment_ref) DO UPDATE SET asset = excluded.asset, claim = excluded.claim, status = excluded.status,
+         attempts = excluded.attempts, next_try_at = excluded.next_try_at, last_error = excluded.last_error,
+         updated_at = excluded.updated_at`,
+    ),
     insertClaim: db.prepare(
       `INSERT INTO split_claims (payment_ref, asset, claim, status, attempts, next_try_at, last_error, updated_at)
        VALUES (?, ?, ?, ?, ?, ?, ?, ?) ON CONFLICT DO NOTHING`,
@@ -178,11 +194,22 @@ export function sqliteStateStore(path: string, opts: SqliteStateStoreOptions = {
         takenIn: false,
       }));
     },
-    async markServed(paymentRef, nonce) {
-      return Number(q.markServed.run(paymentRef, nonce, Date.now()).changes) === 1;
+    async markServed(paymentRef, nonce, served = {}) {
+      return immediate(() => {
+        if (Number(q.markServed.run(paymentRef, nonce, Date.now(), served.payment?.toLowerCase() ?? null).changes) !== 1) return false;
+        const c = served.splitClaim;
+        if (c) q.servedClaim.run(paymentRef, c.asset, c.claim, c.status, c.attempts, c.nextTryAt, c.lastError ?? null, c.updatedAt);
+        return true;
+      });
     },
     async isServed(paymentRef) {
       return q.isServed.get(paymentRef) !== undefined;
+    },
+    async served(paymentRef) {
+      const row = q.served.get(paymentRef);
+      if (row === undefined) return undefined;
+      const r = ServedRowSchema.parse(row);
+      return { nonce: r.nonce, at: r.served_at, ...(r.payment ? { payment: r.payment } : {}) };
     },
     async saveSplitClaim(c) {
       q.insertClaim.run(c.paymentRef, c.asset, c.claim, c.status, c.attempts, c.nextTryAt, c.lastError ?? null, c.updatedAt);

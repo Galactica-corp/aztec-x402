@@ -27,6 +27,8 @@ export interface StoredPayment {
   acknowledgedAt?: string;
   /** Set when the merchant had served the payment but its response was lost: it cannot be delivered again. */
   responseLostAt?: string;
+  /** Set when the merchant served another payment under the same reference instead: this one is never served. */
+  supersededAt?: string;
 }
 
 const dir = (dataDir: string) => join(dataDir, "proofs");
@@ -57,12 +59,16 @@ export function markResponseLost(dataDir: string, id: string): void {
   saveStoredPayment(dataDir, { ...readStoredPayment(dataDir, id), responseLostAt: new Date().toISOString() });
 }
 
-/** Payments that may still be delivered (not acknowledged, response not lost), oldest first. */
+export function markSuperseded(dataDir: string, id: string): void {
+  saveStoredPayment(dataDir, { ...readStoredPayment(dataDir, id), supersededAt: new Date().toISOString() });
+}
+
+/** Payments that may still be delivered (not acknowledged, not closed), oldest first. */
 export function unacknowledgedPayments(dataDir: string): StoredPayment[] {
   if (!existsSync(dir(dataDir))) return [];
   return readdirSync(dir(dataDir))
     .filter((f) => f.endsWith(".json"))
     .map((f): StoredPayment => JSON.parse(readFileSync(join(dir(dataDir), f), "utf-8")))
-    .filter((p) => !p.acknowledgedAt && !p.responseLostAt)
+    .filter((p) => !p.acknowledgedAt && !p.responseLostAt && !p.supersededAt)
     .sort((a, b) => a.createdAt.localeCompare(b.createdAt));
 }

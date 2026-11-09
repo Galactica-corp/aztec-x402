@@ -21,6 +21,7 @@ Every failure prints `{"ok": false, "error": {"code": …, "message": …}}`. Fi
 | `not_delivered` | **yes** | Paid, content not returned. If `error.resume` is set, run it (`aztec-x402 pay --resume <id>`): the same payment is delivered again, never paid twice. Otherwise `error.payment.txHash` is the proof of payment; give it to the user and ask before paying again. |
 | `already_delivered` | no | `pay --resume` on a payment the merchant already served. Nothing to do. |
 | `response_lost` | no | The merchant served the payment, but its response never reached the agent. A merchant serves each payment once (that is the replay protection), so it cannot be delivered again. Give the user `error.payment` and ask before paying for the same request again. |
+| `payment_superseded` | no | Paid, but the merchant served another payment made under the same request's reference (someone else who saw its 402 paid first), so it will not serve this one. Give the user `error.payment` as proof of payment and ask before paying for the request again. For a payment from Ethereum, `aztec-x402 fund change` still collects the change. |
 | `no_split_option` | no | `--from-ethereum`, but the merchant does not offer payment from Ethereum. Pay from the Aztec balance instead, or ask the user. |
 | `split_terms_mismatch` | no | The merchant's split offer names another bridge, price or recipient than this agent's. Do not pay; tell the user. |
 | `bridge_paused` | no | The bridge is paused; a deposit now could not be claimed. Try later. |

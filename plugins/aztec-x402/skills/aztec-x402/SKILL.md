@@ -36,6 +36,7 @@ Nothing to buy yet? The reference merchant in the aztec-x402 repo sells a 0.01 t
 - The key file (`account.json` under the agent home) holds the account's private keys. Keep it out of the conversation: never read, print, copy, or upload it. Losing it loses the funds.
 - `not_delivered` means the payment went through but the merchant did not return the content. When the error carries `resume`, run that command (`aztec-x402 pay --resume <id>`): it delivers the same payment again and never pays twice. Otherwise give the user the tx hash and ask before paying for the same request again.
 - `response_lost` means the merchant served the payment but its response never arrived (the CLI was stopped or the connection dropped). A merchant serves each payment once, so it cannot be delivered again. Give the user the payment details and ask before paying for the same request again. Let `pay` run to the end: don't stop it while it waits for the merchant.
+- `payment_superseded` means another payment under the same request's reference was served first (someone else saw its 402), so the merchant will not serve this one. Give the user the payment details and ask before paying again.
 
 ## Funding
 

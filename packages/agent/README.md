@@ -26,7 +26,7 @@ Node 22+ (or Bun). Proofs are generated locally; expect 1–3 minutes per paying
 | `inspect <url>` | Price of a URL, without paying | < 1s |
 | `pay <url> --max-amount N` | Fetch, paying the x402 challenge if within policy (privately under a reference when the merchant offers it) | 1–3 min |
 | `pay <url> --max-amount N --from-ethereum [--deposit USDC]` | Pay from the user's Ethereum wallet: one round deposit they sign on a page; the change comes back to the agent | until served |
-| `pay --resume <id>` | Deliver a stored payment again when it did not reach the merchant (crash, network error); never pays twice. A payment the merchant already served is not served again (`response_lost`) | seconds |
+| `pay --resume <id>` | Deliver a stored payment again when it did not reach the merchant (crash, network error); never pays twice. A payment the merchant already served is not served again (`response_lost`), nor is one whose reference another payment was served for (`payment_superseded`) | seconds |
 | `history [--limit N]` | Local payment ledger | < 1s |
 | `fund [--amount N]` | Local page: user signs an L1 deposit, agent claims it | until claimed |
 | `fund --hosted [--no-wait]` | Same via a link to the hosted page, for a browser that cannot reach the agent | until claimed / instant |

@@ -30,11 +30,18 @@ export const PaymentModeSchema = z.enum(PAYMENT_MODES);
 export const OFFCHAIN_MESSAGE_TTL_MS = 26 * 60 * 60 * 1000;
 
 /**
- * The 402 error for a `ref` or `split` payment whose reference was served
- * already. A reference is served once, also to the buyer who paid it: a
- * response lost after serving cannot be delivered again.
+ * The 402 error for a `ref` or `split` payment that was served already. A
+ * reference is served once, also to the buyer who paid it: a response lost
+ * after serving cannot be delivered again.
  */
 export const PAYMENT_ALREADY_USED = "payment already used";
+
+/**
+ * The 402 error for a valid `ref` or `split` payment whose reference was
+ * served to another payment (someone else who saw the 402 paid it first).
+ * This payment was not served and will not be.
+ */
+export const REFERENCE_SERVED_TO_ANOTHER_PAYMENT = "another payment under this reference was served";
 
 /** Messages a ref proof may carry; the SDK's own bound. One payment carries two (note and event). */
 export const MAX_PROOF_MESSAGES = 16;

@@ -2,6 +2,7 @@ import { afterEach, describe, expect, it } from "bun:test";
 import { mkdtempSync, rmSync, statSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
+import { DatabaseSync } from "node:sqlite";
 import type { PaymentStateStore, StoredProof, StoredSplitClaim } from "@galactica-net/x402-core";
 import { memoryStateStore } from "../store/memory.js";
 import { sqliteStateStore } from "../store/sqlite.js";
@@ -64,6 +65,17 @@ for (const [name, make] of stores) {
       s.close?.();
     });
 
+    it("stores a split claim only with the served mark that wins, and names the served payment", async () => {
+      const s = make();
+      await s.saveSplitClaim({ ...claim, claim: '{"orphan":1}' });
+      expect(await s.markServed("0xref", "n", { payment: "0xAB", splitClaim: { ...claim, claim: '{"served":1}' } })).toBe(true);
+      expect(await s.markServed("0xref", "n", { payment: "0xcd", splitClaim: { ...claim, claim: '{"lost":1}' } })).toBe(false);
+      expect(await s.splitClaims()).toMatchObject([{ claim: '{"served":1}' }]);
+      expect(await s.served("0xref")).toMatchObject({ nonce: "n", payment: "0xab" });
+      expect(await s.served("0xother")).toBeUndefined();
+      s.close?.();
+    });
+
     it("keeps the first split claim and updates its status", async () => {
       const s = make();
       await s.saveSplitClaim(claim);
@@ -95,6 +107,19 @@ for (const [name, make] of stores) {
 }
 
 describe("sqlite store file", () => {
+  it("adds the served payment to a store written before it was recorded", async () => {
+    const path = file();
+    const old = new DatabaseSync(path);
+    old.exec("CREATE TABLE served (payment_ref TEXT PRIMARY KEY, nonce TEXT NOT NULL, served_at INTEGER NOT NULL)");
+    old.exec("INSERT INTO served VALUES ('0xold', 'n', 1)");
+    old.close();
+    const s = sqliteStateStore(path);
+    expect(await s.served("0xold")).toEqual({ nonce: "n", at: 1 });
+    expect(await s.markServed("0xnew", "n", { payment: "0xab" })).toBe(true);
+    expect((await s.served("0xnew"))?.payment).toBe("0xab");
+    s.close?.();
+  });
+
   it("is readable by its owner only", () => {
     const path = file();
     sqliteStateStore(path).close?.();

@@ -7,6 +7,7 @@ import { createHash } from "node:crypto";
 import {
   MAX_PROOFS_PER_REF,
   type PaymentStateStore,
+  type ServedMark,
   type SplitClaimStatus,
   type StoredProof,
   type StoredSplitClaim,
@@ -17,7 +18,7 @@ export const payloadDigest = (payload: string): string => createHash("sha256").u
 export function memoryStateStore(): PaymentStateStore {
   const proofs = new Map<string, Map<string, StoredProof>>();
   const taken = new Set<string>();
-  const served = new Map<string, { nonce: string; at: number }>();
+  const served = new Map<string, ServedMark>();
   const claims = new Map<string, StoredSplitClaim>();
 
   return {
@@ -41,13 +42,18 @@ export function memoryStateStore(): PaymentStateStore {
       }
       return out;
     },
-    async markServed(paymentRef, nonce) {
+    async markServed(paymentRef, nonce, mark = {}) {
       if (served.has(paymentRef)) return false;
-      served.set(paymentRef, { nonce, at: Date.now() });
+      served.set(paymentRef, { nonce, at: Date.now(), ...(mark.payment ? { payment: mark.payment.toLowerCase() } : {}) });
+      if (mark.splitClaim) claims.set(paymentRef, { ...mark.splitClaim });
       return true;
     },
     async isServed(paymentRef) {
       return served.has(paymentRef);
+    },
+    async served(paymentRef) {
+      const s = served.get(paymentRef);
+      return s && { ...s };
     },
     async saveSplitClaim(claim) {
       if (!claims.has(claim.paymentRef)) claims.set(claim.paymentRef, { ...claim });

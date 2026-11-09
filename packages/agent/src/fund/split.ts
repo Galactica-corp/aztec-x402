@@ -39,13 +39,18 @@ export const SIGNATURE_WORD = "{signature}";
 const SIGNATURE_SENTINEL: Hex = `0x${"5a".repeat(65)}`;
 const OWNER_SENTINEL: Hex = "0x00000000000000000000000000000000000a11ce";
 
-/** `response_lost`: the merchant served the deposit, but its response never arrived; the change is still collected. */
+/**
+ * `response_lost`: the merchant served the deposit, but its response never arrived; the change is still collected.
+ * `superseded`: the merchant served another payment under the same reference and will not claim this deposit; `fund
+ * change` claims it from the agent (the price still goes to the merchant) to release the change.
+ */
 export type SplitStatus =
   | "awaiting_deposit"
   | "deposited"
   | "served"
   | "not_served"
   | "response_lost"
+  | "superseded"
   | "change_collected"
   | "change_returned";
 

@@ -226,6 +226,19 @@ describe("ref payments", () => {
     expect((await pay(mw, accepted, proof)).served).toBe(true);
   });
 
+  it("tell a payment that lost its reference to another apart from a served one resent", async () => {
+    const { mw } = setup();
+    const accepted = await offer(mw, "ref");
+    const proof = refProof(refOf(accepted));
+    expect((await pay(mw, accepted, proof)).served).toBe(true);
+
+    const resent = await pay(mw, accepted, { ...proof, txHash: proof.txHash.toUpperCase().replace("0X", "0x") });
+    expect(resent.challenge.error).toBe("payment already used");
+    const other = await pay(mw, accepted, refProof(refOf(accepted), { txHash: H("c1") }));
+    expect(other.served).toBe(false);
+    expect(other.challenge.error).toBe("another payment under this reference was served");
+  });
+
   it("serve exactly one of two concurrent requests with the same proof", async () => {
     let release!: () => void;
     const gate = new Promise<void>((r) => (release = r));
@@ -310,6 +323,38 @@ describe("split payments", () => {
     verify.mockImplementation(async () => ok({ splitClaim: '{"claim":1}' }));
     expect((await pay(mw, accepted, proof)).served).toBe(true);
     expect(await store.splitClaims("pending")).toMatchObject([{ paymentRef: accepted.extra.paymentRef, claim: '{"claim":1}' }]);
+  });
+
+  it("store the claim of the deposit that was served when two valid deposits race", async () => {
+    const DEPOSIT_A = H("a1");
+    const DEPOSIT_B = H("b2");
+    const verify = jest.fn(async (_asset: string, proof: { l1TxHash: string }) => ok({ splitClaim: `{"deposit":"${proof.l1TxHash}"}` }));
+    const store = memoryStateStore();
+    // A is verified first, but its served mark is held until B's request has finished.
+    let bDone!: () => void;
+    const bFinished = new Promise<void>((r) => (bDone = r));
+    const markServed = store.markServed.bind(store);
+    let first = true;
+    store.markServed = async (...args) => {
+      if (first) {
+        first = false;
+        await bFinished;
+      }
+      return markServed(...args);
+    };
+    const { mw } = setup({ signer: signer({ verifySplitDeposit: verify }), store });
+    const accepted = await offer(mw, "split");
+
+    const a = pay(mw, accepted, splitProof(refOf(accepted), { l1TxHash: DEPOSIT_A }));
+    await new Promise((r) => setTimeout(r, 10));
+    const b = await pay(mw, accepted, splitProof(refOf(accepted), { l1TxHash: DEPOSIT_B, salt: H("3c") }));
+    bDone();
+    const lost = await a;
+
+    expect(b.served).toBe(true);
+    expect(lost.served).toBe(false);
+    expect(lost.challenge.error).toBe("another payment under this reference was served");
+    expect(await store.splitClaims()).toMatchObject([{ claim: `{"deposit":"${DEPOSIT_B}"}` }]);
   });
 
   it("refuse a deposit proof for another price", async () => {

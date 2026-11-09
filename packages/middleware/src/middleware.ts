@@ -5,12 +5,15 @@ import {
   AztecPrepareRequestSchema,
   OFFCHAIN_MESSAGE_TTL_MS,
   PAYMENT_ALREADY_USED,
+  REFERENCE_SERVED_TO_ANOTHER_PAYMENT,
   RefAztecPayloadSchema,
   parseAztecPaymentExtra,
   payloadMode,
   type AztecPrepareRequest,
   type PaymentMode,
   type PaymentStateStore,
+  type ServedMark,
+  type StoredSplitClaim,
 } from "@galactica-net/x402-core";
 import { assertSecret, derivePaymentRef, isPaymentRefFor, nonceCreatedAt } from "./reference.js";
 import { payloadDigest } from "./store/memory.js";
@@ -374,8 +377,17 @@ export function createPaymentMiddleware(
       if (foreign) return refuse("the payment proof is for another account or token");
     }
 
+    // The payment this proof is, whatever its encoding: a served mark names it,
+    // so a buyer resending its own served payment is told apart from one whose
+    // payment lost the reference to another.
+    const rawTx = mode === "ref" ? paymentPayload.payload.txHash : paymentPayload.payload.l1TxHash;
+    const paymentTx = typeof rawTx === "string" ? rawTx.toLowerCase() : undefined;
+    const alreadyServed = (mark: ServedMark | undefined) =>
+      refuse(!mark?.payment || mark.payment === paymentTx ? PAYMENT_ALREADY_USED : REFERENCE_SERVED_TO_ANOTHER_PAYMENT);
+
     sweepStore(store);
-    if (await store.isServed(paymentRef)) return refuse(PAYMENT_ALREADY_USED);
+    const servedMark = await store.served(paymentRef);
+    if (servedMark) return alreadyServed(servedMark);
 
     // Kept so a crash during verification loses nothing. Anyone who has seen
     // the 402 can send proofs under its reference, and the store keeps only a
@@ -409,6 +421,7 @@ export function createPaymentMiddleware(
       if (!verified.isValid) {
         return refuse(verified.invalidMessage || verified.invalidReason || "payment verification failed", isRetryableVerifyResponse(verified));
       }
+      let splitClaim: StoredSplitClaim | undefined;
       if (mode === "ref") {
         await store.markTakenIn(paymentRef);
       } else {
@@ -418,17 +431,13 @@ export function createPaymentMiddleware(
           return;
         }
         const now = Date.now();
-        await store.saveSplitClaim({
-          paymentRef,
-          asset: routeConfig.asset,
-          claim,
-          status: "pending",
-          attempts: 0,
-          nextTryAt: now,
-          updatedAt: now,
-        });
+        splitClaim = { paymentRef, asset: routeConfig.asset, claim, status: "pending", attempts: 0, nextTryAt: now, updatedAt: now };
       }
-      if (!(await store.markServed(paymentRef, nonce))) return refuse(PAYMENT_ALREADY_USED);
+      // The claim is stored with the served mark, in one step: when two valid
+      // deposits race, the one served is the one claimed.
+      if (!(await store.markServed(paymentRef, nonce, { payment: paymentTx, splitClaim }))) {
+        return alreadyServed(await store.served(paymentRef));
+      }
 
       const settled = await config.facilitator.settle(paymentPayload, requirements);
       res.setHeader("PAYMENT-RESPONSE", Buffer.from(JSON.stringify(settled)).toString("base64"));

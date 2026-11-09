@@ -18,13 +18,16 @@ import {
   BindConsentRequiredError,
   NotFundingAddressError,
   changeOf,
+  MessageNotConsumableError,
   changeState,
   claimChange,
+  claimSplit,
   isBridgePaused,
   prepareSplitDeposit,
   registerBridgeContracts,
   registerSponsor,
   syncMerchantList,
+  waitSplitClaimable,
   type BridgeManifest,
 } from "@galactica-net/inference-money-core";
 import type { PaymentPayload, PaymentRequirements } from "@galactica-net/x402-mechanism";
@@ -312,8 +315,9 @@ async function finishSplit(
     saveSplitRecord(ctx.dataDir, { ...current(), status: "served" });
     return { ...result, change: { amount: usdc(BigInt(record.amount) - BigInt(record.price)), collect: "aztec-x402 fund change" } };
   } catch (error) {
-    const lost = error instanceof CliError && error.code === "response_lost";
-    saveSplitRecord(ctx.dataDir, { ...current(), status: lost ? "response_lost" : "not_served", error: messageOf(error) });
+    const code = error instanceof CliError ? error.code : undefined;
+    const status = code === "response_lost" ? "response_lost" : code === "payment_superseded" ? "superseded" : "not_served";
+    saveSplitRecord(ctx.dataDir, { ...current(), status, error: messageOf(error) });
     throw error;
   }
 }
@@ -330,6 +334,16 @@ export function resumeSplit(ctx: ResolvedContext, id: string, opts: PayOptions):
       new CliError(`The merchant served payment ${id}, but its response was lost; it cannot be delivered again.`, "response_lost", {
         payment: { id, l1TxHash: record.l1TxHash },
       }),
+    );
+  }
+  if (record.status === "superseded") {
+    return Promise.reject(
+      new CliError(
+        `The merchant served another payment under this request's reference instead of payment ${id}; it will not serve it. ` +
+          "Run `aztec-x402 fund change` to collect its change.",
+        "payment_superseded",
+        { payment: { id, l1TxHash: record.l1TxHash } },
+      ),
     );
   }
   progress(`Resuming payment ${id} from Ethereum...`);
@@ -360,7 +374,10 @@ export async function collectChange(ctx: ResolvedContext, opts: { allowBind: boo
       collected.push({ id: record.id, amount, note: "already collected" });
       continue;
     }
-    if (state === "unclaimed") {
+    // A superseded deposit is never claimed by the merchant: the agent claims it (paying the merchant the price, as
+    // any claim does) so its change can be collected.
+    const claimItself = state === "unclaimed" && record.status === "superseded";
+    if (state === "unclaimed" && !claimItself) {
       waiting.push({ id: record.id, amount, reason: "the merchant has not claimed the deposit on Aztec yet (minutes after it served)" });
       continue;
     }
@@ -371,11 +388,20 @@ export async function collectChange(ctx: ResolvedContext, opts: { allowBind: boo
       await registerBridgeContracts(session.wallet, m);
     }
     try {
+      if (claimItself) {
+        progress(`The merchant served another payment instead of ${record.id}; claiming its deposit to release the change...`);
+        await waitSplitClaimable(change.claim, node, session.wallet, m, change.buyer, undefined, { attempts: 1, pollMs: 0 });
+        await claimSplit(change.claim, node, session.wallet, m, { from: change.buyer });
+      }
       progress(`Collecting ${amount} USDC change of payment ${record.id}...`);
       const tx = await claimChange(change, node, session.wallet, m, { allowBind: opts.allowBind });
       saveSplitRecord(ctx.dataDir, { ...record, status: "change_collected", changeTxHash: tx.toString() });
       collected.push({ id: record.id, amount, txHash: tx.toString() });
     } catch (error) {
+      if (error instanceof MessageNotConsumableError) {
+        waiting.push({ id: record.id, amount, reason: "the deposit is not claimable on Aztec yet (minutes after it was made)" });
+        continue;
+      }
       if (error instanceof BindConsentRequiredError) {
         throw new CliError(
           `Collecting the change binds this agent's account to ${error.depositor} for good: later deposits from other L1 addresses cannot be collected. Run \`aztec-x402 fund change --allow-bind\` to accept.`,

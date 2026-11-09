@@ -4,7 +4,7 @@
  * what is sent again, and what is refused.
  */
 import { afterAll, afterEach, beforeAll, describe, expect, mock, spyOn, test } from "bun:test";
-import { existsSync, mkdtempSync, readFileSync } from "fs";
+import { existsSync, mkdirSync, mkdtempSync, readFileSync, writeFileSync } from "fs";
 import { tmpdir } from "os";
 import { join } from "path";
 import { AztecAddress } from "@aztec-labs/aztec.js/addresses";
@@ -111,6 +111,29 @@ mock.module("../aztec/session.js", () => ({
   tokenAt: async () => adapter,
 }));
 
+// `fund change`: the SDK's chain calls replaced while `changeFake` is set, the real SDK otherwise.
+const realSdk = { ...sdk };
+let changeFake: { state: "unclaimed" | "owed" | "settled" } | undefined;
+const fakeChange = { amount: 990_000n, buyer: AztecAddress.fromStringUnsafe(AGENT), changeSalt: Fr.ONE, claim: { fake: true } };
+const sdkClaimSplit = mock(async () => "claimed" as const);
+const sdkWaitClaimable = mock(async () => {});
+const sdkClaimChange = mock(async () => ({ toString: () => H("d1") }));
+const faked =
+  <A extends unknown[], R>(real: (...a: A) => R, fake: (...a: A) => unknown) =>
+  (...a: A) =>
+    changeFake ? fake(...a) : real(...a);
+mock.module("@galactica-net/inference-money-core", () => ({
+  ...realSdk,
+  decodeClaimTicket: faked(realSdk.decodeClaimTicket, () => ({ fake: true })),
+  changeOf: faked(realSdk.changeOf, () => fakeChange),
+  changeState: faked(realSdk.changeState, async () => changeFake?.state),
+  waitSplitClaimable: faked(realSdk.waitSplitClaimable, sdkWaitClaimable),
+  claimSplit: faked(realSdk.claimSplit, sdkClaimSplit),
+  claimChange: faked(realSdk.claimChange, sdkClaimChange),
+  registerSponsor: faked(realSdk.registerSponsor, async () => {}),
+  registerBridgeContracts: faked(realSdk.registerBridgeContracts, async () => {}),
+}));
+
 let home: string;
 let previousHome: string | undefined;
 beforeAll(() => {
@@ -128,6 +151,7 @@ afterEach(() => {
   splitTerms = async () => undefined;
   up = true;
   loseResponse = false;
+  changeFake = undefined;
 });
 
 async function cli(argv: string[]): Promise<{ code: number; out: Record<string, unknown> }> {
@@ -221,6 +245,71 @@ describe("a response lost after the merchant served", () => {
     const again = await cli(["pay", "--resume", id]);
     expect(field(again.out, "error", "code")).toBe("response_lost");
     expect(payPrivate.mock.calls.length).toBe(before + 1);
+  });
+});
+
+describe("a payment whose reference another payment was served for", () => {
+  test("is closed as payment_superseded, not response_lost, without resume", async () => {
+    payPrivate.mockImplementationOnce(async (_p, _a, paymentRef) => {
+      // Someone else who saw the 402 paid under its reference first, and was served.
+      await store.markServed(paymentRef, "another", { payment: H("ee") });
+      return { txHash: H("ce"), paymentRef, messages: [{ recipient: MERCHANT, contractAddress: USDC, ciphertext: ["0x3"], anchorBlockTimestamp: "1" }] };
+    });
+    const failed = await cli(["pay", URL_PAID, "--max-amount", "0.02"]);
+    expect(failed.code).toBe(1);
+    expect(field(failed.out, "error", "code")).toBe("payment_superseded");
+    expect(field(failed.out, "error", "resume")).toBeUndefined();
+    const id = String(field(failed.out, "error", "payment", "id"));
+    expect(JSON.parse(readFileSync(proofFile(id), "utf-8")).supersededAt).toBeDefined();
+
+    const again = await cli(["pay", "--resume", id]);
+    expect(field(again.out, "error", "code")).toBe("payment_superseded");
+  });
+});
+
+describe("fund change", () => {
+  const record = (id: string, status: string) => ({
+    id,
+    createdAt: new Date().toISOString(),
+    url: URL_PAID,
+    request: { method: "GET", headers: {} },
+    accepted: {},
+    price: "10000",
+    amount: "1000000",
+    draft: "unused",
+    l1FromBlock: "0",
+    ticket: "fake",
+    status,
+  });
+  const writeRecords = (...records: object[]) => {
+    mkdirSync(join(home, "testnet"), { recursive: true });
+    writeFileSync(join(home, "testnet", "split-payments.json"), JSON.stringify(records), { mode: 0o600 });
+  };
+
+  test("claims a superseded deposit itself, since its merchant will not, then collects the change", async () => {
+    changeFake = { state: "unclaimed" };
+    writeRecords(record("superseded-1", "superseded"), record("waiting-1", "not_served"));
+    const claims = sdkClaimSplit.mock.calls.length;
+    const { code, out } = await cli(["fund", "change", "--allow-bind"]);
+    expect(code).toBe(0);
+    expect(sdkClaimSplit.mock.calls.length).toBe(claims + 1);
+    // From the agent's own account: the price still goes to the merchant, the change is released to the agent.
+    expect(sdkClaimSplit.mock.calls.at(-1)).toMatchObject([{ fake: true }, {}, undefined, {}, { from: fakeChange.buyer }]);
+    expect(field(out, "collected")).toMatchObject([{ id: "superseded-1", amount: "0.99" }]);
+    // A deposit the merchant may still claim is left to it.
+    expect(field(out, "waiting")).toMatchObject([{ id: "waiting-1" }]);
+  });
+
+  test("waits while a superseded deposit is not claimable on Aztec yet", async () => {
+    changeFake = { state: "unclaimed" };
+    writeRecords(record("superseded-2", "superseded"));
+    sdkWaitClaimable.mockImplementationOnce(async () => {
+      throw Object.create(realSdk.MessageNotConsumableError.prototype);
+    });
+    const claims = sdkClaimSplit.mock.calls.length;
+    const { out } = await cli(["fund", "change", "--allow-bind"]);
+    expect(sdkClaimSplit.mock.calls.length).toBe(claims);
+    expect(field(out, "waiting")).toMatchObject([{ id: "superseded-2" }]);
   });
 });
 

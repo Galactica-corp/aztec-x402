@@ -45,6 +45,14 @@ export interface StoredSplitClaim {
   updatedAt: number;
 }
 
+/** Which payment a reference was served to. */
+export interface ServedMark {
+  nonce: string;
+  /** The served payment's transaction hash (ref: Aztec, split: L1), lowercase. */
+  payment?: string;
+  at: number;
+}
+
 /**
  * Distinct proofs kept per reference: a buyer retries with the same one, so a
  * few cover every honest case. It bounds storage only; a caller must not
@@ -67,11 +75,18 @@ export interface PaymentStateStore {
   /** Ref proofs not yet taken in, received at or after `since`: replayed on start. */
   proofsNotTakenIn(since: number): Promise<StoredProof[]>;
 
-  /** Marks the reference served; false when it already was. Atomic across every user of the store. */
-  markServed(paymentRef: string, nonce: string): Promise<boolean>;
+  /**
+   * Marks the reference served to the payment `served.payment` identifies (its
+   * transaction hash); false when the reference already was served, to any
+   * payment. Atomic across every user of the store, together with the split
+   * claim: a reference's stored claim is always the deposit it was served for.
+   */
+  markServed(paymentRef: string, nonce: string, served?: { payment?: string; splitClaim?: StoredSplitClaim }): Promise<boolean>;
   isServed(paymentRef: string): Promise<boolean>;
+  /** The served mark of `paymentRef`; `payment` is absent on a mark written without one. */
+  served(paymentRef: string): Promise<ServedMark | undefined>;
 
-  /** Insert a split claim; a second save of one reference keeps the first. */
+  /** Insert a split claim; a second save of one reference keeps the first. Outside tests, claims come with {@link markServed}. */
   saveSplitClaim(claim: StoredSplitClaim): Promise<void>;
   updateSplitClaim(
     paymentRef: string,

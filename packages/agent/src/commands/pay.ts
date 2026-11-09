@@ -26,7 +26,7 @@ import { join } from "path";
 import { PaymentTermsMismatchError, sendPayment, wrapFetchWithPayment } from "@galactica-net/x402-client";
 import { ExactAztecClientScheme } from "@galactica-net/x402-mechanism/exact/client";
 import type { PaymentPayload, PaymentRequirements, SchemeNetworkClient } from "@galactica-net/x402-mechanism";
-import { PAYMENT_ALREADY_USED, SCHEME, parseAztecPaymentExtra } from "@galactica-net/x402-core";
+import { PAYMENT_ALREADY_USED, REFERENCE_SERVED_TO_ANOTHER_PAYMENT, SCHEME, parseAztecPaymentExtra } from "@galactica-net/x402-core";
 import { AztecAddress } from "@aztec-labs/aztec.js/addresses";
 import { RealClientAztecSigner } from "../aztec/client-signer.js";
 import { openSession, tokenAt } from "../aztec/session.js";
@@ -35,7 +35,7 @@ import { CliError, PolicyError, UsageError, isProverError, proverFailed } from "
 import { setInflightPayment } from "../inflight.js";
 import { appendLedger, checkPayment, type PaymentLimits } from "../policy.js";
 import { decodePaymentRequired, describeRequirement, formatTokenAmount, modeOf } from "../x402.js";
-import { acknowledgeStoredPayment, markResponseLost, readStoredPayment, saveStoredPayment } from "../proofs.js";
+import { acknowledgeStoredPayment, markResponseLost, markSuperseded, readStoredPayment, saveStoredPayment } from "../proofs.js";
 import type { TokenInfo } from "../networks.js";
 import { paySplit, resumeSplit } from "./pay-split.js";
 import { progress } from "../output.js";
@@ -287,6 +287,11 @@ function failedPayment(ctx: ResolvedContext, id: string, error: unknown): unknow
  * before, and its response was lost (the agent died or the connection
  * dropped after the merchant served). It never serves a reference twice, so
  * the payment is closed: `response_lost`, with no `resume`.
+ *
+ * A merchant that answers REFERENCE_SERVED_TO_ANOTHER_PAYMENT served a
+ * different payment under this request's reference (someone else who saw the
+ * 402 paid first). This payment is never served: `payment_superseded`, with
+ * no `resume`.
  */
 export async function deliver(
   ctx: ResolvedContext,
@@ -318,6 +323,10 @@ export async function deliver(
       markResponseLost(ctx.dataDir, id);
       throw responseLost(id, payment);
     }
+    if (reason === REFERENCE_SERVED_TO_ANOTHER_PAYMENT) {
+      markSuperseded(ctx.dataDir, id);
+      throw superseded(id, payment);
+    }
     throw new CliError(`Paid, but the merchant did not deliver: ${reason}. Retry with \`${resume}\`.`, "not_delivered", {
       status: response.status,
       payment,
@@ -337,6 +346,19 @@ function responseLost(id: string, payment: Record<string, unknown>): CliError {
   );
 }
 
+function superseded(id: string, payment: Record<string, unknown>): CliError {
+  const change =
+    payment.mode === "split"
+      ? " Run `aztec-x402 fund change` to collect this deposit's change: the agent claims the deposit itself, since the merchant will not."
+      : "";
+  return new CliError(
+    `Paid, but the merchant served another payment made under this request's reference (someone else who saw its 402 paid first), ` +
+      `so it will not serve payment ${id}. The merchant has received this payment too. Keep the payment details as proof of payment.${change}`,
+    "payment_superseded",
+    { payment },
+  );
+}
+
 /** Delivers a stored payment again, unchanged: no new money moves. */
 export async function resumePayment(ctx: ResolvedContext, id: string, opts: PayOptions) {
   const split = resumeSplit(ctx, id, opts);
@@ -345,9 +367,10 @@ export async function resumePayment(ctx: ResolvedContext, id: string, opts: PayO
   if (stored.acknowledgedAt) {
     throw new UsageError(`Payment ${id} was already delivered (${stored.acknowledgedAt}); it is not served twice.`, "already_delivered");
   }
-  if (stored.responseLostAt) {
+  if (stored.responseLostAt || stored.supersededAt) {
     const accepted = stored.payload.accepted;
-    throw responseLost(id, { id, amountBaseUnits: accepted.amount, payTo: accepted.payTo, mode: modeOf(accepted) });
+    const payment = { id, amountBaseUnits: accepted.amount, payTo: accepted.payTo, mode: modeOf(accepted) };
+    throw stored.responseLostAt ? responseLost(id, payment) : superseded(id, payment);
   }
   progress(`Delivering stored payment ${id} to ${stored.url} again...`);
   const accepted = stored.payload.accepted;

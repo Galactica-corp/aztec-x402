@@ -51,6 +51,7 @@ export {
   PaymentModeSchema,
   OFFCHAIN_MESSAGE_TTL_MS,
   PAYMENT_ALREADY_USED,
+  REFERENCE_SERVED_TO_ANOTHER_PAYMENT,
   MAX_PROOF_MESSAGES,
   MAX_CIPHERTEXT_FIELDS,
   RefProofMessageSchema,
@@ -74,6 +75,7 @@ export { MAX_PROOFS_PER_REF } from "./store.js";
 export type {
   StoredProof,
   StoredSplitClaim,
+  ServedMark,
   SplitClaimStatus,
   PaymentStateStore,
 } from "./store.js";
