@@ -47,6 +47,11 @@ CREATE TABLE IF NOT EXISTS served (
   payment TEXT
 );
 CREATE INDEX IF NOT EXISTS served_at ON served (served_at);
+CREATE INDEX IF NOT EXISTS taken_in_at ON taken_in (at);
+CREATE TABLE IF NOT EXISTS meta (
+  key TEXT PRIMARY KEY,
+  value INTEGER NOT NULL
+);
 CREATE TABLE IF NOT EXISTS split_claims (
   payment_ref TEXT PRIMARY KEY,
   asset TEXT NOT NULL,
@@ -83,6 +88,7 @@ const ClaimRowSchema = z.object({
 });
 
 const CountSchema = z.object({ n: int });
+const MetaRowSchema = z.object({ value: int });
 const ServedRowSchema = z.object({ nonce: z.string(), served_at: int, payment: z.string().nullable() });
 const ColumnSchema = z.object({ name: z.string() });
 
@@ -127,6 +133,10 @@ export function sqliteStateStore(path: string, opts: SqliteStateStoreOptions = {
        AND NOT EXISTS (SELECT 1 FROM taken_in t WHERE t.payment_ref = p.payment_ref)
        ORDER BY p.received_at`,
     ),
+    takenInSince: db.prepare("SELECT COUNT(*) AS n FROM taken_in WHERE at >= ?"),
+    getMeta: db.prepare("SELECT value FROM meta WHERE key = ?"),
+    // Never moves back: a slower process finishing an older consolidation keeps the newer mark.
+    setMetaMax: db.prepare("INSERT INTO meta (key, value) VALUES (?, ?) ON CONFLICT (key) DO UPDATE SET value = MAX(value, excluded.value)"),
     markServed: db.prepare("INSERT INTO served (payment_ref, nonce, served_at, payment) VALUES (?, ?, ?, ?) ON CONFLICT DO NOTHING"),
     isServed: db.prepare("SELECT 1 FROM served WHERE payment_ref = ?"),
     served: db.prepare("SELECT nonce, served_at, payment FROM served WHERE payment_ref = ?"),
@@ -193,6 +203,16 @@ export function sqliteStateStore(path: string, opts: SqliteStateStoreOptions = {
         receivedAt: r.received_at,
         takenIn: false,
       }));
+    },
+    async takenInSince(since) {
+      return CountSchema.parse(q.takenInSince.get(since)).n;
+    },
+    async consolidatedAt() {
+      const row = q.getMeta.get("consolidated_at");
+      return row === undefined ? undefined : MetaRowSchema.parse(row).value;
+    },
+    async markConsolidated(startedAt) {
+      q.setMetaMax.run("consolidated_at", startedAt);
     },
     async markServed(paymentRef, nonce, served = {}) {
       return immediate(() => {

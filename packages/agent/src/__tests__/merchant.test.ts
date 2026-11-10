@@ -239,6 +239,52 @@ describe("merchant jobs", () => {
     second.close?.();
   });
 
+  test("consolidate at start, and again only once a payment was taken in since", async () => {
+    const store = memoryStateStore();
+    const consolidate = mock(async () => {});
+    const open = () => new MerchantJobs({ store, receive: async () => ({ isValid: true }), consolidate });
+
+    // Nothing recorded yet (a new store, or one from before consolidations were recorded): consolidate at start.
+    const first = open();
+    await first.start();
+    await first.stop();
+    expect(consolidate).toHaveBeenCalledTimes(1);
+    expect(await store.consolidatedAt()).toBeNumber();
+
+    // A restart with nothing new taken in: no transaction.
+    const second = open();
+    await second.start();
+    await second.stop();
+    expect(consolidate).toHaveBeenCalledTimes(1);
+
+    // A payment taken in since: the next start consolidates it.
+    await new Promise((r) => setTimeout(r, 2));
+    await storeWithProof(store);
+    await store.markTakenIn(REF);
+    await new Promise((r) => setTimeout(r, 2)); // a payment in the same ms as the start counts again, by design
+    const third = open();
+    await third.start();
+    await third.stop();
+    expect(consolidate).toHaveBeenCalledTimes(2);
+    expect(await third.consolidateIfDue()).toBe(false);
+  });
+
+  test("retry a failed consolidation before the next scheduled run, and record only a success", async () => {
+    const store = memoryStateStore();
+    let calls = 0;
+    const consolidate = async () => {
+      if (++calls === 1) throw new Error("sponsor busy");
+    };
+    const jobs = new MerchantJobs({ store, receive: async () => ({ isValid: true }), consolidate, consolidateEveryMs: 20 });
+    await jobs.start();
+    await new Promise((r) => setTimeout(r, 5));
+    expect(await store.consolidatedAt()).toBeUndefined();
+    for (let i = 0; i < 50 && calls < 2; i++) await new Promise((r) => setTimeout(r, 10));
+    await jobs.stop();
+    expect(calls).toBe(2);
+    expect(await store.consolidatedAt()).toBeNumber();
+  });
+
   test("run one job at a time", async () => {
     const store = memoryStateStore();
     await storeWithProof(store);

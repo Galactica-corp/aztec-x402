@@ -17,9 +17,11 @@ export const payloadDigest = (payload: string): string => createHash("sha256").u
 
 export function memoryStateStore(): PaymentStateStore {
   const proofs = new Map<string, Map<string, StoredProof>>();
-  const taken = new Set<string>();
+  /** Reference → when its payment was taken in. */
+  const taken = new Map<string, number>();
   const served = new Map<string, ServedMark>();
   const claims = new Map<string, StoredSplitClaim>();
+  let consolidatedAt: number | undefined;
 
   return {
     async saveProof(proof) {
@@ -29,10 +31,11 @@ export function memoryStateStore(): PaymentStateStore {
       if (forRef.has(key)) return true;
       if (forRef.size >= MAX_PROOFS_PER_REF) return false;
       forRef.set(key, { ...proof });
+      if (proof.takenIn && !taken.has(proof.paymentRef)) taken.set(proof.paymentRef, Date.now());
       return true;
     },
     async markTakenIn(paymentRef) {
-      taken.add(paymentRef);
+      if (!taken.has(paymentRef)) taken.set(paymentRef, Date.now());
     },
     async proofsNotTakenIn(since) {
       const out: StoredProof[] = [];
@@ -41,6 +44,15 @@ export function memoryStateStore(): PaymentStateStore {
         for (const p of forRef.values()) if (p.mode === "ref" && p.receivedAt >= since) out.push({ ...p, takenIn: false });
       }
       return out;
+    },
+    async takenInSince(since) {
+      return [...taken.values()].filter((at) => at >= since).length;
+    },
+    async consolidatedAt() {
+      return consolidatedAt;
+    },
+    async markConsolidated(startedAt) {
+      consolidatedAt = Math.max(consolidatedAt ?? 0, startedAt);
     },
     async markServed(paymentRef, nonce, mark = {}) {
       if (served.has(paymentRef)) return false;

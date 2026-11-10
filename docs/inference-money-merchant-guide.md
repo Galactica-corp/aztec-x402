@@ -144,7 +144,7 @@ it; `split` payments let a buyer without USDC on Aztec pay in one Ethereum trans
 | A durable store (`PaymentStateStore`) | Proofs are stored before you act on them, a reference is served once across restarts and instances, and split claims hold the salt you claim with | `sqliteStateStore(path)` from `@galactica-net/x402-middleware` (one host; several processes may share it) |
 | A reference secret (≥ 32 random bytes) | References are an HMAC of the nonce and the quoted price, so a 402 writes nothing. Share it across instances and keep it across restarts | `X402_REF_SECRET`, or a 0600 file in `DATA_DIR` |
 | An Ethereum RPC (split only) | Deposits are verified on L1 | `L1_RPC_URL` |
-| Background jobs | Take in proofs stored before a crash, consolidate every 12 h, claim split deposits | `MerchantJobs` from `@galactica-net/x402-agent/aztec` |
+| Background jobs | Take in proofs stored before a crash, consolidate (at start and every 6 h, when something new came in), claim split deposits | `MerchantJobs` from `@galactica-net/x402-agent/aztec` |
 
 ```ts
 import { MerchantJobs, SplitMerchant, TokenRegistry } from "@galactica-net/x402-agent/aztec";
@@ -174,8 +174,11 @@ alone while a switch-off is scheduled), the 402 has no `accepts` entries and say
 - **Back up the store and the PXE together.** The middleware stores every proof before taking it in. A stored proof can
   be taken in again only within 26 h of the buyer's transaction (the offchain-message lifetime). `MerchantJobs.start()`
   does this for proofs stored before a crash.
-- **Consolidate at least every 12 h** (`MerchantJobs` does). Consolidation merges your notes into one note you send
+- **Consolidate well within 26 h** (`MerchantJobs` does). Consolidation merges your notes into one note you send
   yourself on chain, recoverable from your keys alone. Until then your funds depend on the stored messages.
+  `MerchantJobs` consolidates at start and then every 6 h (`consolidateEveryMs`), each time only if a payment was
+  taken in since the last consolidation. The store records when that was, so frequent restarts neither skip it nor
+  send a transaction each time. A failed consolidation is retried within minutes, backing off to 10 min.
 - **Claim split deposits promptly.** Once a switch-off of yours takes effect, buyers can take back deposits you have not
   claimed. The claim job retries with backoff and rebuilds a claim that an Ethereum reorg moved. A claim it marks
   `failed` (the deposit no longer verifies on L1) was served unpaid.
@@ -321,7 +324,7 @@ The full list: "What each action makes public" in the integration doc.
 - [ ] Facilitator signer through `TokenRegistry`; `assertCanSell` for every asset at start; `createNodeClient`.
 - [ ] Buyers you ship pay through a `PaymentGate` with a persistent store.
 - [ ] For `ref` / `split`: persistent PXE, SQLite (or shared) store and secret backed up together; `MerchantJobs`
-  running (proof replay, 12-hourly consolidation, split claims); an L1 RPC for split.
+  running (proof replay, consolidation, split claims); an L1 RPC for split.
 - [ ] Front end: deposit with stored drafts and tickets, binding consent, claim with progress and recovery.
 - [ ] Tested on a local network first: `bun run setup:sandbox:inference`, then `bun run e2e:sandbox`,
   `bun run e2e:split` and `bun run e2e:http` in this repository ([readme](../readme.md)).

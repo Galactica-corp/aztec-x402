@@ -90,6 +90,22 @@ for (const [name, make] of stores) {
       s.close?.();
     });
 
+    it("counts payments taken in since a time, and keeps the latest consolidation", async () => {
+      const s = make();
+      const before = Date.now();
+      expect(await s.consolidatedAt()).toBeUndefined();
+      await s.saveProof(proof());
+      await s.markTakenIn("0xref");
+      await s.markTakenIn("0xref");
+      await s.saveProof(proof({ paymentRef: "0xother", takenIn: true }));
+      expect(await s.takenInSince(before)).toBe(2);
+      expect(await s.takenInSince(Date.now() + 1_000)).toBe(0);
+      await s.markConsolidated(before + 50);
+      await s.markConsolidated(before);
+      expect(await s.consolidatedAt()).toBe(before + 50);
+      s.close?.();
+    });
+
     it("sweeps old proofs and served marks, never claims", async () => {
       const s = make();
       await s.saveProof(proof({ receivedAt: 1 }));
@@ -107,6 +123,16 @@ for (const [name, make] of stores) {
 }
 
 describe("sqlite store file", () => {
+  it("keeps the last consolidation across connections", async () => {
+    const path = file();
+    const first = sqliteStateStore(path);
+    await first.markConsolidated(1_234);
+    first.close?.();
+    const second = sqliteStateStore(path);
+    expect(await second.consolidatedAt()).toBe(1_234);
+    second.close?.();
+  });
+
   it("adds the served payment to a store written before it was recorded", async () => {
     const path = file();
     const old = new DatabaseSync(path);

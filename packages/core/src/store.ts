@@ -74,6 +74,13 @@ export interface PaymentStateStore {
   markTakenIn(paymentRef: string): Promise<void>;
   /** Ref proofs not yet taken in, received at or after `since`: replayed on start. */
   proofsNotTakenIn(since: number): Promise<StoredProof[]>;
+  /** How many payments were taken in at or after `since`: notes that exist only offchain until the next consolidation. */
+  takenInSince(since: number): Promise<number>;
+
+  /** When the last consolidation that succeeded started; undefined before the first. */
+  consolidatedAt(): Promise<number | undefined>;
+  /** Records a consolidation that succeeded, by the time it started: a payment taken in during it counts for the next. */
+  markConsolidated(startedAt: number): Promise<void>;
 
   /**
    * Marks the reference served to the payment `served.payment` identifies (its

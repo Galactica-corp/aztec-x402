@@ -5,9 +5,12 @@
  * - On start, take in again every stored ref proof that was never taken in
  *   (a crash between storing it and `receivePayment`). Possible only within
  *   26 h of the buyer's transaction; `receivePayment` is idempotent.
- * - Every 12 h (configurable), consolidate: merge the private notes into one
- *   the merchant sends itself on chain, so the funds no longer depend on
- *   stored offchain messages.
+ * - Consolidate: merge the private notes into one the merchant sends itself
+ *   on chain, so the funds no longer depend on stored offchain messages. It
+ *   runs at start and then every 6 h (configurable), each time only if a
+ *   payment was taken in since the last consolidation (the store keeps when
+ *   that was, so restarts neither skip nor repeat it). A failed run is
+ *   retried within minutes, not at the next scheduled run.
  * - Claim every served split deposit on Aztec once its message is
  *   consumable, retrying with backoff (a busy sponsor, a slow message), and
  *   rebuilding the claim from the buyer's proof if an L1 reorg moved the
@@ -37,7 +40,7 @@ export interface MerchantJobsOptions {
   /** Merges the merchant's notes, per token it sells in. */
   consolidate?: () => Promise<void>;
   split?: SplitClaimer;
-  /** Default 12 h: well inside the 26 h a stored message stays re-ingestible. */
+  /** How often to check for something to consolidate (default 6 h): well inside the 26 h a stored message stays re-ingestible. */
   consolidateEveryMs?: number;
   /** How often pending split claims are looked at (default 30 s). */
   claimPollMs?: number;
@@ -47,12 +50,17 @@ export interface MerchantJobsOptions {
 
 const MIN_BACKOFF_MS = 15_000;
 const MAX_BACKOFF_MS = 10 * 60_000;
+/** The wait after the `attempts`-th failure in a row: 30 s, doubling, at most 10 min. */
+const backoff = (attempts: number) => Math.min(MIN_BACKOFF_MS * 2 ** Math.min(attempts, 10), MAX_BACKOFF_MS);
 /** After this many attempts finding the message not consumable, check whether an L1 reorg moved the deposit. */
 const REBUILD_EVERY = 10;
 
 export class MerchantJobs {
   private queue: Promise<unknown> = Promise.resolve();
   private timers: ReturnType<typeof setInterval>[] = [];
+  private consolidationTimer?: ReturnType<typeof setTimeout>;
+  private consolidationFailures = 0;
+  private stopped = false;
   private readonly log: (message: string) => void;
   private readonly now: () => number;
 
@@ -68,12 +76,11 @@ export class MerchantJobs {
     return next;
   }
 
-  /** Replays stored proofs, then consolidates and claims on their schedules. */
+  /** Replays stored proofs, consolidates if anything is new, then consolidates and claims on their schedules. */
   async start(): Promise<void> {
+    this.stopped = false;
     await this.replayProofs();
-    if (this.opts.consolidate) {
-      this.timers.push(setInterval(() => void this.consolidateNow().catch(() => undefined), this.opts.consolidateEveryMs ?? 12 * 3600_000));
-    }
+    if (this.opts.consolidate) void this.consolidationTick();
     if (this.opts.split) {
       this.timers.push(setInterval(() => void this.claimDue().catch(() => undefined), this.opts.claimPollMs ?? 30_000));
       void this.claimDue().catch(() => undefined);
@@ -82,7 +89,9 @@ export class MerchantJobs {
 
   /** Stops scheduling; resolves once the running job is done. */
   async stop(): Promise<void> {
+    this.stopped = true;
     this.timers.splice(0).forEach(clearInterval);
+    clearTimeout(this.consolidationTimer);
     await this.queue;
   }
 
@@ -114,17 +123,49 @@ export class MerchantJobs {
     });
   }
 
-  consolidateNow(): Promise<void> {
+  /** Consolidates if a payment was taken in since the last consolidation (or none is recorded); true when it ran. */
+  consolidateIfDue(): Promise<boolean> {
+    return this.consolidate(false);
+  }
+
+  /** Consolidates now, whether or not anything is new. */
+  async consolidateNow(): Promise<void> {
+    await this.consolidate(true);
+  }
+
+  private consolidate(force: boolean): Promise<boolean> {
     const consolidate = this.opts.consolidate;
-    if (!consolidate) return Promise.resolve();
+    if (!consolidate) return Promise.resolve(false);
     return this.run(async () => {
+      const { store } = this.opts;
+      if (!force) {
+        const last = await store.consolidatedAt();
+        if (last !== undefined && (await store.takenInSince(last)) === 0) return false;
+      }
+      const startedAt = this.now();
       try {
         await consolidate();
       } catch (error) {
-        this.log(`Consolidation failed (retried at the next run): ${String(error)}`);
+        this.log(`Consolidation failed: ${String(error)}`);
         throw error;
       }
+      await store.markConsolidated(startedAt);
+      return true;
     });
+  }
+
+  /** One scheduled consolidation, then the next: the full interval after success, a backoff after a failure. */
+  private async consolidationTick(): Promise<void> {
+    let delay = this.opts.consolidateEveryMs ?? 6 * 3600_000;
+    try {
+      await this.consolidateIfDue();
+      this.consolidationFailures = 0;
+    } catch {
+      this.consolidationFailures++;
+      delay = Math.min(delay, backoff(this.consolidationFailures));
+      this.log(`Retrying the consolidation in ${Math.round(delay / 1000)} s.`);
+    }
+    if (!this.stopped) this.consolidationTimer = setTimeout(() => void this.consolidationTick(), delay);
   }
 
   /** One pass over the pending split claims that are due. */
@@ -142,7 +183,7 @@ export class MerchantJobs {
   private async claimOne(split: SplitClaimer, c: StoredSplitClaim): Promise<void> {
     const store = this.opts.store;
     const attempts = c.attempts + 1;
-    const later = { attempts, nextTryAt: this.now() + Math.min(MIN_BACKOFF_MS * 2 ** Math.min(c.attempts, 10), MAX_BACKOFF_MS) };
+    const later = { attempts, nextTryAt: this.now() + backoff(c.attempts) };
     let outcome: SplitClaimOutcome;
     try {
       outcome = await split.claim(c.claim);
