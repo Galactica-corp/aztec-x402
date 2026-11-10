@@ -84,7 +84,7 @@ This will:
 4. Deploy an `Overcast USD` (oUSD) token contract with 6 decimals, using the dripper as minter
 5. Have Alice drip 1,000,000 units (1.0 oUSD) into her private balance via `drip_to_private`
 6. Register cross-party senders for note discovery
-7. Write deployment info (including `dripperAddress`) to `packages/demo/src/aztec/deploy.json`
+7. Write deployment info (including `dripperAddress`) to `packages/demo/.data/deploy.json` (git-ignored; set `DATA_DIR` to keep it elsewhere)
 
 Expected output:
 ```

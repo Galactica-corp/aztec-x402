@@ -20,7 +20,7 @@
  * Usage: bun run packages/demo/src/aztec/split-e2e.ts
  */
 import { mkdirSync, readFileSync, rmSync } from "fs";
-import { join, dirname } from "path";
+import { join } from "path";
 import { AztecAddress } from "@aztec-labs/aztec.js/addresses";
 import { createNodeClient } from "@galactica-net/x402-agent/aztec";
 import {
@@ -46,13 +46,12 @@ import { createPXEWallet } from "./pxe-wallet.js";
 import { ANVIL_ACCOUNT_INDEX, ANVIL_MNEMONIC, LOCAL_ADMIN_SECRET } from "./setup-inference.js";
 import { paySplit } from "./split-buyer.js";
 import { loadAccount, loadKeys, setupSponsoredPayment } from "./wallet-manager.js";
+import { DATA_DIR } from "./data-dir.js";
 
 const PRICE = 370_000n;
 /** Ends the checks early (testnet skips the local-only ones). */
 class Done extends Error {}
 
-const __dirname = dirname(new URL(import.meta.url).pathname);
-const DATA_DIR = process.env.DATA_DIR ?? __dirname;
 const config = JSON.parse(readFileSync(join(DATA_DIR, "deploy.json"), "utf-8"));
 if (!config.l1RpcUrl) throw new Error("deploy.json has no L1 RPC: run the inference setup first.");
 const LOCAL = Boolean(config.manifestPath);

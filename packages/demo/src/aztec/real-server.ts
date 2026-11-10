@@ -17,7 +17,7 @@ Sentry.init({
 import { createNodeClient } from "@galactica-net/x402-agent/aztec";
 import { createPXEWallet } from "./pxe-wallet.js";
 import { existsSync, readFileSync, writeFileSync } from "fs";
-import { join, dirname } from "path";
+import { join } from "path";
 import { loadKeys, loadAccount, setupSponsoredPayment } from "./wallet-manager.js";
 import { shouldEnableProver } from "./network-config.js";
 
@@ -37,14 +37,13 @@ import {
   X402_ACHIEVEMENT_CONTENT_TYPE,
   X402_ACHIEVEMENT_SKILL,
 } from "../skills/x402-achievement.js";
+import { DATA_DIR } from "./data-dir.js";
 
 const PORT = 4402;
 const PRICE_AMOUNT = "10000"; // $0.01 with 6 decimals
 const ACHIEVEMENT_PATH = "/api/buy-x402-achievement";
 
 // Load deployment config
-const __dirname = dirname(new URL(import.meta.url).pathname);
-const DATA_DIR = process.env.DATA_DIR ?? __dirname;
 const CONFIG_PATH = join(DATA_DIR, "deploy.json");
 const KEYS_PATH = join(DATA_DIR, "keys.json");
 

@@ -12,16 +12,15 @@ import { createNodeClient, TokenRegistry } from "@galactica-net/x402-agent/aztec
 import { randomBytes } from "crypto";
 import { readFileSync } from "fs";
 import { derivePaymentRef } from "@galactica-net/x402-middleware";
-import { join, dirname } from "path";
+import { join } from "path";
 import { RealClientAztecSigner } from "./client-signer.js";
 import { RealFacilitatorAztecSigner } from "./facilitator-signer.js";
 import { shouldEnableProver } from "./network-config.js";
 import { loadKeys, loadAccount, openDemoWallet, setupSponsoredPayment } from "./wallet-manager.js";
+import { DATA_DIR } from "./data-dir.js";
 
 const AMOUNT = 10_000n;
 
-const __dirname = dirname(new URL(import.meta.url).pathname);
-const DATA_DIR = process.env.DATA_DIR ?? __dirname;
 const config = JSON.parse(readFileSync(join(DATA_DIR, "deploy.json"), "utf-8"));
 const TOKEN: string = config.tokenAddress;
 

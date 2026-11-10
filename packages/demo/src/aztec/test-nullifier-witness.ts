@@ -14,12 +14,11 @@ import { TokenContract } from "@aztec-foundation/aztec-standards/dist/src/artifa
 import { getAztecTxEffectArray, unwrapAztecSdkResult } from "@galactica-net/x402-core";
 import { createPXEWallet } from "./pxe-wallet.js";
 import { readFileSync } from "fs";
-import { join, dirname } from "path";
+import { join } from "path";
 import { loadKeys, loadAccount, setupSponsoredPayment } from "./wallet-manager.js";
 import { shouldEnableProver } from "./network-config.js";
+import { DATA_DIR } from "./data-dir.js";
 
-const __dirname = dirname(new URL(import.meta.url).pathname);
-const DATA_DIR = process.env.DATA_DIR ?? __dirname;
 const CONFIG_PATH = join(DATA_DIR, "deploy.json");
 const KEYS_PATH = join(DATA_DIR, "keys.json");
 

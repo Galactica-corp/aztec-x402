@@ -20,12 +20,13 @@
  */
 import { createNodeClient, TokenRegistry } from "@galactica-net/x402-agent/aztec";
 import { readFileSync } from "fs";
-import { join, dirname } from "path";
+import { join } from "path";
 import { loadKeys, loadAccount, openDemoWallet, setupSponsoredPayment } from "./wallet-manager.js";
 import { RealFacilitatorAztecSigner } from "./facilitator-signer.js";
 import { RealClientAztecSigner } from "./client-signer.js";
 import { shouldEnableProver } from "./network-config.js";
 import { z } from "zod";
+import { DATA_DIR } from "./data-dir.js";
 
 const USE_SPONSORED_FPC = process.env.USE_SPONSORED_FPC === "true";
 const DeployConfigSchema = z.object({
@@ -34,8 +35,6 @@ const DeployConfigSchema = z.object({
   tokenAddress: z.string(),
 });
 
-const __dirname = dirname(new URL(import.meta.url).pathname);
-const DATA_DIR = process.env.DATA_DIR ?? __dirname;
 const CONFIG_PATH = join(DATA_DIR, "deploy.json");
 const KEYS_PATH = join(DATA_DIR, "keys.json");
 

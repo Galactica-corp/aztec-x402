@@ -34,7 +34,7 @@ import { DripperContract } from "@aztec-foundation/aztec-standards/dist/src/arti
 import { unwrapAztecSdkResult } from "@galactica-net/x402-core";
 import { createPXEWallet } from "./pxe-wallet.js";
 import { writeFileSync, existsSync, readFileSync } from "fs";
-import { join, dirname } from "path";
+import { join } from "path";
 import { ensureKeys, deployAccounts, setupSponsoredPayment } from "./wallet-manager.js";
 import {
   dripToPrivate,
@@ -42,6 +42,7 @@ import {
 } from "./token-faucet.js";
 import { isSandboxNetwork, shouldEnableProver } from "./network-config.js";
 import { setupInferenceToken, setupTestnetInferenceToken } from "./setup-inference.js";
+import { DATA_DIR } from "./data-dir.js";
 
 const TESTNET_NODE_URL = "https://aztec-testnet.drpc.org";
 const NETWORK = process.env.AZTEC_NETWORK ?? "aztec:sandbox";
@@ -59,8 +60,6 @@ const TOKEN_DECIMALS = 6;
 const MINT_AMOUNT = 1_000_000n; // 1.0 oUSD (6 decimals)
 const TX_TIMEOUT = 240;
 
-const __dirname = dirname(new URL(import.meta.url).pathname);
-const DATA_DIR = process.env.DATA_DIR ?? __dirname;
 const CONFIG_PATH = join(DATA_DIR, "deploy.json");
 const KEYS_PATH = join(DATA_DIR, "keys.json");
 

@@ -27,10 +27,10 @@ import { mnemonicToAccount } from "viem/accounts";
 import { createPXEWallet } from "./pxe-wallet.js";
 import { ANVIL_MNEMONIC, depositAndClaim } from "./setup-inference.js";
 import { loadAccount, loadKeys, setupSponsoredPayment } from "./wallet-manager.js";
+import { DATA_DIR } from "./data-dir.js";
 
 const __dirname = dirname(new URL(import.meta.url).pathname);
 const REPO = join(__dirname, "../../../..");
-const DATA_DIR = process.env.DATA_DIR ?? __dirname;
 const config = JSON.parse(readFileSync(join(DATA_DIR, "deploy.json"), "utf-8"));
 if (!config.manifestPath || !config.l1RpcUrl) throw new Error("Run `bun run setup:sandbox:inference` first.");
 const m = parseManifest(JSON.parse(readFileSync(config.manifestPath, "utf-8")));

@@ -1,0 +1,2 @@
+# Local demo keys and state: never baked into the image (the container mounts its own).
+packages/demo/.data/

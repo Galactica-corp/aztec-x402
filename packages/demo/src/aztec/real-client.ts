@@ -9,19 +9,18 @@
 import { createNodeClient, TokenRegistry } from "@galactica-net/x402-agent/aztec";
 import { AztecAddress } from "@aztec-labs/aztec.js/addresses";
 import { readFileSync } from "fs";
-import { join, dirname } from "path";
+import { join } from "path";
 
 import { ExactAztecClientScheme } from "@galactica-net/x402-mechanism/exact/client";
 import { wrapFetchWithPayment } from "@galactica-net/x402-client";
 import { RealClientAztecSigner } from "./client-signer.js";
 import { loadKeys, loadAccount, openDemoWallet, setupSponsoredPayment } from "./wallet-manager.js";
 import { shouldEnableProver } from "./network-config.js";
+import { DATA_DIR } from "./data-dir.js";
 
 const SERVER_URL = process.env.SERVER_URL ?? "http://localhost:4402";
 
 // Load deployment config
-const __dirname = dirname(new URL(import.meta.url).pathname);
-const DATA_DIR = process.env.DATA_DIR ?? __dirname;
 const CONFIG_PATH = join(DATA_DIR, "deploy.json");
 const KEYS_PATH = join(DATA_DIR, "keys.json");
 let config: Record<string, string>;

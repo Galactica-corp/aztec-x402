@@ -1,7 +1,7 @@
 #!/bin/sh
 set -e
 
-DATA_DIR="/app/packages/demo/src/aztec/data"
+DATA_DIR="/app/packages/demo/.data"
 
 mkdir -p "$DATA_DIR"
 
