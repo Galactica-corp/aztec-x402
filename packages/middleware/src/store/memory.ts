@@ -22,6 +22,7 @@ export function memoryStateStore(): PaymentStateStore {
   const served = new Map<string, ServedMark>();
   const claims = new Map<string, StoredSplitClaim>();
   let consolidatedAt: number | undefined;
+  const leases = new Map<string, { holder: string; expiresAt: number }>();
 
   return {
     async saveProof(proof) {
@@ -46,13 +47,30 @@ export function memoryStateStore(): PaymentStateStore {
       return out;
     },
     async takenInSince(since) {
-      return [...taken.values()].filter((at) => at >= since).length;
+      const since_ = [...taken.values()].filter((at) => at >= since);
+      return since_.length === 0 ? { count: 0 } : { count: since_.length, oldestAt: Math.min(...since_) };
+    },
+    async refProofs(since) {
+      const out: StoredProof[] = [];
+      for (const [ref, forRef] of proofs) {
+        for (const p of forRef.values()) if (p.mode === "ref" && p.receivedAt >= since) out.push({ ...p, takenIn: taken.has(ref) });
+      }
+      return out.sort((a, b) => a.receivedAt - b.receivedAt);
     },
     async consolidatedAt() {
       return consolidatedAt;
     },
     async markConsolidated(startedAt) {
       consolidatedAt = Math.max(consolidatedAt ?? 0, startedAt);
+    },
+    async acquireLease(name, holder, ttlMs, now) {
+      const l = leases.get(name);
+      if (l && l.holder !== holder && l.expiresAt > now) return false;
+      leases.set(name, { holder, expiresAt: now + ttlMs });
+      return true;
+    },
+    async releaseLease(name, holder) {
+      if (leases.get(name)?.holder === holder) leases.delete(name);
     },
     async markServed(paymentRef, nonce, mark = {}) {
       if (served.has(paymentRef)) return false;

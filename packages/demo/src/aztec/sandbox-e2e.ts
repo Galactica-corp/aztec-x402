@@ -14,7 +14,7 @@ import { readFileSync } from "fs";
 import { derivePaymentRef } from "@galactica-net/x402-middleware";
 import { join } from "path";
 import { RealClientAztecSigner } from "./client-signer.js";
-import { RealFacilitatorAztecSigner } from "./facilitator-signer.js";
+import { AztecFacilitatorSigner } from "@galactica-net/x402-agent/aztec";
 import { shouldEnableProver } from "./network-config.js";
 import { loadKeys, loadAccount, openDemoWallet, setupSponsoredPayment } from "./wallet-manager.js";
 import { DATA_DIR } from "./data-dir.js";
@@ -53,7 +53,7 @@ const fee = { paymentMethod: await setupSponsoredPayment(wallet) };
 // One wallet holds both accounts; each side gets its own view of the token.
 const merchantTokens = new TokenRegistry({ node, wallet, account: merchant.address, fee });
 const payerTokens = new TokenRegistry({ node, wallet, account: payer.address, fee, paymentGate });
-const facilitator = new RealFacilitatorAztecSigner(merchant, node, merchantTokens);
+const facilitator = new AztecFacilitatorSigner(merchant, node, merchantTokens);
 const client = new RealClientAztecSigner(payer, payerTokens);
 const payerToken = await payerTokens.get(TOKEN);
 console.log(`Token ${TOKEN} is ${payerToken.kind}\n`);
@@ -78,7 +78,7 @@ check("a higher required amount is not met", !tooMuch.isValid);
 
 if (payerToken.kind === "inference-money") {
   // The payer is a user, not a listed merchant: it can neither sell nor be paid by another user.
-  const asSeller = new RealFacilitatorAztecSigner(payer, node, payerTokens);
+  const asSeller = new AztecFacilitatorSigner(payer, node, payerTokens);
   const cannotSell = await refusal(() => asSeller.assertCanSell(TOKEN));
   check("an unlisted account cannot sell", cannotSell === "merchant_not_listed", cannotSell);
 

@@ -2,7 +2,7 @@
  * Concurrent verifyPayment test.
  *
  * Exercises the commitment-tagged completion-log lookup in
- * RealFacilitatorAztecSigner.verifyPayment by preparing two payments
+ * AztecFacilitatorSigner.verifyPayment by preparing two payments
  * concurrently, completing both commitments, and verifying both with the same
  * facilitator instance.
  *
@@ -22,7 +22,7 @@ import { createNodeClient, TokenRegistry } from "@galactica-net/x402-agent/aztec
 import { readFileSync } from "fs";
 import { join } from "path";
 import { loadKeys, loadAccount, openDemoWallet, setupSponsoredPayment } from "./wallet-manager.js";
-import { RealFacilitatorAztecSigner } from "./facilitator-signer.js";
+import { AztecFacilitatorSigner } from "@galactica-net/x402-agent/aztec";
 import { RealClientAztecSigner } from "./client-signer.js";
 import { shouldEnableProver } from "./network-config.js";
 import { z } from "zod";
@@ -75,7 +75,7 @@ await wallet.registerSender(bob, "bob");
 await wallet.registerSender(alice, "alice");
 
 // One wallet holds both accounts; each side gets its own view of the token.
-const facilitatorSigner = new RealFacilitatorAztecSigner(
+const facilitatorSigner = new AztecFacilitatorSigner(
   bobAccount,
   node,
   new TokenRegistry({ node, wallet, account: bob, fee }),

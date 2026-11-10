@@ -52,6 +52,11 @@ CREATE TABLE IF NOT EXISTS meta (
   key TEXT PRIMARY KEY,
   value INTEGER NOT NULL
 );
+CREATE TABLE IF NOT EXISTS leases (
+  name TEXT PRIMARY KEY,
+  holder TEXT NOT NULL,
+  expires_at INTEGER NOT NULL
+);
 CREATE TABLE IF NOT EXISTS split_claims (
   payment_ref TEXT PRIMARY KEY,
   asset TEXT NOT NULL,
@@ -89,6 +94,9 @@ const ClaimRowSchema = z.object({
 
 const CountSchema = z.object({ n: int });
 const MetaRowSchema = z.object({ value: int });
+const TakenRowSchema = z.object({ n: int, oldest: int.nullable() });
+const LeaseRowSchema = z.object({ holder: z.string(), expires_at: int });
+const RefProofRowSchema = ProofRowSchema.extend({ taken: int });
 const ServedRowSchema = z.object({ nonce: z.string(), served_at: int, payment: z.string().nullable() });
 const ColumnSchema = z.object({ name: z.string() });
 
@@ -133,7 +141,16 @@ export function sqliteStateStore(path: string, opts: SqliteStateStoreOptions = {
        AND NOT EXISTS (SELECT 1 FROM taken_in t WHERE t.payment_ref = p.payment_ref)
        ORDER BY p.received_at`,
     ),
-    takenInSince: db.prepare("SELECT COUNT(*) AS n FROM taken_in WHERE at >= ?"),
+    takenInSince: db.prepare("SELECT COUNT(*) AS n, MIN(at) AS oldest FROM taken_in WHERE at >= ?"),
+    refProofs: db.prepare(
+      `SELECT p.*, EXISTS (SELECT 1 FROM taken_in t WHERE t.payment_ref = p.payment_ref) AS taken
+       FROM proofs p WHERE p.mode = 'ref' AND p.received_at >= ? ORDER BY p.received_at`,
+    ),
+    lease: db.prepare("SELECT holder, expires_at FROM leases WHERE name = ?"),
+    setLease: db.prepare(
+      "INSERT INTO leases (name, holder, expires_at) VALUES (?, ?, ?) ON CONFLICT (name) DO UPDATE SET holder = excluded.holder, expires_at = excluded.expires_at",
+    ),
+    releaseLease: db.prepare("DELETE FROM leases WHERE name = ? AND holder = ?"),
     getMeta: db.prepare("SELECT value FROM meta WHERE key = ?"),
     // Never moves back: a slower process finishing an older consolidation keeps the newer mark.
     setMetaMax: db.prepare("INSERT INTO meta (key, value) VALUES (?, ?) ON CONFLICT (key) DO UPDATE SET value = MAX(value, excluded.value)"),
@@ -205,7 +222,34 @@ export function sqliteStateStore(path: string, opts: SqliteStateStoreOptions = {
       }));
     },
     async takenInSince(since) {
-      return CountSchema.parse(q.takenInSince.get(since)).n;
+      const r = TakenRowSchema.parse(q.takenInSince.get(since));
+      return r.oldest === null ? { count: r.n } : { count: r.n, oldestAt: r.oldest };
+    },
+    async refProofs(since) {
+      return z.array(RefProofRowSchema).parse(q.refProofs.all(since)).map((r) => ({
+        paymentRef: r.payment_ref,
+        nonce: r.nonce,
+        mode: r.mode,
+        asset: r.asset,
+        payload: r.payload,
+        price: r.price,
+        receivedAt: r.received_at,
+        takenIn: r.taken === 1,
+      }));
+    },
+    async acquireLease(name, holder, ttlMs, now) {
+      return immediate(() => {
+        const row = q.lease.get(name);
+        if (row !== undefined) {
+          const l = LeaseRowSchema.parse(row);
+          if (l.holder !== holder && l.expires_at > now) return false;
+        }
+        q.setLease.run(name, holder, now + ttlMs);
+        return true;
+      });
+    },
+    async releaseLease(name, holder) {
+      q.releaseLease.run(name, holder);
     },
     async consolidatedAt() {
       const row = q.getMeta.get("consolidated_at");

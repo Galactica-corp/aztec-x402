@@ -66,10 +66,10 @@
     "@galactica-net/x402-client": "workspace:*",
     "@galactica-net/x402-core": "workspace:*",
     "@galactica-net/x402-mechanism": "workspace:*",
+    "@galactica-net/x402-middleware": "workspace:*",
     "zod": "^4.4.3"
   },
   "devDependencies": {
-    "typescript": "^5.5.0",
-    "@galactica-net/x402-middleware": "workspace:*"
+    "typescript": "^5.5.0"
   }
 }

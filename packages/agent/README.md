@@ -90,6 +90,8 @@ Routes are bridge adapters (`src/fund/bridge.ts`). On Aztec 5 testnet the live r
 
 `@galactica-net/x402-agent/aztec` exports the payer-side building blocks shared with the demo: `createPXEWallet` (a PXE wallet whose simulations match what it sends, required by the commitment flow), `RealClientAztecSigner`, the token adapters (`TokenRegistry`, `identifyToken`), payment verification (`verifyCompletion`), and session helpers.
 
+It also has the merchant side. `createMerchant({ network, keys, token, dataDir })` returns a ready server: the persistent wallet, the facilitator, the payment store, split payments (with `l1RpcUrl`), and the background jobs that take in stored proofs, consolidate and claim split deposits, one instance at a time. Use `merchant.middleware(routes)` (routes need only `amount`) and `merchant.status()` for a health check. The parts (`AztecFacilitatorSigner`, `SplitMerchant`, `MerchantJobs`) are exported for custom setups. See the [merchant guide](../../docs/inference-money-merchant-guide.md).
+
 ## Maintenance
 
 - `bun run scripts/deploy-canonical.ts [--network testnet]` checks (and if needed deploys) the canonical Dripper and `tUSDC` token that `src/networks.ts` points at.

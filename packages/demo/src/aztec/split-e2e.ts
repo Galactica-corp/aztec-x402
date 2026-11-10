@@ -22,7 +22,7 @@
 import { mkdirSync, readFileSync, rmSync } from "fs";
 import { join } from "path";
 import { AztecAddress } from "@aztec-labs/aztec.js/addresses";
-import { createNodeClient } from "@galactica-net/x402-agent/aztec";
+import { createMerchant, createNodeClient } from "@galactica-net/x402-agent/aztec";
 import {
   NotFundingAddressError,
   changeOf,
@@ -40,12 +40,11 @@ import { derivePaymentRef } from "@galactica-net/x402-middleware";
 import { Fr } from "@aztec-labs/aztec.js/fields";
 import { mnemonicToAccount, privateKeyToAccount } from "viem/accounts";
 import { TESTNET_MANIFEST } from "@galactica-net/inference-money-core/deployments";
-import { shouldEnableProver } from "./network-config.js";
-import { openMerchant } from "./merchant.js";
+import { merchantNetwork, shouldEnableProver } from "./network-config.js";
 import { createPXEWallet } from "./pxe-wallet.js";
 import { ANVIL_ACCOUNT_INDEX, ANVIL_MNEMONIC, LOCAL_ADMIN_SECRET } from "./setup-inference.js";
 import { paySplit } from "./split-buyer.js";
-import { loadAccount, loadKeys, setupSponsoredPayment } from "./wallet-manager.js";
+import { loadAccount, loadKeys, merchantKeys, setupSponsoredPayment } from "./wallet-manager.js";
 import { DATA_DIR } from "./data-dir.js";
 
 const PRICE = 370_000n;
@@ -73,17 +72,19 @@ const wallet = await createPXEWallet(node, { ephemeral: true, pxe: { proverEnabl
 const keys = loadKeys(join(DATA_DIR, "keys.json"));
 const buyer = await loadAccount(wallet, keys, "alice");
 const seller = await loadAccount(wallet, keys, "bob");
-const fee = { paymentMethod: await setupSponsoredPayment(wallet) };
+await setupSponsoredPayment(wallet);
 const stateDir = join(DATA_DIR, "split-e2e");
 rmSync(stateDir, { recursive: true, force: true });
 mkdirSync(stateDir, { recursive: true });
-const merchant = await openMerchant({
-  config: { network: config.network, tokenAddress: config.tokenAddress, l1RpcUrl: config.l1RpcUrl, manifestPath: LOCAL ? config.manifestPath : undefined },
+// The merchant as a server runs it: its own persistent wallet, store and jobs in stateDir.
+const merchant = await createMerchant({
+  network: merchantNetwork(config.network, config.nodeUrl),
+  keys: await merchantKeys(keys, "bob"),
+  token: config.tokenAddress,
   dataDir: stateDir,
-  node,
-  wallet,
-  account: seller,
-  fee,
+  l1RpcUrl: config.l1RpcUrl,
+  manifest: m,
+  handleSignals: false,
   log: (msg) => console.log(`      [merchant] ${msg}`),
 });
 const split = merchant.split;
@@ -238,8 +239,7 @@ try {
   if (!(error instanceof Done)) throw error;
 } finally {
   await stopHeartbeat();
-  await merchant.jobs.stop();
-  merchant.store.close?.();
+  await merchant.stop();
 }
 
 console.log(failures === 0 ? "\nAll checks passed." : `\n${failures} check(s) failed.`);

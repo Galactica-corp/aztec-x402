@@ -285,6 +285,91 @@ describe("merchant jobs", () => {
     expect(await store.consolidatedAt()).toBeNumber();
   });
 
+  test("one of two instances on a store runs the jobs; the other takes over when it stops", async () => {
+    const dir = mkdtempSync(join(tmpdir(), "x402-jobs-"));
+    dirs.push(dir);
+    const file = join(dir, "state.sqlite");
+    const [storeA, storeB] = [sqliteStateStore(file), sqliteStateStore(file)];
+    const consolidated: string[] = [];
+    const open = (store: PaymentStateStore, name: string) =>
+      new MerchantJobs({ store, receive: async () => ({ isValid: true }), consolidate: async () => void consolidated.push(name), instanceId: name, leaseMs: 30 });
+
+    const a = open(storeA, "a");
+    const b = open(storeB, "b");
+    await a.start();
+    await b.start();
+    expect([a.isLeader, b.isLeader]).toEqual([true, false]);
+    await new Promise((r) => setTimeout(r, 5));
+    expect(consolidated).toEqual(["a"]);
+
+    await a.stop(); // gives the lease up
+    for (let i = 0; i < 50 && !b.isLeader; i++) await new Promise((r) => setTimeout(r, 5));
+    expect(b.isLeader).toBe(true);
+    expect((await b.status()).leader).toBe(true);
+    await b.stop();
+    storeA.close?.();
+    storeB.close?.();
+  });
+
+  test("an instance whose lease ran out (a frozen process) is replaced", async () => {
+    const store = memoryStateStore();
+    let t = 1_000;
+    // A frozen leader: it took the lease and never renews it.
+    expect(await store.acquireLease("merchant-jobs", "frozen", 30, t)).toBe(true);
+    const b = new MerchantJobs({ store, receive: async () => ({ isValid: true }), instanceId: "b", leaseMs: 30, now: () => t });
+    await b.start();
+    expect(b.isLeader).toBe(false);
+    t += 31; // the frozen lease expires; b's renewal timer (every 10 ms) takes it
+    for (let i = 0; i < 50 && !b.isLeader; i++) await new Promise((r) => setTimeout(r, 5));
+    expect(b.isLeader).toBe(true);
+    await b.stop();
+  });
+
+  test("before consolidating, take in every payment since the last consolidation, also those taken in already", async () => {
+    const store = memoryStateStore();
+    await storeWithProof(store, H("01"));
+    await store.markTakenIn(H("01")); // another instance's wallet took this one in
+    await storeWithProof(store, H("02"));
+    const order: string[] = [];
+    const jobs = new MerchantJobs({
+      store,
+      receive: async (_asset, p) => (order.push(p.paymentRef), { isValid: true }),
+      consolidate: async () => void order.push("consolidate"),
+    });
+    expect(await jobs.consolidateIfDue()).toBe(true);
+    expect(order).toEqual([H("01"), H("02"), "consolidate"]);
+    expect(await store.proofsNotTakenIn(0)).toHaveLength(0);
+  });
+
+  test("report the jobs' state, with warnings for a payment waiting long for consolidation", async () => {
+    const store = memoryStateStore();
+    let t = Date.now();
+    const jobs = new MerchantJobs({ store, receive: async () => ({ isValid: true }), now: () => t });
+    expect(await jobs.status()).toEqual({
+      leader: false,
+      unconsolidated: { count: 0 },
+      proofsNotTakenIn: 0,
+      splitClaims: { pending: 0, failed: 0, consumedUnknown: 0 },
+      warnings: [],
+    });
+    await storeWithProof(store, H("01"));
+    await store.markTakenIn(H("01"));
+    await storeWithProof(store, H("02"));
+    await store.saveSplitClaim({ ...pending(H("03")), status: "failed" });
+    let status = await jobs.status();
+    expect(status.unconsolidated.count).toBe(1);
+    expect(status.proofsNotTakenIn).toBe(1);
+    expect(status.splitClaims.failed).toBe(1);
+    expect(status.warnings).toHaveLength(1); // the failed claim
+
+    t += 13 * 3600_000;
+    status = await jobs.status();
+    expect(status.warnings.some((w) => w.includes("waited 13 h for consolidation"))).toBe(true);
+    expect(status.warnings.some((w) => w.includes("not been taken into the wallet"))).toBe(true);
+    t += 8 * 3600_000;
+    expect((await jobs.status()).warnings.some((w) => w.includes("after 26 h"))).toBe(true);
+  });
+
   test("run one job at a time", async () => {
     const store = memoryStateStore();
     await storeWithProof(store);

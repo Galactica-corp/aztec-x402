@@ -32,3 +32,22 @@ export {
   type SplitClaimOutcome,
 } from "./split-merchant.js";
 export { MerchantJobs, type MerchantJobsOptions, type SplitClaimer } from "./merchant-jobs.js";
+export { AztecFacilitatorSigner } from "./facilitator-signer.js";
+export { type MerchantStatus, UNCONSOLIDATED_WARN_MS, UNCONSOLIDATED_ERROR_MS } from "./merchant-jobs.js";
+export {
+  createMerchant,
+  deriveRefSecret,
+  resolveRefSecret,
+  checkStorage,
+  merchantRoutes,
+  stopOnSignals,
+  PXE_DIR,
+  STORE_FILE,
+  LEGACY_SECRET_FILE,
+  type CreateMerchantOptions,
+  type Merchant,
+  type MerchantKeys,
+  type MerchantRoute,
+  type StorageState,
+} from "./merchant.js";
+export { NETWORKS, type NetworkConfig, type TokenInfo } from "../networks.js";

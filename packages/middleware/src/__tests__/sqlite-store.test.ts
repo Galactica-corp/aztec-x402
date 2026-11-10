@@ -98,11 +98,40 @@ for (const [name, make] of stores) {
       await s.markTakenIn("0xref");
       await s.markTakenIn("0xref");
       await s.saveProof(proof({ paymentRef: "0xother", takenIn: true }));
-      expect(await s.takenInSince(before)).toBe(2);
-      expect(await s.takenInSince(Date.now() + 1_000)).toBe(0);
+      const since = await s.takenInSince(before);
+      expect(since.count).toBe(2);
+      expect(since.oldestAt).toBeGreaterThanOrEqual(before);
+      expect(await s.takenInSince(Date.now() + 1_000)).toEqual({ count: 0 });
       await s.markConsolidated(before + 50);
       await s.markConsolidated(before);
       expect(await s.consolidatedAt()).toBe(before + 50);
+      s.close?.();
+    });
+
+    it("lists every ref proof since a time, taken in or not", async () => {
+      const s = make();
+      await s.saveProof(proof({ receivedAt: 1_000 }));
+      await s.saveProof(proof({ paymentRef: "0xb", receivedAt: 2_000 }));
+      await s.saveProof(proof({ paymentRef: "0xsplit", mode: "split", receivedAt: 2_000 }));
+      await s.markTakenIn("0xref");
+      const all = await s.refProofs(0);
+      expect(all.map((p) => [p.paymentRef, p.takenIn])).toEqual([["0xref", true], ["0xb", false]]);
+      expect((await s.refProofs(1_500)).map((p) => p.paymentRef)).toEqual(["0xb"]);
+      s.close?.();
+    });
+
+    it("leases to one holder at a time, renews, expires and releases", async () => {
+      const s = make();
+      expect(await s.acquireLease("jobs", "a", 100, 1_000)).toBe(true);
+      expect(await s.acquireLease("jobs", "b", 100, 1_050)).toBe(false);
+      expect(await s.acquireLease("jobs", "a", 100, 1_080)).toBe(true); // renewed until 1_180
+      expect(await s.acquireLease("jobs", "b", 100, 1_150)).toBe(false);
+      expect(await s.acquireLease("jobs", "b", 100, 1_181)).toBe(true); // expired: taken over
+      await s.releaseLease("jobs", "a"); // not a's any more: no effect
+      expect(await s.acquireLease("jobs", "a", 100, 1_200)).toBe(false);
+      await s.releaseLease("jobs", "b");
+      expect(await s.acquireLease("jobs", "a", 100, 1_200)).toBe(true);
+      expect(await s.acquireLease("other", "b", 100, 1_200)).toBe(true);
       s.close?.();
     });
 
@@ -123,6 +152,15 @@ for (const [name, make] of stores) {
 }
 
 describe("sqlite store file", () => {
+  it("gives a lease to one of two connections", async () => {
+    const path = file();
+    const [a, b] = [sqliteStateStore(path), sqliteStateStore(path)];
+    const won = await Promise.all([a.acquireLease("jobs", "a", 60_000, Date.now()), b.acquireLease("jobs", "b", 60_000, Date.now())]);
+    expect(won.filter(Boolean)).toHaveLength(1);
+    a.close?.();
+    b.close?.();
+  });
+
   it("keeps the last consolidation across connections", async () => {
     const path = file();
     const first = sqliteStateStore(path);

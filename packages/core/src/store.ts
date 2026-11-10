@@ -74,13 +74,27 @@ export interface PaymentStateStore {
   markTakenIn(paymentRef: string): Promise<void>;
   /** Ref proofs not yet taken in, received at or after `since`: replayed on start. */
   proofsNotTakenIn(since: number): Promise<StoredProof[]>;
-  /** How many payments were taken in at or after `since`: notes that exist only offchain until the next consolidation. */
-  takenInSince(since: number): Promise<number>;
+  /**
+   * Payments taken in at or after `since`, and when the oldest was: notes that
+   * exist only offchain until the next consolidation.
+   */
+  takenInSince(since: number): Promise<{ count: number; oldestAt?: number }>;
+  /** Every ref proof received at or after `since`, taken in or not: taken in again before a consolidation. */
+  refProofs(since: number): Promise<StoredProof[]>;
 
   /** When the last consolidation that succeeded started; undefined before the first. */
   consolidatedAt(): Promise<number | undefined>;
   /** Records a consolidation that succeeded, by the time it started: a payment taken in during it counts for the next. */
   markConsolidated(startedAt: number): Promise<void>;
+
+  /**
+   * Takes or renews the lease `name` for `holder` until `now + ttlMs`: true
+   * when it is free, expired or already `holder`'s. Atomic across every user
+   * of the store, so one of several server instances runs the background jobs.
+   */
+  acquireLease(name: string, holder: string, ttlMs: number, now: number): Promise<boolean>;
+  /** Gives the lease up, if `holder` holds it. */
+  releaseLease(name: string, holder: string): Promise<void>;
 
   /**
    * Marks the reference served to the payment `served.payment` identifies (its

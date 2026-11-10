@@ -169,7 +169,7 @@ const stopHeartbeat = await startBlockHeartbeat(wallet, m);
 
 try {
   // The server's state starts fresh: a persistent PXE, a SQLite store and a reference secret under DATA_DIR.
-  for (const f of ["server-pxe", "x402-state.sqlite", "x402-state.sqlite-wal", "x402-state.sqlite-shm", "x402-ref-secret", "crash-marker"]) {
+  for (const f of ["pxe", "server-pxe", "x402-state.sqlite", "x402-state.sqlite-wal", "x402-state.sqlite-shm", "x402-ref-secret", "crash-marker"]) {
     rmSync(join(DATA_DIR, f), { recursive: true, force: true });
   }
 

@@ -1,11 +1,11 @@
 /**
- * Real FacilitatorAztecSigner — opens payment requests to the server's account
- * and verifies that the buyer paid them, in whichever supported token a route
- * names as its `asset`.
+ * The merchant's FacilitatorAztecSigner: opens payment requests to the
+ * merchant's account and verifies that the buyer paid them, in whichever
+ * supported token a route names as its `asset`.
  *
- * Opening a request is token-specific (see `@galactica-net/x402-agent/aztec`,
- * tokens/). Verification is the same for every token: the completion log the
- * token emits when a request is paid, keyed by the request's commitment.
+ * Opening a request is token-specific (tokens/). Verification is the same for
+ * every token: the completion log the token emits when a request is paid,
+ * keyed by the request's commitment.
  *
  * For the inference-money USDC it also takes `ref` payments (a private
  * transfer under a reference, verified from the proof the buyer hands over)
@@ -22,18 +22,15 @@ import type {
   SplitTerms,
 } from "@galactica-net/x402-core";
 import { AztecAddress } from "@aztec-labs/aztec.js/addresses";
-import {
-  verifyCompletion,
-  type CompletionLogNode,
-  type SplitMerchant,
-  type TokenSource,
-} from "@galactica-net/x402-agent/aztec";
+import type { TokenSource } from "./client-signer.js";
+import { verifyCompletion, type CompletionLogNode } from "./completion-log.js";
+import type { SplitMerchant } from "./split-merchant.js";
 
 interface AztecAccount {
   address: AztecAddress;
 }
 
-export class RealFacilitatorAztecSigner implements FacilitatorAztecSigner {
+export class AztecFacilitatorSigner implements FacilitatorAztecSigner {
   constructor(
     private readonly account: AztecAccount,
     private readonly node: CompletionLogNode,

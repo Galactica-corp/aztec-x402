@@ -168,6 +168,13 @@ export async function setupSponsoredPayment(
   return new SponsoredFeePaymentMethod(sponsoredFPC.address);
 }
 
+/** A demo account's keys as `createMerchant` takes them, with the account contract it uses. */
+export async function merchantKeys(keys: StoredKeys, who: "alice" | "bob") {
+  const k = keys[who];
+  const type = (await isGenesisTestAccount(k)) ? ("schnorr_initializerless" as const) : ("schnorr" as const);
+  return { secretKey: k.secretKey, signingKey: k.signingKey, salt: k.salt, address: k.address, type };
+}
+
 async function createAccountFromKeys(
   wallet: PXEWallet,
   keys: StoredKeys,

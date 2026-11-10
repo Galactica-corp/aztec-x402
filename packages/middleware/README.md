@@ -56,7 +56,7 @@ const middleware = createPaymentMiddleware(
 - A payment that may verify later (not mined, deposit not deep enough) is answered with a 402 carrying `retryable: true`; clients resend the same payload.
 - `sqliteStateStore` uses `node:sqlite` (Node 22.13+, Bun). Several processes on one host may share its file; servers on several hosts need a `PaymentStateStore` on a shared database.
 
-The merchant side (taking proofs in, consolidating, claiming split deposits) is in `@galactica-net/x402-agent/aztec`; see the [merchant guide](../../docs/inference-money-merchant-guide.md).
+The merchant side (taking proofs in, consolidating, claiming split deposits) is in `@galactica-net/x402-agent/aztec`: `createMerchant()` sets it up together with this middleware and a SQLite store, so a server needs only `merchant.middleware(routes)`. See the [merchant guide](../../docs/inference-money-merchant-guide.md).
 
 Depends on [`@galactica-net/x402-core`](https://www.npmjs.com/package/@galactica-net/x402-core) and [`@galactica-net/x402-mechanism`](https://www.npmjs.com/package/@galactica-net/x402-mechanism).
 
