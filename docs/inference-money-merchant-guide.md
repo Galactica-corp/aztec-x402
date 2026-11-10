@@ -353,4 +353,4 @@ The full list: "What each action makes public" in the integration doc.
   for split.
 - [ ] Front end: deposit with stored drafts and tickets, binding consent, claim with progress and recovery.
 - [ ] Tested on a local network first: `bun run setup:sandbox:inference`, then `bun run e2e:sandbox`,
-  `bun run e2e:split` and `bun run e2e:http` in this repository ([readme](../readme.md)).
+  `bun run e2e:split`, `bun run e2e:http` and `bun run e2e:instances` in this repository ([readme](../readme.md)).

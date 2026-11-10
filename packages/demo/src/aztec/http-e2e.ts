@@ -248,6 +248,13 @@ try {
   server = undefined;
   await startServer({ X402_CLAIM_POLL_MS: "3600000" });
   check("on restart the server took the stored proof in", /1 taken in/.test(serverLog), serverLog.split("\n").filter((l) => l.includes("Replayed")).join(" "));
+  // The payments taken in so far exist only in the merchant's wallet: the restart consolidates them (in the background).
+  let consolidated = false;
+  for (let i = 0; i < 90 && !consolidated; i++) {
+    consolidated = /Consolidated the merchant's notes in/.test(serverLog);
+    if (!consolidated) await new Promise((r) => setTimeout(r, 2000));
+  }
+  check("and consolidated the payments taken in since the last consolidation", consolidated, serverLog.split("\n").filter((l) => /onsolidat/.test(l)).join(" "));
   const afterCrash = await agent(["pay", "--resume", String(get(unserved.out, "error", "payment", "id"))]);
   check("and the resumed request is served", afterCrash.code === 0, afterCrash.stderr.slice(-300));
 

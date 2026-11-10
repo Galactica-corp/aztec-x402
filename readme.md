@@ -125,6 +125,7 @@ bun run e2e:sandbox               # opens, pays and verifies a request, and chec
 # inference-money only:
 bun run e2e:split                 # pays from L1 in one deposit, claims, collects the change (local only)
 bun run e2e:http                  # server and agent CLI as processes: ref and split payments, crashes, restarts
+bun run e2e:instances             # two merchant instances on one store: the lease, consolidating each other's payments
 ```
 
 For the inference-money USDC the server offers three payments per 402: `ref` (private amount: a private transfer under a reference, its proof handed over with the retry), `split` (one Ethereum deposit, when the server knows an L1 RPC) and the commitment flow. The server is built with `createMerchant()` from `@galactica-net/x402-agent/aztec`, which also runs the background jobs (replaying stored proofs, consolidating, claiming split deposits); its wallet (`pxe/`) and payment store (`x402-state.sqlite`) live under `DATA_DIR` (default `packages/demo/.data`, git-ignored), the folder a deployment must keep on persistent storage. See the [merchant guide](docs/inference-money-merchant-guide.md#2b-private-amounts-and-payment-from-ethereum-ref-and-split). The inference-money repository's `bun run net:up` brings up a matching local network (anvil and an Aztec 6.0.0 node).

@@ -73,6 +73,12 @@ const keys = loadKeys(join(DATA_DIR, "keys.json"));
 const buyer = await loadAccount(wallet, keys, "alice");
 const seller = await loadAccount(wallet, keys, "bob");
 await setupSponsoredPayment(wallet);
+// The buyer's wallet (the merchant has its own): the bridge's token, sponsor and contracts the buyer's steps use.
+{
+  const { registerBridgeContracts } = await import("@galactica-net/inference-money-core");
+  await registerSponsor(wallet, m);
+  await registerBridgeContracts(wallet, m);
+}
 const stateDir = join(DATA_DIR, "split-e2e");
 rmSync(stateDir, { recursive: true, force: true });
 mkdirSync(stateDir, { recursive: true });

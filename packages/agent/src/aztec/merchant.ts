@@ -16,6 +16,7 @@
  */
 import { hkdfSync } from "node:crypto";
 import { existsSync, readFileSync } from "node:fs";
+import { hostname } from "node:os";
 import { join, resolve } from "node:path";
 import type { AztecAddress } from "@aztec-labs/aztec.js/addresses";
 import { Fr, GrumpkinScalar } from "@aztec-labs/aztec.js/fields";
@@ -307,6 +308,8 @@ export async function createMerchant(o: CreateMerchantOptions): Promise<Merchant
     consolidateEveryMs: o.consolidateEveryMs,
     claimPollMs: o.claimPollMs,
     leaseMs: o.leaseMs,
+    // Each instance has its own dataDir: a restart after a crash takes its own lease back at once, not a minute later.
+    instanceId: `${hostname()}:${dataDir}`,
     log,
   });
   await jobs.start();
