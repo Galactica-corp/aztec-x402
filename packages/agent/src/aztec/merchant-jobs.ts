@@ -36,7 +36,7 @@ import type { SplitClaimOutcome } from "./split-merchant.js";
 /** The split side the jobs need; {@link SplitMerchant} is the real one. */
 export interface SplitClaimer {
   claim(claimJson: string): Promise<SplitClaimOutcome>;
-  /** The claim rebuilt from L1 as it is now, or undefined when the deposit no longer verifies. */
+  /** The claim rebuilt from L1 as it is now (unchanged while L1 cannot confirm it yet), or undefined when the deposit is refused for good. */
   rebuild(claimJson: string): Promise<string | undefined>;
 }
 

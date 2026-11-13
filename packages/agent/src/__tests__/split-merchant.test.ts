@@ -123,6 +123,17 @@ describe("SplitMerchant", () => {
     expect(await off.rebuild(serializeSplitClaim(claim, proof))).toBeDefined();
   });
 
+  test("keeps the claim unchanged on a rebuild while the deposit cannot be confirmed yet, and drops it only when refused for good", async () => {
+    const { serializeSplitClaim } = await import("../aztec/split-merchant.js");
+    const stored = serializeSplitClaim(claim, proof);
+    const lagging = await merchant({ verify: async () => Promise.reject(new sdk.SplitProofRefusedError("unconfirmed", "1 confirmation")) });
+    expect(await lagging.rebuild(stored)).toBe(stored);
+    const notFinal = await merchant({ finalized: 99n }, { finalizedAbove: 10_000n });
+    expect(await notFinal.rebuild(stored)).toBe(stored);
+    const underpaid = await merchant({ verify: async () => Promise.reject(new sdk.SplitProofRefusedError("underpaid", "less")) });
+    expect(await underpaid.rebuild(stored)).toBeUndefined();
+  });
+
   test("maps the SDK's refusals: unconfirmed is retryable, underpaid is not", async () => {
     const unconfirmed = await merchant({ verify: async () => Promise.reject(new sdk.SplitProofRefusedError("unconfirmed", "1 confirmation")) });
     expect(await unconfirmed.verify(proof, expected)).toMatchObject({ isValid: false, reason: "unconfirmed", retryable: true });

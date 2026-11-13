@@ -295,11 +295,14 @@ export class SplitMerchant implements SplitClaimer {
   /**
    * The claim rebuilt from the buyer's proof as L1 shows it now: after a
    * reorg re-mined the deposit behind other messages, its leaf and key moved.
-   * Undefined when the deposit no longer verifies.
+   * The claim unchanged while the deposit cannot be confirmed yet (a lagging
+   * L1 node, a re-mined deposit not deep or final enough): it is rebuilt again
+   * later. Undefined only when the deposit is refused for good.
    */
   async rebuild(claimJson: string): Promise<string | undefined> {
     const { proof } = parseSplitClaim(claimJson);
     const result = await this.checkDeposit(proof, { paymentRef: proof.paymentRef, price: BigInt(proof.price) });
-    return result.isValid ? result.splitClaim : undefined;
+    if (result.isValid) return result.splitClaim;
+    return result.retryable ? claimJson : undefined;
   }
 }
