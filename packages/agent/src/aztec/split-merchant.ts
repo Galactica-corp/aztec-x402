@@ -13,7 +13,9 @@
  *   the deposit to be finalized on L1.
  * - A merchant whose switch-off is scheduled loses unclaimed deposits once it
  *   takes effect, so split is only offered while the merchant stays one for
- *   the longest switch-off delay.
+ *   the longest switch-off delay, and a deposit is only served while the
+ *   merchant stays one long enough to claim it (a quote can be paid late,
+ *   after a switch-off was scheduled).
  *
  * This module loads the SDK; import it only when split payments are on.
  */
@@ -24,6 +26,7 @@ import type { AztecNode } from "@aztec-labs/aztec.js/node";
 import {
   DENOMINATIONS,
   MERCHANT_MAX_DELAY,
+  MERCHANT_MIN_DELAY,
   MessageNotConsumableError,
   SPLIT_CONFIRMATIONS,
   SplitProofRefusedError,
@@ -134,6 +137,13 @@ export function parseSplitClaim(json: string): { claim: SplitClaim; proof: Split
 /** How a claim attempt ended: claimed, already consumed by someone, or the L1 message not consumable on Aztec yet. */
 export type SplitClaimOutcome = ClaimResult | "not-ready";
 
+/**
+ * How long the merchant must stay one for a deposit to be served: its claim
+ * lands minutes after the deposit, and no switch-off takes effect sooner than
+ * the shortest switch-off delay.
+ */
+export const CLAIM_MARGIN_SECONDS = MERCHANT_MIN_DELAY;
+
 export class SplitMerchant implements SplitClaimer {
   private listedAt: bigint | undefined;
   private listingCheckedAt = 0;
@@ -201,12 +211,29 @@ export class SplitMerchant implements SplitClaimer {
   }
 
   /**
-   * Checks a buyer's deposit for these terms. On success `splitClaim` holds
-   * what the merchant persists before serving. A deposit not deep enough yet
-   * (or not finalized, above `finalizedAbove`) is retryable; one made before
-   * the listing landed is refused for good.
+   * Checks a buyer's deposit for these terms before serving it. On success
+   * `splitClaim` holds what the merchant persists before serving. A deposit
+   * not deep enough yet (or not finalized, above `finalizedAbove`) is
+   * retryable; one made before the listing landed, or while the merchant
+   * will not stay one long enough to claim it, is refused for good. A
+   * refused deposit is never claimed, so the buyer can return it.
    */
   async verify(proof: SplitPaymentProof, expected: { paymentRef: string; price: bigint }): Promise<ModeVerification> {
+    const list = await syncMerchantList(this.opts.node, this.token);
+    const now = merchantStatus(list, this.opts.merchant).merchant;
+    const untilClaimed = merchantStatus(list, this.opts.merchant, list.at + CLAIM_MARGIN_SECONDS).merchant;
+    if (!now || !untilClaimed) {
+      return {
+        isValid: false,
+        reason: "switching-off",
+        error: "this merchant is switched off or will be before it can claim the deposit, so the deposit could be returned to the buyer",
+      };
+    }
+    return this.checkDeposit(proof, expected);
+  }
+
+  /** The deposit checks alone: also used to rebuild a served claim, which must work during a switch-off. */
+  private async checkDeposit(proof: SplitPaymentProof, expected: { paymentRef: string; price: bigint }): Promise<ModeVerification> {
     const { l1, manifest, merchant } = this.opts;
     let claim: SplitClaim;
     try {
@@ -272,7 +299,7 @@ export class SplitMerchant implements SplitClaimer {
    */
   async rebuild(claimJson: string): Promise<string | undefined> {
     const { proof } = parseSplitClaim(claimJson);
-    const result = await this.verify(proof, { paymentRef: proof.paymentRef, price: BigInt(proof.price) });
+    const result = await this.checkDeposit(proof, { paymentRef: proof.paymentRef, price: BigInt(proof.price) });
     return result.isValid ? result.splitClaim : undefined;
   }
 }

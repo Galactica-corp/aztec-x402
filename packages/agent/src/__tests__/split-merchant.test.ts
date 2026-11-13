@@ -100,6 +100,29 @@ describe("SplitMerchant", () => {
     expect(result.retryable).toBeUndefined();
   });
 
+  test("refuses for good a deposit while the merchant is switched off or will be before it can claim", async () => {
+    // The list is read at 2_000; the claim needs the merchant until 2_000 + CLAIM_MARGIN_SECONDS.
+    const { CLAIM_MARGIN_SECONDS } = await import("../aztec/split-merchant.js");
+    const soon = entry({ scheduledOff: true, changeAt: 2_000n + CLAIM_MARGIN_SECONDS });
+    const result = await (await merchant({ entry: soon })).verify(proof, expected);
+    expect(result).toMatchObject({ isValid: false, reason: "switching-off" });
+    expect(result.retryable).toBeUndefined();
+    const off = await (await merchant({ entry: entry({ off: true, scheduledOff: true }) })).verify(proof, expected);
+    expect(off).toMatchObject({ isValid: false, reason: "switching-off" });
+  });
+
+  test("still serves while a scheduled switch-off leaves time to claim, and rebuilds a served claim during a switch-off", async () => {
+    // Too late for new quotes (terms() wants the longest delay), not for a deposit paid on an earlier one.
+    const later = entry({ scheduledOff: true, changeAt: 2_000n + 2n * 3_600n });
+    const m = await merchant({ entry: later });
+    expect(await m.terms(10_000n)).toBeUndefined();
+    expect((await m.verify(proof, expected)).isValid).toBe(true);
+
+    const { serializeSplitClaim } = await import("../aztec/split-merchant.js");
+    const off = await merchant({ entry: entry({ off: true, scheduledOff: true }) });
+    expect(await off.rebuild(serializeSplitClaim(claim, proof))).toBeDefined();
+  });
+
   test("maps the SDK's refusals: unconfirmed is retryable, underpaid is not", async () => {
     const unconfirmed = await merchant({ verify: async () => Promise.reject(new sdk.SplitProofRefusedError("unconfirmed", "1 confirmation")) });
     expect(await unconfirmed.verify(proof, expected)).toMatchObject({ isValid: false, reason: "unconfirmed", retryable: true });
