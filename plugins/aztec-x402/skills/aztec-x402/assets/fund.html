@@ -97,6 +97,7 @@ let l2Balance;
 let serverError;
 let owner;
 let submitted = false;
+let signature;
 const txStatus = {};
 
 function setStatus(text, kind) {
@@ -122,7 +123,8 @@ function decodePlan(fragment) {
 }
 
 const ADDRESS = /^0x[0-9a-fA-F]{40}$/;
-const CALLDATA = /^0x([0-9a-fA-F]|\{owner\})*$/;
+const CALLDATA = /^0x([0-9a-fA-F]|\{owner\}|\{signature\})*$/;
+const SIGNATURE = /^0x[0-9a-fA-F]{130}$/;
 
 function checkPlan(p) {
   const fail = (what) => { throw new Error("This funding link is malformed (" + what + "). Ask your agent for a new one."); };
@@ -131,8 +133,10 @@ function checkPlan(p) {
   if (!Number.isInteger(p.l1ChainId)) fail("chain");
   if (!ADDRESS.test(p.portal)) fail("portal");
   if (!Array.isArray(p.steps) || p.steps.length === 0 || p.steps.length > 10) fail("steps");
+  if (p.kind !== undefined && p.kind !== "fund" && p.kind !== "split") fail("kind");
   for (const s of p.steps) {
     if (!ADDRESS.test(s.to) || !CALLDATA.test(s.data)) fail("step " + s.id);
+    if (s.kind === "sign" && (typeof s.typedData !== "object" || s.typedData === null)) fail("step " + s.id);
     if (s.skipIf && (!ADDRESS.test(s.skipIf.to) || !CALLDATA.test(s.skipIf.data) || !/^\d+$/.test(s.skipIf.gte))) fail("step " + s.id);
   }
   return p;
@@ -143,7 +147,19 @@ function eth(method, params) {
 }
 
 function fill(data) {
-  return data.split("{owner}").join(owner.slice(2).toLowerCase().padStart(64, "0"));
+  let filled = data.split("{owner}").join(owner.slice(2).toLowerCase().padStart(64, "0"));
+  if (filled.includes("{signature}")) {
+    if (!signature) throw new Error("This step needs the signature of an earlier step. Reload the page and sign again.");
+    filled = filled.split("{signature}").join(signature.slice(2).toLowerCase());
+  }
+  return filled;
+}
+
+/** A permit signature: 65 bytes from the connected account's key (a smart-contract wallet's signature is refused by the bridge). */
+async function signStep(step) {
+  const sig = await eth("eth_signTypedData_v4", [owner, JSON.stringify(step.typedData)]);
+  if (!SIGNATURE.test(sig)) throw new Error("The wallet returned an unexpected signature. Use an account with its own key (not a smart-contract wallet).");
+  signature = sig;
 }
 
 async function satisfied(step) {
@@ -177,11 +193,14 @@ async function waitReceipt(hash) {
 
 function renderFacts() {
   $("deposit-card").hidden = false;
-  $("sub").textContent = "Sign a deposit on " + plan.l1ChainName + " with your browser wallet. Your agent then claims it on Aztec " + plan.network + ".";
+  const split = plan.kind === "split";
+  $("sub").textContent = split
+    ? "Sign one deposit on " + plan.l1ChainName + " with your browser wallet. It pays the merchant your agent is buying from; your agent collects the change on Aztec " + plan.network + "."
+    : "Sign a deposit on " + plan.l1ChainName + " with your browser wallet. Your agent then claims it on Aztec " + plan.network + ".";
   $("facts").innerHTML = [
     ["Agent (Aztec)", '<span class="mono">' + esc(plan.agent) + "</span>"],
     ["You send", esc(plan.amount + " " + plan.token.symbol) + " on " + esc(plan.l1ChainName)],
-    ["Agent receives", esc(plan.result)],
+    [split ? "Goes to" : "Agent receives", esc(plan.result)],
     ["Portal", '<span class="mono">' + esc(plan.portal) + "</span>"],
   ].map(([k, v]) => "<dt>" + k + "</dt><dd>" + v + "</dd>").join("");
   $("privacy").textContent = (MODE === "hosted" ? "Check that the agent address matches the one your agent gave you. " : "") + plan.privacy;
@@ -200,7 +219,15 @@ function renderSteps() {
     return row(i + 1, st.state || "", s.label, esc(st.text || (s.skipIf ? "Needs your signature (skipped if already done)" : "Needs your signature")) + link);
   });
   let n = plan.steps.length;
-  if (MODE === "local") {
+  if (plan.kind === "split") {
+    const order = ["signing", "waiting_l1", "paying", "done"];
+    const at = (p) => order.indexOf(phase) >= order.indexOf(p);
+    const sent = txStatus.deposit && txStatus.deposit.state === "done";
+    const l1Cls = MODE !== "local" ? (sent ? "active" : "") : at("paying") ? "done" : phase === "waiting_l1" ? "active" : phase === "failed" ? "failed" : "";
+    const payCls = MODE !== "local" ? "" : phase === "done" ? "done" : phase === "paying" ? "active" : phase === "failed" ? "failed" : "";
+    rows.push(row(++n, l1Cls, "Agent finds the deposit on " + plan.l1ChainName, "A few blocks after it is mined."));
+    rows.push(row(++n, payCls, "Agent hands the merchant the payment", "The merchant checks the deposit and serves your agent's request."));
+  } else if (MODE === "local") {
     const order = ["signing", "waiting_l1", "waiting_message", "claiming", "done"];
     const reached = (p) => order.indexOf(phase) >= order.indexOf(p);
     const msgCls = reached("claiming") ? "done" : phase === "waiting_message" ? "active" : phase === "failed" ? "failed" : "";
@@ -224,11 +251,13 @@ async function refreshLocal() {
   renderFacts();
   renderSteps();
   if (phase === "done") {
-    setStatus("Done. The agent's balance is " + l2Balance + ".", "ok");
+    setStatus(plan.kind === "split" ? "Done. The merchant was paid; your agent collects the change later." : "Done. The agent's balance is " + l2Balance + ".", "ok");
     $("go").disabled = true;
-    $("go").textContent = "Funded";
+    $("go").textContent = plan.kind === "split" ? "Paid" : "Funded";
   } else if (phase === "failed") {
     setStatus("Claim failed: " + (serverError || "unknown error") + '. Ask the agent to run "aztec-x402 fund claim".', "err");
+  } else if (phase === "paying") {
+    setStatus("Deposit found. Your agent is handing the merchant the payment…", "warn");
   } else if (phase === "waiting_message" || phase === "waiting_l1") {
     setStatus("Deposit mined. Waiting for it to reach Aztec…", "warn");
   } else if (phase === "claiming") {
@@ -258,6 +287,13 @@ async function run() {
     for (let round = 0; round < 10; round++) {
       txStatus[step.id] = { state: "active", text: "Checking…", hash: (txStatus[step.id] || {}).hash };
       renderSteps();
+      if (step.kind === "sign") {
+        txStatus[step.id] = { state: "active", text: "Waiting for your signature…" };
+        renderSteps();
+        await signStep(step);
+        txStatus[step.id] = { state: "done", text: "Signed" };
+        break;
+      }
       if (await satisfied(step)) {
         const previous = txStatus[step.id].hash;
         txStatus[step.id] = round === 0

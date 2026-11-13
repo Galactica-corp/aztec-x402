@@ -6,14 +6,14 @@ The CLI carries this registry built in; `aztec-x402 status` prints the live view
 
 | Item | Value |
 | --- | --- |
-| Aztec version | 6.0.0-rc.3 (SDK `@aztec-labs/*@6.0.0-rc.3`; `@aztec-foundation/l1-artifacts@6.0.0-rc.6`) |
+| Aztec version | 6.0.0 (SDK `@aztec-labs/*@6.0.0`; `@aztec-foundation/l1-artifacts@6.0.0`) |
 | Node RPC | `https://aztec-testnet.drpc.org`. Override with `AZTEC_X402_NODE_URL`. |
 | x402 network id (CAIP-2) | `aztec:testnet` |
 | L1 | Sepolia (chain id 11155111), public RPC `https://ethereum-sepolia-rpc.publicnode.com` |
-| `tUSDC` (test token, AIP-20, 6 decimals) | `0x08b5c7a74699f9336cb31f42872d9f067f52aef34afe2d2eb34dd0c3e3b36358` |
-| `tUSDC` faucet (Dripper, anyone may mint) | `0x0fda74986940cb777bfc0c52ed00b590cb05a267364c599d094d164ff1c795d4` |
-| `USDC` (inference-money, 6 decimals) | `0x23d496050d4e697a0c8960fdc54fbe4ec4cdbbfd8487d296ff7c79b90c950eb2` (from the `@galactica-net/inference-money-core` manifest) |
-| Sponsored FPC (pays fees) | `0x2adfb70e860909f0db8268b3fec80bce52a94559963444f5c0341816b8412130` |
+| `tUSDC` (test token, AIP-20, 6 decimals) | `0x27d92f6c4b7890ca4fca1487f2e042984c7427bd210bbc65a544237c11d61fff` |
+| `tUSDC` faucet (Dripper, anyone may mint) | `0x057ca5968e5bf2b0aca38f815eb989e44e239059acf6ed8784498ee6d4d8634b` |
+| `USDC` (inference-money, 6 decimals) | `0x2609810ea3dbc6b7da45970fcda8c60b2f33cf5d030cf7758075e1e14eb3ef44` (from the `@galactica-net/inference-money-core` manifest) |
+| Sponsored FPC (pays fees) | `0x2d8fff82a3b0c15d0a89169e7d8d043e079ab94d52031f1de1e4972ebad169d3` |
 
 `USDC` is Sepolia USDC bridged by inference-money. It has no faucet, and a payment in it only goes through to a merchant on the token's list; the CLI refuses any other payee with `merchant_not_listed` before the merchant prepares anything. The CLI tells the two kinds apart by the contract's class on chain.
 
@@ -23,7 +23,7 @@ L1 contracts (Fee Juice portal, fee asset, its faucet) come from the node at run
 
 ## Local network (`--network local`)
 
-`aztec start --local-network` (Aztec 6.0.0-rc.3 tooling). Node `http://localhost:8080`, network id `aztec:sandbox`, no real proofs. The local network has no built-in tokens: add one with `config.json` (below). The aztec-x402 repo's `bun run setup:sandbox` (AIP-20) and `bun run setup:sandbox:inference` (inference-money USDC) deploy one and print its address in `deploy.json`.
+`aztec start --local-network` (Aztec 6.0.0 tooling). Node `http://localhost:8080`, network id `aztec:sandbox`, no real proofs. The local network has no built-in tokens: add one with `config.json` (below). The aztec-x402 repo's `bun run setup:sandbox` (AIP-20) and `bun run setup:sandbox:inference` (inference-money USDC) deploy one and print its address in `deploy.json`.
 
 ## Adding a token or overriding the node
 

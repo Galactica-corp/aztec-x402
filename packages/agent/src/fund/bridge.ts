@@ -33,6 +33,13 @@ export const OWNER_WORD = "{owner}";
  */
 export interface PlanStep {
   id: string;
+  /**
+   * `tx` (default): an L1 transaction. `sign`: an EIP-712 signature of
+   * `typedData` (eth_signTypedData_v4); later steps' `data` may hold
+   * `{signature}`, which the page fills with it (65 bytes, without 0x).
+   */
+  kind?: "tx" | "sign";
+  typedData?: unknown;
   /** What the user is about to sign, in plain words. */
   label: string;
   to: Hex;
@@ -45,6 +52,8 @@ export interface PlanStep {
 
 export interface FundingPlan {
   v: 1;
+  /** `fund` (default): a deposit to the agent. `split`: a payment to a merchant, whose change the agent collects. */
+  kind?: "fund" | "split";
   network: string;
   l1ChainId: number;
   l1ChainName: string;

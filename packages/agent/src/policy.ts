@@ -36,6 +36,9 @@ export interface LedgerEntry {
   amountBaseUnits: string;
   payTo: string;
   nonce?: string;
+  /** How it was paid; absent for the commitment flow of earlier versions. */
+  mode?: "commitment" | "ref" | "split";
+  paymentRef?: string;
   txHash?: string;
   error?: string;
   at: string;

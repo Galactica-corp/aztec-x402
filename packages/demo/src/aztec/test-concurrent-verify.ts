@@ -2,7 +2,7 @@
  * Concurrent verifyPayment test.
  *
  * Exercises the commitment-tagged completion-log lookup in
- * RealFacilitatorAztecSigner.verifyPayment by preparing two payments
+ * AztecFacilitatorSigner.verifyPayment by preparing two payments
  * concurrently, completing both commitments, and verifying both with the same
  * facilitator instance.
  *
@@ -20,12 +20,13 @@
  */
 import { createNodeClient, TokenRegistry } from "@galactica-net/x402-agent/aztec";
 import { readFileSync } from "fs";
-import { join, dirname } from "path";
+import { join } from "path";
 import { loadKeys, loadAccount, openDemoWallet, setupSponsoredPayment } from "./wallet-manager.js";
-import { RealFacilitatorAztecSigner } from "./facilitator-signer.js";
+import { AztecFacilitatorSigner } from "@galactica-net/x402-agent/aztec";
 import { RealClientAztecSigner } from "./client-signer.js";
 import { shouldEnableProver } from "./network-config.js";
 import { z } from "zod";
+import { DATA_DIR } from "./data-dir.js";
 
 const USE_SPONSORED_FPC = process.env.USE_SPONSORED_FPC === "true";
 const DeployConfigSchema = z.object({
@@ -34,8 +35,6 @@ const DeployConfigSchema = z.object({
   tokenAddress: z.string(),
 });
 
-const __dirname = dirname(new URL(import.meta.url).pathname);
-const DATA_DIR = process.env.DATA_DIR ?? __dirname;
 const CONFIG_PATH = join(DATA_DIR, "deploy.json");
 const KEYS_PATH = join(DATA_DIR, "keys.json");
 
@@ -76,7 +75,7 @@ await wallet.registerSender(bob, "bob");
 await wallet.registerSender(alice, "alice");
 
 // One wallet holds both accounts; each side gets its own view of the token.
-const facilitatorSigner = new RealFacilitatorAztecSigner(
+const facilitatorSigner = new AztecFacilitatorSigner(
   bobAccount,
   node,
   new TokenRegistry({ node, wallet, account: bob, fee }),

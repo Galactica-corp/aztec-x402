@@ -14,12 +14,13 @@ import type { AztecAddress } from "@aztec-labs/aztec.js/addresses";
 import type { FeePaymentMethod } from "@aztec-labs/aztec.js/fee";
 import type { AztecNode } from "@aztec-labs/aztec.js/node";
 import type { PaymentGate } from "@galactica-net/inference-money-core";
-import type { PrepareCommitmentResult } from "@galactica-net/x402-core";
+import type { ModeVerification, PrepareCommitmentResult, RefPaymentProof } from "@galactica-net/x402-core";
 import type { PXEWallet } from "../pxe-wallet.js";
 
 /**
  * - `aip20`: the upstream aztec-standards Token; anyone may pay anyone.
  * - `inference-money`: the bridged USDC of inference-money; a user may only pay a listed merchant.
+ *   It also takes private payments under a reference (`payPrivate` / `receivePayment`).
  */
 export type TokenKind = "aip20" | "inference-money";
 
@@ -55,4 +56,21 @@ export interface TokenAdapter {
 
   /** This account's private balance in base units. */
   privateBalance(): Promise<bigint>;
+
+  /**
+   * Buyer, `ref` mode: pay `amount` to `payTo` privately under `paymentRef`;
+   * returns the proof for the merchant once the payment is checkpointed. The
+   * proof is the only copy of the merchant's note: persist it at once.
+   */
+  payPrivate?(payTo: AztecAddress, amount: bigint, paymentRef: string): Promise<RefPaymentProof>;
+
+  /**
+   * Merchant, `ref` mode: take a buyer's proof into this account's wallet and
+   * check it pays at least `price` under `paymentRef`. Idempotent; refusals
+   * come back as an invalid result, retryable while the tx is not mined.
+   */
+  receivePayment?(proof: RefPaymentProof, expected: { paymentRef: string; price: bigint }): Promise<ModeVerification>;
+
+  /** Merchant: merge this account's private notes into one it sends itself on chain; undefined when there is nothing to merge. */
+  consolidate?(): Promise<string | undefined>;
 }

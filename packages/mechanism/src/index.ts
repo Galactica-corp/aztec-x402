@@ -26,4 +26,5 @@ export type {
   Network,
   Price,
   AssetAmount,
+  PaymentOffer,
 } from "./x402-types.js";

@@ -14,7 +14,7 @@
     "url": "https://github.com/Galactica-corp/aztec-x402/issues"
   },
   "engines": {
-    "node": ">=22"
+    "node": ">=22.13"
   },
   "workspaces": [
     "packages/*"
@@ -26,14 +26,17 @@
     "clean": "bun run --filter '*' clean",
     "setup": "NODE_URL=${NODE_URL:-https://aztec-testnet.drpc.org} AZTEC_NETWORK=aztec:testnet USE_SPONSORED_FPC=true bun run ./packages/demo/src/aztec/setup.ts",
     "server": "USE_SPONSORED_FPC=true bun run ./packages/demo/src/aztec/real-server.ts",
-    "setup:tusdc": "NODE_URL=${NODE_URL:-https://aztec-testnet.drpc.org} AZTEC_NETWORK=aztec:testnet USE_SPONSORED_FPC=true TOKEN_ADDRESS=0x08b5c7a74699f9336cb31f42872d9f067f52aef34afe2d2eb34dd0c3e3b36358 DRIPPER_ADDRESS=0x0fda74986940cb777bfc0c52ed00b590cb05a267364c599d094d164ff1c795d4 bun run ./packages/demo/src/aztec/setup.ts",
+    "setup:tusdc": "NODE_URL=${NODE_URL:-https://aztec-testnet.drpc.org} AZTEC_NETWORK=aztec:testnet USE_SPONSORED_FPC=true TOKEN_ADDRESS=0x27d92f6c4b7890ca4fca1487f2e042984c7427bd210bbc65a544237c11d61fff DRIPPER_ADDRESS=0x057ca5968e5bf2b0aca38f815eb989e44e239059acf6ed8784498ee6d4d8634b bun run ./packages/demo/src/aztec/setup.ts",
     "setup:sandbox": "NODE_URL=${NODE_URL:-http://localhost:8080} AZTEC_NETWORK=aztec:sandbox USE_SPONSORED_FPC=true bun run ./packages/demo/src/aztec/setup.ts",
     "setup:sandbox:inference": "TOKEN=inference NODE_URL=${NODE_URL:-http://localhost:8080} AZTEC_NETWORK=aztec:sandbox USE_SPONSORED_FPC=true bun run ./packages/demo/src/aztec/setup.ts",
     "e2e:sandbox": "bun run ./packages/demo/src/aztec/sandbox-e2e.ts",
     "demo": "bun run ./packages/demo/src/aztec/real-client.ts",
     "demo:sandbox": "SERVER_URL=http://localhost:4402 USE_SPONSORED_FPC=true bun run ./packages/demo/src/aztec/real-client.ts",
     "server:sandbox": "USE_SPONSORED_FPC=true bun run ./packages/demo/src/aztec/real-server.ts",
-    "demo:replay": "bun run ./packages/demo/src/aztec/replay-test.ts"
+    "demo:replay": "bun run ./packages/demo/src/aztec/replay-test.ts",
+    "e2e:split": "bun run ./packages/demo/src/aztec/split-e2e.ts",
+    "e2e:http": "bun run ./packages/demo/src/aztec/http-e2e.ts",
+    "e2e:instances": "bun run ./packages/demo/src/aztec/instances-e2e.ts"
   },
   "devDependencies": {
     "@types/node": "^25.9.9",

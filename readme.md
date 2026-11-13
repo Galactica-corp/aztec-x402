@@ -2,7 +2,7 @@
 
 x402 payment protocol for Aztec private tokens — HTTP-native micropayments settled with private transfers.
 
-This monorepo implements the [x402 protocol](https://www.x402.org) for [Aztec](https://aztec.network), allowing any HTTP API to be payment-gated using private stablecoin transfers. Private settlement hides the buyer and merchant addresses from chain observers. The payment amount is published in the completion log. See [What is and isn't hidden](#what-is-and-isnt-hidden).
+This monorepo implements the [x402 protocol](https://www.x402.org) for [Aztec](https://aztec.network), allowing any HTTP API to be payment-gated using private stablecoin transfers. Private settlement hides the buyer and merchant addresses from chain observers. In the commitment flow the payment amount is published in the completion log. With the inference-money USDC a buyer can pay under a reference (`ref`) instead, which keeps the amount off chain. See [What is and isn't hidden](#what-is-and-isnt-hidden).
 
 ## Protocol Flow
 
@@ -59,6 +59,11 @@ The commitment binds who can complete the note and who receives it. It does not 
 
 **The buyer** sees the merchant address (`payTo`) and the price.
 
+The other payment modes of the inference-money USDC change this:
+
+- **`ref`**: the buyer pays with `pay_private` and hands the encrypted note to the merchant with the retry instead of publishing it. No completion log is written, so chain observers see neither the amount nor the merchant. The merchant sees the amount but not the buyer's Aztec address, because there is no prepare step.
+- **`split`**: Ethereum shows the buyer's address and a round deposit amount, never the merchant or the price. The merchant learns the buyer's Ethereum address from the deposit.
+
 ### Facilitator Model
 
 In this demo the API provider runs the facilitator inside its own server process. That is different from the common EVM x402 shape where a merchant can ask an external facilitator to verify a prepared payment. For Aztec private payments, the receiver's Aztec account creates the commitment first, so the facilitator needs access to the merchant/server Aztec wallet or to an explicitly delegated service that can create commitments for that merchant. A third-party facilitator is possible later, but it must own that delegation and the retry/rate-limit policy around prepare transactions.
@@ -102,11 +107,18 @@ bun run ./packages/demo/src/aztec/setup.ts
 
 With `TOKEN=inference` the testnet setup uses the inference-money deployment the SDK ships instead of deploying a token. Two steps need others: the token's merchant admin lists the server account (setup prints the command and checks the listing), and the payer is funded from Sepolia USDC. Set `FUNDING_L1_KEY` to a Sepolia key holding USDC and ETH, for example in a gitignored `.env`; the payer's first claim binds it to that key's address for good.
 
+To test on testnet without that admin, set `INFERENCE_INSTANCE=own`: setup then deploys a test bridge of its own on Sepolia and the Aztec testnet (the SDK's `deployTestBridge`, with a freely mintable mock USDC), lists the server itself and funds the payer with minted mock USDC, so `FUNDING_L1_KEY` needs only Sepolia ETH. The deployer's secret (bridge owner and merchant admin) is kept in `DATA_DIR/inference-admin-secret` and the manifest next to `deploy.json`; a rerun reuses both. `bun run e2e:split` then runs against that instance.
+
+```bash
+DATA_DIR=packages/demo/.data/testnet TOKEN=inference INFERENCE_INSTANCE=own FUNDING_L1_KEY=0x… bun run setup
+DATA_DIR=packages/demo/.data/testnet FUNDING_L1_KEY=0x… bun run e2e:split
+```
+
 ## Running a Local Network
 
 ```bash
-# Install Aztec 6.0.0-rc.3 tooling
-VERSION=6.0.0-rc.3 bash -i <(curl -sL https://install.aztec.network/6.0.0-rc.3)
+# Install Aztec 6.0.0 tooling
+VERSION=6.0.0 bash -i <(curl -sL https://install.aztec.network/6.0.0)
 
 # Start a local Aztec network
 aztec start --local-network
@@ -117,13 +129,21 @@ bun run setup:sandbox:inference   # inference-money USDC: see below
 bun run server:sandbox
 bun run demo:sandbox
 bun run e2e:sandbox               # opens, pays and verifies a request, and checks the token's refusals
+# inference-money only:
+bun run e2e:split                 # pays from L1 in one deposit, claims, collects the change (local only)
+bun run e2e:http                  # server and agent CLI as processes: ref and split payments, crashes, restarts
+bun run e2e:instances             # two merchant instances on one store: the lease, consolidating each other's payments
 ```
+
+For the inference-money USDC the server offers three payments per 402: `ref` (private amount: a private transfer under a reference, its proof handed over with the retry), `split` (one Ethereum deposit, when the server knows an L1 RPC) and the commitment flow. The server is built with `createMerchant()` from `@galactica-net/x402-agent/aztec`, which also runs the background jobs (replaying stored proofs, consolidating, claiming split deposits); its wallet (`pxe/`) and payment store (`x402-state.sqlite`) live under `DATA_DIR` (default `packages/demo/.data`, git-ignored), the folder a deployment must keep on persistent storage. See the [merchant guide](docs/inference-money-merchant-guide.md#2b-private-amounts-and-payment-from-ethereum-ref-and-split). The inference-money repository's `bun run net:up` brings up a matching local network (anvil and an Aztec 6.0.0 node).
 
 `setup:sandbox:inference` deploys an inference-money bridge of its own on the local network (Permit2 and a mock USDC on the local L1, then portal, router, token and bridge), lists the server as a merchant, and funds the payer with a private deposit. It needs the local L1 RPC (`L1_RPC_URL`, default `http://localhost:8545`) and keeps the deployment in `inference-manifest.json` next to `deploy.json`. Both setups write the token to `deploy.json`; the server and client need no other switch.
 
 ## Anti-Replay Protection
 
-The middleware uses a two-layer defense against payment replay attacks:
+For `ref` and `split` payments, a reference is an HMAC of the nonce and the quoted terms under the server's secret: a proof is accepted only for the nonce, route and price it was quoted for, and the store marks each reference served once (one atomic insert), across restarts and every process sharing the store. The commitment flow keeps the in-memory defense below.
+
+The middleware uses a two-layer defense against payment replay attacks for the commitment flow:
 
 **Layer 1 — Nonce (middleware):** Each 402 response includes a server-generated UUID v7 nonce in `extra.nonce`. The client echoes it back automatically via `accepted.extra`. The nonce is one-shot (consumed on use) and expires after `maxTimeoutSeconds`. This binds each payment to a specific 402 challenge.
 

@@ -18,7 +18,17 @@ Every failure prints `{"ok": false, "error": {"code": …, "message": …}}`. Fi
 | `payment_refused` | no, not by this attempt | This payment request was already paid or is being paid (`error.reason`; `error.txHash` if known). Do not pay again: check `history`, then ask the merchant for the content or request the URL afresh. |
 | `token_refused` | no | The token contract's own rules refused the call (`error.rule`). Report the message. |
 | `prepare_failed` | no | The merchant could not create the commitment (its own tx failed or the nonce expired). Retry once; then report the merchant's message. |
-| `not_delivered` | **yes** | Paid, content not returned. `error.payment.txHash` is the proof of payment. Give it to the user; ask before paying again. |
+| `not_delivered` | **yes** | Paid, content not returned. If `error.resume` is set, run it (`aztec-x402 pay --resume <id>`): the same payment is delivered again, never paid twice. Otherwise `error.payment.txHash` is the proof of payment; give it to the user and ask before paying again. |
+| `already_delivered` | no | `pay --resume` on a payment the merchant already served. Nothing to do. |
+| `response_lost` | no | The merchant served the payment, but its response never reached the agent. A merchant serves each payment once (that is the replay protection), so it cannot be delivered again. Give the user `error.payment` and ask before paying for the same request again. |
+| `payment_superseded` | no | Paid, but the merchant served another payment made under the same request's reference (someone else who saw its 402 paid first), so it will not serve this one. Give the user `error.payment` as proof of payment and ask before paying for the request again. For a payment from Ethereum, `aztec-x402 fund change` still collects the change. |
+| `no_split_option` | no | `--from-ethereum`, but the merchant does not offer payment from Ethereum. Pay from the Aztec balance instead, or ask the user. |
+| `split_terms_mismatch` | no | The merchant's split offer names another bridge, price or recipient than this agent's. Do not pay; tell the user. |
+| `bridge_paused` | no | The bridge is paused; a deposit now could not be claimed. Try later. |
+| `no_bridge` | no | No inference-money bridge known for this network (set `AZTEC_X402_BRIDGE_MANIFEST` on a local network). |
+| `deposit_timeout` | no | No deposit seen within the permit's 30 minutes; it can no longer be sent. Start `pay --from-ethereum` again. |
+| `deposit_reverted` | no | The user's deposit transaction failed on Ethereum; nothing was paid. |
+| `bind_consent_required` | no | `fund change` would bind the agent's account to the user's Ethereum address for good. Ask the user, then `fund change --allow-bind`. |
 | `payment_uncertain` | maybe | The transfer was sent or about to be, but not confirmed in time. It still counts toward the 24h limit. Check `aztec-x402 balance` against the price; ask the user before retrying. |
 | `no_faucet` | no | No faucet for that token on this network. Fund via `aztec-x402 fund`. |
 | `insufficient_l1_balance` | no | The user's L1 wallet lacks the deposit token and there is no faucet for it. |

@@ -12,7 +12,7 @@ import * as realClient from "@galactica-net/x402-client";
 import * as realSession from "../aztec/session.js";
 
 // The canonical testnet tUSDC (AIP-20): a payment to it needs no merchant listing.
-const TUSDC = "0x08b5c7a74699f9336cb31f42872d9f067f52aef34afe2d2eb34dd0c3e3b36358";
+const TUSDC = "0x27d92f6c4b7890ca4fca1487f2e042984c7427bd210bbc65a544237c11d61fff";
 const PAY_TO_A = "0x0" + "a".repeat(63);
 const PAY_TO_B = "0x0" + "b".repeat(63);
 const transfers: unknown[] = [];

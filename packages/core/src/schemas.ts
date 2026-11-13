@@ -1,5 +1,6 @@
 import { z } from "zod";
 import { AZTEC_NETWORKS } from "./types.js";
+import { PaymentModeSchema } from "./modes.js";
 
 export const AztecNetworkSchema = z.enum([
   AZTEC_NETWORKS.SANDBOX,
@@ -13,6 +14,16 @@ export const AztecPaymentExtraSchema = z
     commitment: z.string().optional(),
     offchainMessage: z.string().optional(),
     prepareTxHash: z.string().optional(),
+    /** Which payment this `accepts` entry offers; absent means the commitment flow. */
+    mode: PaymentModeSchema.optional(),
+    /** `ref` and `split`: the reference to pay under. */
+    paymentRef: z.string().optional(),
+    /** `split`: see SplitTermsSchema. */
+    merchant: z.string().optional(),
+    price: z.string().optional(),
+    denominations: z.array(z.string()).optional(),
+    chainId: z.number().optional(),
+    portal: z.string().optional(),
   })
   .catchall(z.unknown());
 

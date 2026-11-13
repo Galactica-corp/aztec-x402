@@ -8,11 +8,12 @@
  */
 import { createNodeClient, TokenRegistry } from "@galactica-net/x402-agent/aztec";
 import { readFileSync } from "fs";
-import { join, dirname } from "path";
+import { join } from "path";
 import { ExactAztecClientScheme } from "@galactica-net/x402-mechanism/exact/client";
 import { PaymentRequiredSchema, type ParsedPaymentRequirements } from "@galactica-net/x402-mechanism";
 import { RealClientAztecSigner } from "./client-signer.js";
 import { loadKeys, loadAccount, openDemoWallet, setupSponsoredPayment } from "./wallet-manager.js";
+import { DATA_DIR } from "./data-dir.js";
 
 const SERVER_URL = process.env.SERVER_URL ?? "http://localhost:4402";
 const REQUEST_TIMEOUT_MS = 60_000;
@@ -33,8 +34,6 @@ function parseConcurrency(raw: string | undefined): number {
 }
 
 const CONCURRENCY = parseConcurrency(process.env.REPLAY_CONCURRENCY);
-const __dirname = dirname(new URL(import.meta.url).pathname);
-const DATA_DIR = process.env.DATA_DIR ?? __dirname;
 const CONFIG_PATH = join(DATA_DIR, "deploy.json");
 const KEYS_PATH = join(DATA_DIR, "keys.json");
 const config = JSON.parse(readFileSync(CONFIG_PATH, "utf-8"));
