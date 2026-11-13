@@ -41,7 +41,7 @@ Nothing to buy yet? The reference merchant in the aztec-x402 repo sells a 0.01 t
 ## Funding
 
 - **Testnet tokens**: `aztec-x402 faucet [--amount 10]` mints `tUSDC`, the test token, privately into your wallet. `USDC` on testnet is a different token (bridged Sepolia USDC, no faucet, payable only to listed merchants); see [references/networks.md](references/networks.md).
-- **Change from paying from Ethereum**: `aztec-x402 fund change` collects it once the merchant has claimed the deposit (minutes after it served). The first collection binds your account to the user's Ethereum address for good: ask the user, then add `--allow-bind`.
+- **Change from paying from Ethereum**: `aztec-x402 fund change` collects it once the merchant has claimed the deposit (minutes after it served); a deposit the merchant still has not claimed a day later, the agent claims itself (the merchant still gets the price), so the change is never stuck. The first collection binds your account to the user's Ethereum address for good: ask the user, then add `--allow-bind`.
 - **User deposit from Ethereum**: the user signs a deposit in their browser wallet on a funding page — served by you, or hosted when their browser cannot reach your machine. Read [references/funding.md](references/funding.md) before starting it. On testnet today this route delivers Fee Juice (your Aztec gas), not USDC — so when the user wants you to be able to pay for something, the faucet is what funds that; say so before they sign.
 
 ## Reference

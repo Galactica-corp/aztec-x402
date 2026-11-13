@@ -115,7 +115,7 @@ mock.module("../aztec/session.js", () => ({
 const realSdk = { ...sdk };
 let changeFake: { state: "unclaimed" | "owed" | "settled" } | undefined;
 const fakeChange = { amount: 990_000n, buyer: AztecAddress.fromStringUnsafe(AGENT), changeSalt: Fr.ONE, claim: { fake: true } };
-const sdkClaimSplit = mock(async () => "claimed" as const);
+const sdkClaimSplit = mock(async (): Promise<sdk.ClaimResult> => "claimed");
 const sdkWaitClaimable = mock(async () => {});
 const sdkClaimChange = mock(async () => ({ toString: () => H("d1") }));
 const faked =
@@ -268,9 +268,9 @@ describe("a payment whose reference another payment was served for", () => {
 });
 
 describe("fund change", () => {
-  const record = (id: string, status: string) => ({
+  const record = (id: string, status: string, ageMs = 0) => ({
     id,
-    createdAt: new Date().toISOString(),
+    createdAt: new Date(Date.now() - ageMs).toISOString(),
     url: URL_PAID,
     request: { method: "GET", headers: {} },
     accepted: {},
@@ -298,6 +298,40 @@ describe("fund change", () => {
     expect(field(out, "collected")).toMatchObject([{ id: "superseded-1", amount: "0.99" }]);
     // A deposit the merchant may still claim is left to it.
     expect(field(out, "waiting")).toMatchObject([{ id: "waiting-1" }]);
+  });
+
+  test("claims a deposit its merchant left unclaimed past the 24 h grace, whatever the payment's status, then collects the change", async () => {
+    const { SELF_CLAIM_AFTER_MS } = await import("../commands/pay-split.js");
+    changeFake = { state: "unclaimed" };
+    const overdue = SELF_CLAIM_AFTER_MS + 60_000;
+    writeRecords(
+      record("never-served", "not_served", overdue),
+      record("served-lost", "served", overdue),
+      record("fresh", "not_served", SELF_CLAIM_AFTER_MS - 60 * 60_000),
+    );
+    const claims = sdkClaimSplit.mock.calls.length;
+    const { code, out } = await cli(["fund", "change", "--allow-bind"]);
+    expect(code).toBe(0);
+    expect(sdkClaimSplit.mock.calls.length).toBe(claims + 2);
+    expect(sdkClaimSplit.mock.calls.at(-1)).toMatchObject([{ fake: true }, {}, undefined, {}, { from: fakeChange.buyer }]);
+    expect(field(out, "collected")).toMatchObject([{ id: "never-served" }, { id: "served-lost" }]);
+    // Within the grace the merchant may still claim: left to it, saying when the agent steps in.
+    expect(field(out, "waiting")).toMatchObject([{ id: "fresh" }]);
+    const after = Date.parse(String(field(out, "waiting", "0", "selfClaimAfter")));
+    expect(after - Date.now()).toBeGreaterThan(50 * 60_000);
+    expect(after - Date.now()).toBeLessThan(70 * 60_000);
+  });
+
+  test("still collects the change when the merchant claimed first, racing the agent's own claim", async () => {
+    const { SELF_CLAIM_AFTER_MS } = await import("../commands/pay-split.js");
+    changeFake = { state: "unclaimed" };
+    writeRecords(record("raced", "not_served", SELF_CLAIM_AFTER_MS + 60_000));
+    sdkClaimSplit.mockImplementationOnce(async () => "consumed-unknown");
+    const changes = sdkClaimChange.mock.calls.length;
+    const { code, out } = await cli(["fund", "change", "--allow-bind"]);
+    expect(code).toBe(0);
+    expect(sdkClaimChange.mock.calls.length).toBe(changes + 1);
+    expect(field(out, "collected")).toMatchObject([{ id: "raced", amount: "0.99" }]);
   });
 
   test("waits while a superseded deposit is not claimable on Aztec yet", async () => {

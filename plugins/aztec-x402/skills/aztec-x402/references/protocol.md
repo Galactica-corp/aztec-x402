@@ -14,7 +14,7 @@ With the inference-money `USDC`, the merchant's 402 also offers a **payment unde
 
 ## Paying from Ethereum in one step (`split`)
 
-A merchant with an Ethereum connection also offers a **split deposit**: the user deposits a round amount of USDC on Ethereum (say 1 USDC for a 0.01 price) whose secret commits to the merchant, the price and the reference. The merchant serves once the deposit is two blocks deep and claims the price on Aztec in the background. The rest waits as change that the agent collects into its own Aztec wallet (`fund change`; if the merchant served another payment under the reference instead, the agent claims the deposit itself to release the change). Ethereum shows the user's address and a round deposit, never the merchant or the price.
+A merchant with an Ethereum connection also offers a **split deposit**: the user deposits a round amount of USDC on Ethereum (say 1 USDC for a 0.01 price) whose secret commits to the merchant, the price and the reference. The merchant serves once the deposit is two blocks deep and claims the price on Aztec in the background. The rest waits as change that the agent collects into its own Aztec wallet (`fund change`; if the merchant served another payment under the reference instead, or has not claimed the deposit a day later, the agent claims the deposit itself to release the change). Ethereum shows the user's address and a round deposit, never the merchant or the price.
 
 ## Guarantees
 

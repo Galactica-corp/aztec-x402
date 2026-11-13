@@ -65,6 +65,14 @@ import type { PayOptions, SerializedRequest } from "./pay.js";
 const L1_POLL_MS = 6_000;
 /** The permit lives 30 min from drafting; a deposit not seen well after that will not come. */
 const DEPOSIT_WAIT_MS = 40 * 60_000;
+/**
+ * A deposit its merchant has not claimed this long after the payment began
+ * (the deposit follows within the permit's 30 min) is claimed by the agent:
+ * the merchant claims within minutes, so one that has not by now lost its
+ * claim data or never served. Anyone may claim, the merchant gets the price
+ * either way, and only then is the change released.
+ */
+export const SELF_CLAIM_AFTER_MS = 24 * 60 * 60_000;
 /** Deposit hashes the local page may report per payment; each is checked on L1. */
 const MAX_DEPOSIT_HINTS = 8;
 
@@ -374,11 +382,18 @@ export async function collectChange(ctx: ResolvedContext, opts: { allowBind: boo
       collected.push({ id: record.id, amount, note: "already collected" });
       continue;
     }
-    // A superseded deposit is never claimed by the merchant: the agent claims it (paying the merchant the price, as
-    // any claim does) so its change can be collected.
-    const claimItself = state === "unclaimed" && record.status === "superseded";
+    // A superseded deposit is never claimed by the merchant, and one left unclaimed past the grace likely never will
+    // be: the agent claims it (paying the merchant the price, as any claim does) so its change can be collected.
+    const selfClaimAt = Date.parse(record.createdAt) + SELF_CLAIM_AFTER_MS;
+    const overdue = !(Date.now() < selfClaimAt);
+    const claimItself = state === "unclaimed" && (record.status === "superseded" || overdue);
     if (state === "unclaimed" && !claimItself) {
-      waiting.push({ id: record.id, amount, reason: "the merchant has not claimed the deposit on Aztec yet (minutes after it served)" });
+      waiting.push({
+        id: record.id,
+        amount,
+        reason: "the merchant has not claimed the deposit on Aztec yet (minutes after it served)",
+        selfClaimAfter: new Date(selfClaimAt).toISOString(),
+      });
       continue;
     }
     if (!session) {
@@ -389,7 +404,11 @@ export async function collectChange(ctx: ResolvedContext, opts: { allowBind: boo
     }
     try {
       if (claimItself) {
-        progress(`The merchant served another payment instead of ${record.id}; claiming its deposit to release the change...`);
+        progress(
+          record.status === "superseded"
+            ? `The merchant served another payment instead of ${record.id}; claiming its deposit to release the change...`
+            : `The merchant has not claimed the deposit of ${record.id} in ${SELF_CLAIM_AFTER_MS / 3_600_000} h; claiming it to release the change...`,
+        );
         await waitSplitClaimable(change.claim, node, session.wallet, m, change.buyer, undefined, { attempts: 1, pollMs: 0 });
         await claimSplit(change.claim, node, session.wallet, m, { from: change.buyer });
       }
