@@ -94,6 +94,7 @@ if (payerToken.kind === "inference-money") {
   // ref mode: a private transfer under a reference, verified from the proof the buyer hands over.
   const paymentRef = derivePaymentRef(randomBytes(32), {
     nonce: crypto.randomUUID(),
+    route: "/api/infer",
     network: config.network,
     asset: TOKEN,
     payTo: merchant.address.toString(),

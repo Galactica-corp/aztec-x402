@@ -15,7 +15,7 @@ import {
   type ServedMark,
   type StoredSplitClaim,
 } from "@galactica-net/x402-core";
-import { assertSecret, derivePaymentRef, isPaymentRefFor, nonceCreatedAt } from "./reference.js";
+import { assertSecret, derivePaymentRef, isPaymentRefFor, nonceCreatedAt, type QuotedTerms } from "./reference.js";
 import { payloadDigest } from "./store/memory.js";
 import type {
   RouteConfig,
@@ -79,7 +79,7 @@ export function createPaymentMiddleware(
       return;
     }
 
-    const { config: routeConfig, params } = match;
+    const { key: routeKey, config: routeConfig, params } = match;
     req.params = params;
 
     const timeoutMs = (routeConfig.maxTimeoutSeconds ?? 120) * 1000;
@@ -209,7 +209,7 @@ export function createPaymentMiddleware(
 
       const mode = payloadMode(paymentPayload.payload);
       if (mode === "ref" || mode === "split") {
-        return handleModePayment(mode, nonce, paymentPayload, routeConfig, requirements, timeoutMs, res, next);
+        return handleModePayment(mode, nonce, paymentPayload, routeKey, routeConfig, requirements, timeoutMs, res, next);
       }
 
       if (!takesCommitment) {
@@ -292,7 +292,7 @@ export function createPaymentMiddleware(
     // Lazy-sweep expired entries
     sweepExpiredPayments(pendingPayments);
 
-    const accepts = await offers(nonce, routeConfig, requirements);
+    const accepts = await offers(nonce, routeKey, routeConfig, requirements);
     return send402(
       res,
       accepts,
@@ -309,6 +309,7 @@ export function createPaymentMiddleware(
    */
   async function offers(
     nonce: string,
+    routeKey: string,
     routeConfig: RouteConfig,
     requirements: PaymentRequirements,
   ): Promise<PaymentRequirements[]> {
@@ -317,7 +318,7 @@ export function createPaymentMiddleware(
     if (!modes.some((m) => m !== "commitment") || !config.facilitator.offerPayment || !config.secret) {
       return fallback;
     }
-    const paymentRef = derivePaymentRef(config.secret, termsOf(nonce, routeConfig, routeConfig.amount));
+    const paymentRef = derivePaymentRef(config.secret, termsOf(nonce, routeKey, routeConfig, routeConfig.amount));
     try {
       const { offers } = await config.facilitator.offerPayment(routeConfig.asset, routeConfig.amount, modes, paymentRef);
       const listed = offers.filter((o) => modes.includes(o.mode));
@@ -330,7 +331,7 @@ export function createPaymentMiddleware(
 
   /**
    * A `ref` or `split` payment: the reference must be the one derived for
-   * this nonce and the quoted price, unexpired and not served. The proof is
+   * this nonce, this route and the quoted price, unexpired and not served. The proof is
    * stored before anything acts on it, and the reference is marked served
    * (atomically, in the store) before the resource is.
    */
@@ -338,6 +339,7 @@ export function createPaymentMiddleware(
     mode: "ref" | "split",
     nonce: string,
     paymentPayload: PaymentPayload,
+    routeKey: string,
     routeConfig: RouteConfig,
     baseRequirements: PaymentRequirements,
     timeoutMs: number,
@@ -357,7 +359,7 @@ export function createPaymentMiddleware(
     const extra = parseAztecPaymentExtra(accepted.extra);
     const paymentRef = extra.paymentRef;
     const price = accepted.amount;
-    if (!paymentRef || !/^[0-9]{1,78}$/.test(price) || !isPaymentRefFor(secret, termsOf(nonce, routeConfig, price), paymentRef)) {
+    if (!paymentRef || !/^[0-9]{1,78}$/.test(price) || !isPaymentRefFor(secret, termsOf(nonce, routeKey, routeConfig, price), paymentRef)) {
       return refuse("invalid payment reference");
     }
     const createdAt = nonceCreatedAt(nonce);
@@ -464,8 +466,8 @@ function modesOf(route: RouteConfig): PaymentMode[] {
   return route.modes && route.modes.length > 0 ? route.modes : ["commitment"];
 }
 
-function termsOf(nonce: string, route: RouteConfig, price: string) {
-  return { nonce, network: route.network, asset: route.asset, payTo: route.payTo, price };
+function termsOf(nonce: string, routeKey: string, route: RouteConfig, price: string): QuotedTerms {
+  return { nonce, route: routeKey, network: route.network, asset: route.asset, payTo: route.payTo, price };
 }
 
 function sameHex(a: string, b: string): boolean {
@@ -477,9 +479,9 @@ function sameHex(a: string, b: string): boolean {
   }
 }
 
-function matchRoute(path: string, routes: RoutesConfig): { config: RouteConfig; params: Record<string, string> } | null {
+function matchRoute(path: string, routes: RoutesConfig): { key: string; config: RouteConfig; params: Record<string, string> } | null {
   // Try exact match first
-  if (routes[path]) return { config: routes[path], params: {} };
+  if (routes[path]) return { key: path, config: routes[path], params: {} };
   // Try :param patterns
   for (const [pattern, config] of Object.entries(routes)) {
     if (!pattern.includes(":")) continue;
@@ -492,7 +494,7 @@ function matchRoute(path: string, routes: RoutesConfig): { config: RouteConfig; 
       if (patParts[i].startsWith(":")) params[patParts[i].slice(1)] = pathParts[i];
       else if (patParts[i] !== pathParts[i]) { match = false; break; }
     }
-    if (match) return { config, params };
+    if (match) return { key: pattern, config, params };
   }
   return null;
 }

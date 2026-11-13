@@ -64,7 +64,7 @@ try {
   const fee = { paymentMethod: await setupSponsoredPayment(wallet) };
   const client = new RealClientAztecSigner(payer, new TokenRegistry({ node, wallet, account: payer.address, fee, paymentGate }));
   const nonce = crypto.randomUUID();
-  const paymentRef = derivePaymentRef(randomBytes(32), { nonce, network: config.network, asset: TOKEN, payTo: b.address.toString(), price: AMOUNT.toString() });
+  const paymentRef = derivePaymentRef(randomBytes(32), { nonce, route: "/api/infer", network: config.network, asset: TOKEN, payTo: b.address.toString(), price: AMOUNT.toString() });
   const proof = await client.payPrivate(TOKEN, b.address.toString(), AMOUNT, paymentRef);
   const leaderBefore = await a.token.privateBalance();
   await b.store.saveProof({ paymentRef, nonce, mode: "ref", asset: TOKEN, payload: JSON.stringify({ mode: "ref", ...proof }), price: AMOUNT.toString(), receivedAt: Date.now(), takenIn: false });

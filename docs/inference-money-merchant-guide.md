@@ -198,7 +198,7 @@ yourself.
 
 ### The reference secret
 
-References are an HMAC of the nonce and the quoted price under a secret, so a 402 writes nothing. By default the
+References are an HMAC of the nonce, the route and the quoted price under a secret, so a 402 writes nothing. By default the
 secret is derived from your account's secret key: the same on every instance, and nothing to store. A server that
 already has an `x402-ref-secret` file in `dataDir` keeps using it, so quotes it already issued stay valid. Pass
 `secret` (≥ 32 bytes) to choose your own; it must then be the same on every instance and kept across restarts.

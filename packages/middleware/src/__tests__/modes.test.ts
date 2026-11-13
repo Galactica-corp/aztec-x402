@@ -84,10 +84,10 @@ function setup(opts: { signer?: FacilitatorAztecSigner; store?: PaymentStateStor
   return { mw, signer: s, store };
 }
 
-async function call(mw: Middleware, headers: Record<string, string> = {}) {
+async function call(mw: Middleware, headers: Record<string, string> = {}, path = PATH) {
   const r = res();
   const next = jest.fn();
-  await mw({ path: PATH, method: "GET", url: PATH, headers }, r, next);
+  await mw({ path, method: "GET", url: path, headers }, r, next);
   const header = r.headers["PAYMENT-REQUIRED"];
   const challenge = header ? JSON.parse(Buffer.from(header, "base64").toString()) : undefined;
   return { res: r, served: next.mock.calls.length > 0, challenge };
@@ -139,7 +139,7 @@ describe("the 402", () => {
     expect(commitment.extra.paymentRef).toBeUndefined();
     const nonce = ref.extra.nonce;
     expect(ref.extra.paymentRef).toBe(
-      derivePaymentRef(SECRET, { nonce, network: "aztec:sandbox", asset: TOKEN, payTo: MERCHANT, price: PRICE }),
+      derivePaymentRef(SECRET, { nonce, route: PATH, network: "aztec:sandbox", asset: TOKEN, payTo: MERCHANT, price: PRICE }),
     );
     expect(split.extra).toMatchObject({ portal: PORTAL, price: PRICE, merchant: MERCHANT });
   });
@@ -255,7 +255,7 @@ describe("ref payments", () => {
 
   it("are taken after the quote expired, within the retention, but not after it", async () => {
     const { mw } = setup();
-    const terms = (nonce: string) => ({ nonce, network: "aztec:sandbox", asset: TOKEN, payTo: MERCHANT, price: PRICE });
+    const terms = (nonce: string) => ({ nonce, route: PATH, network: "aztec:sandbox", asset: TOKEN, payTo: MERCHANT, price: PRICE });
     const base = await offer(mw, "ref");
     const at = (msecs: number) => {
       const nonce = uuidv7({ msecs });
@@ -308,6 +308,52 @@ describe("ref payments", () => {
     const accepted = await offer(mw, "split");
     const result = await pay(mw, { ...accepted, extra: { ...accepted.extra, mode: "ref" } }, refProof(refOf(accepted)));
     expect(result.challenge.error).toContain("not offered");
+  });
+});
+
+describe("a quote is bound to its route", () => {
+  // Same network, asset and payTo on every route, as under createMerchant: only the price differs.
+  const CHEAP = "/api/cheap";
+  const DEAR = "/api/infer";
+  const ITEM = "/api/item/:id";
+  function merchant() {
+    const s = signer();
+    const facilitator = new ExactAztecFacilitatorScheme(s, ["aztec:sandbox"]);
+    const routes = { [CHEAP]: route({ amount: "100" }), [DEAR]: route({ amount: PRICE }), [ITEM]: route({ amount: "500" }) };
+    return { mw: createPaymentMiddleware(routes, { facilitator, store: memoryStateStore(), secret: SECRET }), signer: s };
+  }
+  const offerAt = async (mw: Middleware, path: string, mode: "ref" | "split"): Promise<PaymentRequirements> =>
+    (await call(mw, {}, path)).challenge.accepts.find((a: PaymentRequirements) => a.extra.mode === mode);
+
+  it("refuses a ref quote paid at a cheap route's price on an expensive route, and serves it on its own route", async () => {
+    const { mw, signer: s } = merchant();
+    const cheap = await offerAt(mw, CHEAP, "ref");
+    expect(cheap.amount).toBe("100");
+    const proof = refProof(refOf(cheap));
+
+    const stolen = await call(mw, header(cheap, proof), DEAR);
+    expect(stolen.served).toBe(false);
+    expect(stolen.challenge.error).toBe("invalid payment reference");
+    expect(s.receiveRefPayment).not.toHaveBeenCalled();
+
+    expect((await call(mw, header(cheap, proof), CHEAP)).served).toBe(true);
+  });
+
+  it("refuses a split quote from a cheap route on an expensive route", async () => {
+    const { mw, signer: s } = merchant();
+    const cheap = await offerAt(mw, CHEAP, "split");
+    const stolen = await call(mw, header(cheap, splitProof(refOf(cheap), { price: "100" })), DEAR);
+    expect(stolen.challenge.error).toBe("invalid payment reference");
+    expect(s.verifySplitDeposit).not.toHaveBeenCalled();
+  });
+
+  it("binds to the route pattern, so a quote serves any path of the same priced route", async () => {
+    const { mw } = merchant();
+    const quote = await offerAt(mw, "/api/item/1", "ref");
+    expect(quote.extra.paymentRef).toBe(
+      derivePaymentRef(SECRET, { nonce: String(quote.extra.nonce), route: ITEM, network: "aztec:sandbox", asset: TOKEN, payTo: MERCHANT, price: "500" }),
+    );
+    expect((await call(mw, header(quote, refProof(refOf(quote))), "/api/item/2")).served).toBe(true);
   });
 });
 

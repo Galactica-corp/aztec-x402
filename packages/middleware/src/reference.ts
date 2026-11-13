@@ -11,9 +11,15 @@
  */
 import { createHmac, timingSafeEqual } from "node:crypto";
 
-/** What a reference is bound to. `price` is the quoted amount in base units. */
+/**
+ * What a reference is bound to. `route` is the key of the route the quote was
+ * issued for (its pattern, e.g. "/api/item/:id"), so a quote for a cheap route
+ * cannot pay for an expensive one on the same merchant. `price` is the quoted
+ * amount in base units.
+ */
 export interface QuotedTerms {
   nonce: string;
+  route: string;
   network: string;
   asset: string;
   payTo: string;
@@ -25,7 +31,7 @@ export const MIN_SECRET_BYTES = 32;
 const UUID_V7 = /^[0-9a-f]{8}-[0-9a-f]{4}-7[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
 
 function mac(secret: Uint8Array, t: QuotedTerms): Buffer {
-  const message = ["x402-aztec-ref-v1", t.nonce, t.network, t.asset.toLowerCase(), t.payTo.toLowerCase(), t.price].join("|");
+  const message = ["x402-aztec-ref-v2", t.nonce, t.route, t.network, t.asset.toLowerCase(), t.payTo.toLowerCase(), t.price].join("|");
   return createHmac("sha256", secret).update(message).digest();
 }
 

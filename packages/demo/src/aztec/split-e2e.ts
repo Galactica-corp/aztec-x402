@@ -136,7 +136,7 @@ if (LOCAL) {
 async function terms(nonce = crypto.randomUUID()) {
   const t = await split.terms(PRICE);
   if (!t) throw new Error("the merchant offers no split terms");
-  const paymentRef = derivePaymentRef(merchant.secret, { nonce, network: config.network, asset: config.tokenAddress, payTo: seller.address.toString(), price: PRICE.toString() });
+  const paymentRef = derivePaymentRef(merchant.secret, { nonce, route: "/api/infer", network: config.network, asset: config.tokenAddress, payTo: seller.address.toString(), price: PRICE.toString() });
   return { ...t, paymentRef };
 }
 

@@ -50,7 +50,7 @@ const middleware = createPaymentMiddleware(
 );
 ```
 
-- A payment reference is an HMAC of the nonce and the quoted terms under `secret`: a 402 writes nothing, and a proof is accepted only for the nonce and price it was quoted for.
+- A payment reference is an HMAC of the nonce and the quoted terms under `secret`: a 402 writes nothing, and a proof is accepted only for the nonce, route and price it was quoted for.
 - A presented proof is stored before it is verified; the reference is marked served (one atomic insert) before the resource is. A proof of an expired quote is still taken within `retentionMs` (default 26 h, the offchain-message lifetime).
 - A mode left out of `modes` is never offered or accepted, `commitment` included. When none of the listed modes is available, the 402 has no `accepts` entries.
 - A payment that may verify later (not mined, deposit not deep enough) is answered with a 402 carrying `retryable: true`; clients resend the same payload.

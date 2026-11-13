@@ -134,7 +134,7 @@ For the inference-money USDC the server offers three payments per 402: `ref` (pr
 
 ## Anti-Replay Protection
 
-For `ref` and `split` payments, a reference is an HMAC of the nonce and the quoted terms under the server's secret: a proof is accepted only for the nonce and price it was quoted for, and the store marks each reference served once (one atomic insert), across restarts and every process sharing the store. The commitment flow keeps the in-memory defense below.
+For `ref` and `split` payments, a reference is an HMAC of the nonce and the quoted terms under the server's secret: a proof is accepted only for the nonce, route and price it was quoted for, and the store marks each reference served once (one atomic insert), across restarts and every process sharing the store. The commitment flow keeps the in-memory defense below.
 
 The middleware uses a two-layer defense against payment replay attacks for the commitment flow:
 
