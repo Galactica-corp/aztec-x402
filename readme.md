@@ -107,6 +107,13 @@ bun run ./packages/demo/src/aztec/setup.ts
 
 With `TOKEN=inference` the testnet setup uses the inference-money deployment the SDK ships instead of deploying a token. Two steps need others: the token's merchant admin lists the server account (setup prints the command and checks the listing), and the payer is funded from Sepolia USDC. Set `FUNDING_L1_KEY` to a Sepolia key holding USDC and ETH, for example in a gitignored `.env`; the payer's first claim binds it to that key's address for good.
 
+To test on testnet without that admin, set `INFERENCE_INSTANCE=own`: setup then deploys a test bridge of its own on Sepolia and the Aztec testnet (the SDK's `deployTestBridge`, with a freely mintable mock USDC), lists the server itself and funds the payer with minted mock USDC, so `FUNDING_L1_KEY` needs only Sepolia ETH. The deployer's secret (bridge owner and merchant admin) is kept in `DATA_DIR/inference-admin-secret` and the manifest next to `deploy.json`; a rerun reuses both. `bun run e2e:split` then runs against that instance.
+
+```bash
+DATA_DIR=packages/demo/.data/testnet TOKEN=inference INFERENCE_INSTANCE=own FUNDING_L1_KEY=0x… bun run setup
+DATA_DIR=packages/demo/.data/testnet FUNDING_L1_KEY=0x… bun run e2e:split
+```
+
 ## Running a Local Network
 
 ```bash

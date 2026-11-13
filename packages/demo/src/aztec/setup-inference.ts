@@ -12,6 +12,12 @@
  * `FUNDING_L1_KEY` holds a Sepolia key with USDC and ETH; its first claim binds
  * the payer to that key's address for good.
  *
+ * Or, for testing on testnet without that admin (`setupOwnTestnetInferenceToken`,
+ * `INFERENCE_INSTANCE=own`): a bridge instance of our own on Sepolia and the
+ * Aztec testnet, with a mock USDC, deployed by an account whose secret is kept
+ * in the data dir; it lists the server itself. `FUNDING_L1_KEY` then needs only
+ * Sepolia ETH: the payer is funded with minted mock USDC.
+ *
  * Resumable: the deployment's manifest is kept next to deploy.json and reused
  * while its token exists on the node.
  */
@@ -46,6 +52,7 @@ import {
   type L1Signer,
 } from "@galactica-net/inference-money-core/deploy";
 import { existsSync, readFileSync, writeFileSync } from "fs";
+import { TESTNET } from "@galactica-net/inference-money-core/deploy";
 import { erc20Abi, maxUint256 } from "viem";
 import { mnemonicToAccount, privateKeyToAccount } from "viem/accounts";
 import { createPXEWallet, type PXEWallet } from "./pxe-wallet.js";
@@ -76,35 +83,71 @@ export interface TestnetInferenceSetup extends Omit<InferenceSetup, "nodeUrl" | 
   fundingKey?: `0x${string}`;
 }
 
-async function loadOrDeploy(s: InferenceSetup, l1: L1Signer): Promise<{ manifest: BridgeManifest; admin: AztecAddress }> {
+export interface OwnTestnetInferenceSetup extends Omit<InferenceSetup, "manifestPath"> {
+  /** Pays the Sepolia deploys and funds the payer (mock USDC): needs Sepolia ETH. */
+  fundingKey: `0x${string}`;
+  manifestPath: string;
+  /** Where the deployer's secret is kept (created 0600): its account stays bridge owner and merchant admin. */
+  adminSecretPath: string;
+}
+
+interface Deployment {
+  network: BridgeManifest["network"];
+  deployerSecret: Fr;
+  permit2: () => Promise<`0x${string}`>;
+  registry?: `0x${string}`;
+}
+
+async function loadOrDeploy(s: InferenceSetup, l1: L1Signer, d: Deployment): Promise<{ manifest: BridgeManifest; admin: AztecAddress }> {
   if (existsSync(s.manifestPath)) {
     const manifest = parseManifest(JSON.parse(readFileSync(s.manifestPath, "utf-8")));
     if (await s.node.getContract(AztecAddress.fromStringUnsafe(manifest.l2.token.address))) {
       s.log(`Bridge already deployed (token ${manifest.l2.token.address}) — skipping.`);
-      const admin = await s.wallet.createSchnorrAccount(LOCAL_ADMIN_SECRET, Fr.ZERO, signingKeyFor(LOCAL_ADMIN_SECRET));
+      const admin = await s.wallet.createSchnorrAccount(d.deployerSecret, Fr.ZERO, signingKeyFor(d.deployerSecret));
       return { manifest, admin: admin.address };
     }
     s.log("Recorded bridge not found on this node — redeploying.");
   }
-  s.log("Deploying the inference-money bridge (Permit2, mock USDC, portal, router, token, bridge)...");
+  s.log("Deploying the inference-money bridge (mock USDC, portal, router, token, bridge)...");
   const { manifest, admin } = await deployTestBridge({
-    network: "local",
+    network: d.network,
     node: s.node,
     nodeUrl: s.nodeUrl,
     wallet: s.wallet,
     l1,
-    deployerSecret: LOCAL_ADMIN_SECRET,
+    deployerSecret: d.deployerSecret,
     usdc: "mock",
-    permit2: await installCanonicalPermit2(l1),
+    permit2: await d.permit2(),
+    ...(d.registry ? { registry: d.registry } : {}),
     log: (m) => s.log(`  ${m}`),
   });
   writeFileSync(s.manifestPath, JSON.stringify(manifest, null, 2));
   return { manifest, admin };
 }
 
+/** The deployer's secret from `path`, or a new random one written there readable by the owner only. */
+function loadOrCreateSecret(path: string): Fr {
+  if (existsSync(path)) return Fr.fromHexString(readFileSync(path, "utf-8").trim());
+  const secret = Fr.random();
+  writeFileSync(path, secret.toString(), { mode: 0o600, flag: "wx" });
+  return secret;
+}
+
+/** Lists the merchant unless it already is one. */
+async function ensureListed(s: Pick<InferenceSetup, "node" | "wallet" | "merchant" | "log">, m: BridgeManifest, admin: AztecAddress): Promise<void> {
+  const token = AztecAddress.fromStringUnsafe(m.l2.token.address);
+  if (merchantStatus(await syncMerchantList(s.node, token), s.merchant).merchant) {
+    s.log("Server is already a listed merchant — skipping.");
+  } else {
+    // A real merchant binds its treasury with a first private claim before it is listed; a demo skips that.
+    s.log(`Listing the server ${s.merchant} as a merchant...`);
+    await addMerchants({ wallet: s.wallet, m, node: s.node }, admin, [s.merchant]);
+  }
+}
+
 /** Mints mock USDC on L1, deposits it privately for the payer and claims it on Aztec. */
 async function fundPayer(s: InferenceSetup, l1: L1Signer, m: BridgeManifest): Promise<void> {
-  await writeEvm(l1, "MockUsdc mint", m.l1.usdc, BRIDGE_EVM_ARTIFACTS.mockUsdc.abi, "mint", [l1.account.address, s.amount]);
+  await mintMockUsdc(l1, m, s.amount);
   // A local network builds a block only when a tx arrives, so the message needs traffic to become claimable.
   const beater = await createPXEWallet(s.node, { ephemeral: true, pxe: { proverEnabled: false } });
   await registerSponsor(beater, m);
@@ -151,18 +194,14 @@ export async function depositAndClaim(
 export async function setupInferenceToken(s: InferenceSetup): Promise<{ tokenAddress: string }> {
   const chainId = await l1ChainId(s.l1RpcUrl);
   const l1 = l1Signer(s.l1RpcUrl, chainId, mnemonicToAccount(ANVIL_MNEMONIC, { addressIndex: ANVIL_ACCOUNT_INDEX }));
-  const { manifest, admin } = await loadOrDeploy(s, l1);
+  const { manifest, admin } = await loadOrDeploy(s, l1, {
+    network: "local",
+    deployerSecret: LOCAL_ADMIN_SECRET,
+    permit2: () => installCanonicalPermit2(l1),
+  });
   await registerSponsor(s.wallet, manifest);
   await registerBridgeContracts(s.wallet, manifest);
-  const token = AztecAddress.fromStringUnsafe(manifest.l2.token.address);
-
-  if (merchantStatus(await syncMerchantList(s.node, token), s.merchant).merchant) {
-    s.log("Server is already a listed merchant — skipping.");
-  } else {
-    // A real merchant binds its treasury with a first private claim before it is listed; a local demo skips that.
-    s.log(`Listing the server ${s.merchant} as a merchant...`);
-    await addMerchants({ wallet: s.wallet, m: manifest, node: s.node }, admin, [s.merchant]);
-  }
+  await ensureListed(s, manifest, admin);
 
   const balance = await l2UsdcBalance(s.wallet, manifest, s.payer, "private");
   if (balance >= s.amount) {
@@ -204,6 +243,39 @@ export async function setupTestnetInferenceToken(s: TestnetInferenceSetup): Prom
     s.log(`  Payer's balance: ${await l2UsdcBalance(s.wallet, manifest, s.payer, "private")}`);
   }
   return { tokenAddress: manifest.l2.token.address };
+}
+
+/**
+ * Returns the token to charge in: a testnet bridge of our own (mock USDC, Sepolia), with the server listed by its
+ * deployer and the payer funded with minted mock USDC. Resumable from the manifest and the kept secret.
+ */
+export async function setupOwnTestnetInferenceToken(s: OwnTestnetInferenceSetup): Promise<{ tokenAddress: string }> {
+  const l1 = l1Signer(s.l1RpcUrl, TESTNET.l1ChainId, privateKeyToAccount(s.fundingKey));
+  const { manifest, admin } = await loadOrDeploy(s, l1, {
+    network: "testnet",
+    deployerSecret: loadOrCreateSecret(s.adminSecretPath),
+    permit2: async () => TESTNET.permit2,
+    registry: TESTNET.registry,
+  });
+  await registerSponsor(s.wallet, manifest);
+  await registerBridgeContracts(s.wallet, manifest);
+  await ensureListed(s, manifest, admin);
+
+  const balance = await l2UsdcBalance(s.wallet, manifest, s.payer, "private");
+  if (balance >= s.amount) {
+    s.log(`Payer already holds ${balance} — skipping.`);
+  } else {
+    s.log(`Funding the payer with ${s.amount} of minted mock USDC from ${l1.account.address} (binds the payer to it)...`);
+    await mintMockUsdc(l1, manifest, s.amount);
+    await depositAndClaim(s, l1, manifest, 15_000);
+    s.log(`  Payer's balance: ${await l2UsdcBalance(s.wallet, manifest, s.payer, "private")}`);
+  }
+  return { tokenAddress: manifest.l2.token.address };
+}
+
+/** Mints `amount` of an instance's mock USDC to the signer (anyone may mint it). */
+export async function mintMockUsdc(l1: L1Signer, m: BridgeManifest, amount: bigint): Promise<void> {
+  await writeEvm(l1, "MockUsdc mint", m.l1.usdc, BRIDGE_EVM_ARTIFACTS.mockUsdc.abi, "mint", [l1.account.address, amount]);
 }
 
 export async function l1ChainId(rpcUrl: string): Promise<number> {

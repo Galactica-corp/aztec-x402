@@ -40,7 +40,7 @@ import { derivePaymentRef } from "@galactica-net/x402-middleware";
 import { Fr } from "@aztec-labs/aztec.js/fields";
 import { mnemonicToAccount, privateKeyToAccount } from "viem/accounts";
 import { TESTNET_MANIFEST } from "@galactica-net/inference-money-core/deployments";
-import { merchantNetwork, shouldEnableProver } from "./network-config.js";
+import { isSandboxNetwork, merchantNetwork, shouldEnableProver } from "./network-config.js";
 import { createPXEWallet } from "./pxe-wallet.js";
 import { ANVIL_ACCOUNT_INDEX, ANVIL_MNEMONIC, LOCAL_ADMIN_SECRET } from "./setup-inference.js";
 import { paySplit } from "./split-buyer.js";
@@ -53,8 +53,11 @@ class Done extends Error {}
 
 const config = JSON.parse(readFileSync(join(DATA_DIR, "deploy.json"), "utf-8"));
 if (!config.l1RpcUrl) throw new Error("deploy.json has no L1 RPC: run the inference setup first.");
-const LOCAL = Boolean(config.manifestPath);
-const m = parseManifest(LOCAL ? JSON.parse(readFileSync(config.manifestPath, "utf-8")) : TESTNET_MANIFEST);
+const LOCAL = isSandboxNetwork(config.network);
+// A bridge of our own (local, or testnet with INFERENCE_INSTANCE=own) records its manifest; the shipped one comes with the SDK.
+const m = parseManifest(config.manifestPath ? JSON.parse(readFileSync(config.manifestPath, "utf-8")) : TESTNET_MANIFEST);
+/** Our own testnet instance: its USDC is a mock the bound key mints for itself. */
+const OWN_TESTNET = !LOCAL && Boolean(config.manifestPath);
 function sepoliaKey(): `0x${string}` {
   const key = process.env.FUNDING_L1_KEY ?? "";
   if (!/^0x[0-9a-fA-F]{64}$/.test(key)) throw new Error("Set FUNDING_L1_KEY to the Sepolia key that funded the payer.");
@@ -108,6 +111,8 @@ if (LOCAL) {
   for (const k of [boundKey, otherKey]) {
     await writeEvm(k, "MockUsdc mint", m.l1.usdc, BRIDGE_EVM_ARTIFACTS.mockUsdc.abi, "mint", [k.account.address, 20_000_000n]);
   }
+} else if (OWN_TESTNET) {
+  await writeEvm(boundKey, "MockUsdc mint", m.l1.usdc, BRIDGE_EVM_ARTIFACTS.mockUsdc.abi, "mint", [boundKey.account.address, 2_000_000n]);
 }
 /** `blocks` more L1 blocks: mined on anvil, waited for on Sepolia. */
 const mine = async (blocks = 1) => {
