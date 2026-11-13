@@ -362,7 +362,8 @@ describe("merchant jobs", () => {
     expect(status.splitClaims.failed).toBe(1);
     expect(status.warnings).toHaveLength(1); // the failed claim
 
-    t += 13 * 3600_000;
+    // A minute past the hour: the payment was stored a few ms after t was read, and its age is shown rounded down.
+    t += 13 * 3600_000 + 60_000;
     status = await jobs.status();
     expect(status.warnings.some((w) => w.includes("waited 13 h for consolidation"))).toBe(true);
     expect(status.warnings.some((w) => w.includes("not been taken into the wallet"))).toBe(true);
