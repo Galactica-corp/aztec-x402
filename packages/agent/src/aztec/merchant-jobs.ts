@@ -89,6 +89,12 @@ export const UNCONSOLIDATED_WARN_MS = 12 * HOUR;
 export const UNCONSOLIDATED_ERROR_MS = 20 * HOUR;
 /** A stored proof not taken in this long after it arrived needs a look (not mined, or refused). */
 const NOT_TAKEN_IN_WARN_MS = HOUR;
+/**
+ * A split claim still pending this long after its deposit was served needs a
+ * look: a claim lands minutes after the deposit, and a switch-off takes effect
+ * no sooner than this, after which the buyer can take the deposit back.
+ */
+export const UNCLAIMED_WARN_MS = HOUR;
 
 export class MerchantJobs {
   private queue: Promise<unknown> = Promise.resolve();
@@ -302,6 +308,15 @@ export class MerchantJobs {
     }
     const stale = new Set(notTakenIn.filter((p) => now - p.receivedAt >= NOT_TAKEN_IN_WARN_MS).map((p) => p.paymentRef));
     if (stale.size > 0) warnings.push(`${stale.size} stored payment(s) have not been taken into the wallet for over an hour.`);
+    const overdue = await this.overdueClaims(claims.filter((c) => c.status === "pending"), now);
+    if (overdue.length > 0) {
+      const lastError = overdue.map((c) => c.lastError).find((e) => e !== undefined);
+      warnings.push(
+        `${overdue.length} split deposit(s) served over ${hours(UNCLAIMED_WARN_MS)} ago are still unclaimed` +
+          (lastError ? ` (last error: ${lastError})` : "") +
+          ": if the merchant is switched off, the buyers can take them back.",
+      );
+    }
     if (splitClaims.failed > 0) warnings.push(`${splitClaims.failed} split deposit(s) no longer verify on L1 and were served unpaid.`);
     if (splitClaims.consumedUnknown > 0) {
       warnings.push(`${splitClaims.consumedUnknown} split deposit(s) were consumed by someone else: check the balance.`);
@@ -314,6 +329,20 @@ export class MerchantJobs {
       splitClaims,
       warnings,
     };
+  }
+
+  /**
+   * Pending claims served at least {@link UNCLAIMED_WARN_MS} ago, the most
+   * recently updated first. A claim is stored with its reference's served
+   * mark, which says when; a mark already swept means a very old claim.
+   */
+  private async overdueClaims(pending: StoredSplitClaim[], now: number): Promise<StoredSplitClaim[]> {
+    const overdue: StoredSplitClaim[] = [];
+    for (const c of pending) {
+      const mark = await this.opts.store.served(c.paymentRef);
+      if (!mark || now - mark.at >= UNCLAIMED_WARN_MS) overdue.push(c);
+    }
+    return overdue.sort((a, b) => b.updatedAt - a.updatedAt);
   }
 
   /** The leader logs what needs a person; the others stay quiet, so each warning is logged once. */

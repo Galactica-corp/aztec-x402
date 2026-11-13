@@ -370,6 +370,34 @@ describe("merchant jobs", () => {
     expect((await jobs.status()).warnings.some((w) => w.includes("after 26 h"))).toBe(true);
   });
 
+  test("warn about split claims still pending an hour after serving, naming the last error", async () => {
+    const store = memoryStateStore();
+    let t = Date.now();
+    const jobs = new MerchantJobs({ store, receive: async () => ({ isValid: true }), now: () => t });
+    // Stored with its served mark, as the middleware does.
+    await store.markServed(H("01"), "nonce-1", { splitClaim: { ...pending(H("01")), lastError: "SponsorUnavailableError: busy" } });
+    const unclaimed = (w: string) => w.includes("still unclaimed");
+
+    t += 10 * 60_000; // a claim minutes old is normal
+    expect((await jobs.status()).warnings.filter(unclaimed)).toEqual([]);
+
+    t += 2 * 3600_000;
+    const [warning] = (await jobs.status()).warnings.filter(unclaimed);
+    expect(warning).toContain("1 split deposit(s) served over 1 h ago");
+    expect(warning).toContain("last error: SponsorUnavailableError: busy");
+
+    // Claimed after all: nothing left to warn about.
+    await store.updateSplitClaim(H("01"), { status: "claimed" });
+    expect((await jobs.status()).warnings.filter(unclaimed)).toEqual([]);
+  });
+
+  test("count a pending claim whose served mark was swept as overdue", async () => {
+    const store = memoryStateStore();
+    await store.saveSplitClaim(pending(H("02")));
+    const jobs = new MerchantJobs({ store, receive: async () => ({ isValid: true }) });
+    expect((await jobs.status()).warnings.some((w) => w.includes("1 split deposit(s) served over 1 h ago are still unclaimed"))).toBe(true);
+  });
+
   test("run one job at a time", async () => {
     const store = memoryStateStore();
     await storeWithProof(store);
