@@ -14,37 +14,28 @@ Sentry.init({
   tracesSampleRate: 1.0,
 });
 
-import { createNodeClient, TokenRegistry } from "@galactica-net/x402-agent/aztec";
-import { createPXEWallet } from "./pxe-wallet.js";
-import { readFileSync } from "fs";
-import { join, dirname } from "path";
-import { loadKeys, loadAccount, setupSponsoredPayment } from "./wallet-manager.js";
-import { shouldEnableProver } from "./network-config.js";
+import { existsSync, readFileSync, renameSync, writeFileSync } from "fs";
+import { join } from "path";
+import { createMerchant } from "@galactica-net/x402-agent/aztec";
+import { parseManifest } from "@galactica-net/inference-money-core";
+import { merchantNetwork } from "./network-config.js";
+import { loadKeys, merchantKeys } from "./wallet-manager.js";
 
 const USE_SPONSORED_FPC = process.env.USE_SPONSORED_FPC === "true";
 
 import { AztecNetworkSchema, type AztecNetwork } from "@galactica-net/x402-core";
-import { ExactAztecFacilitatorScheme } from "@galactica-net/x402-mechanism/exact/facilitator";
-import { createPaymentMiddleware } from "@galactica-net/x402-middleware";
-import type {
-  MiddlewareRequest,
-  MiddlewareResponse,
-  NextFunction,
-  RoutesConfig,
-} from "@galactica-net/x402-middleware";
-import { RealFacilitatorAztecSigner } from "./facilitator-signer.js";
+import type { MiddlewareRequest, MiddlewareResponse, NextFunction } from "@galactica-net/x402-middleware";
 import {
   X402_ACHIEVEMENT_CONTENT_TYPE,
   X402_ACHIEVEMENT_SKILL,
 } from "../skills/x402-achievement.js";
+import { DATA_DIR } from "./data-dir.js";
 
 const PORT = 4402;
 const PRICE_AMOUNT = "10000"; // $0.01 with 6 decimals
 const ACHIEVEMENT_PATH = "/api/buy-x402-achievement";
 
 // Load deployment config
-const __dirname = dirname(new URL(import.meta.url).pathname);
-const DATA_DIR = process.env.DATA_DIR ?? __dirname;
 const CONFIG_PATH = join(DATA_DIR, "deploy.json");
 const KEYS_PATH = join(DATA_DIR, "keys.json");
 
@@ -61,80 +52,84 @@ try {
   process.exit(1);
 }
 
-const NODE_URL = config.nodeUrl;
+const PORT_ENV = process.env.PORT ? Number(process.env.PORT) : undefined;
 const NETWORK = parseAztecNetwork(config.network);
 const TOKEN_ADDRESS = config.tokenAddress;
 const TOKEN_SYMBOL = config.tokenSymbol ?? "tokens";
-const SERVER_ADDRESS = config.bobAddress;
-const proverEnabled = shouldEnableProver(NETWORK);
 
-// Connect to Aztec
-console.log(`Connecting to Aztec node at ${NODE_URL}...`);
-const node = createNodeClient(NODE_URL);
-const wallet = await createPXEWallet(node, {
-  ephemeral: true,
-  pxe: { proverEnabled },
+// The wallet's store was `server-pxe` before createMerchant kept it at `pxe`: move it once, with its notes.
+if (existsSync(join(DATA_DIR, "server-pxe")) && !existsSync(join(DATA_DIR, "pxe"))) {
+  renameSync(join(DATA_DIR, "server-pxe"), join(DATA_DIR, "pxe"));
+}
+
+// Bob is the merchant. The token is whatever setup put in deploy.json; its kind is read from the chain.
+console.log(`Connecting to Aztec node at ${config.nodeUrl}...`);
+const merchant = await createMerchant({
+  network: merchantNetwork(NETWORK, config.nodeUrl),
+  keys: await merchantKeys(loadKeys(KEYS_PATH), "bob"),
+  token: TOKEN_ADDRESS,
+  dataDir: DATA_DIR,
+  sponsoredFees: USE_SPONSORED_FPC,
+  l1RpcUrl: process.env.L1_RPC_URL ?? config.l1RpcUrl,
+  manifest: config.manifestPath ? parseManifest(JSON.parse(readFileSync(config.manifestPath, "utf-8"))) : undefined,
+  secret: process.env.X402_REF_SECRET ? Buffer.from(process.env.X402_REF_SECRET.replace(/^0x/, ""), "hex") : undefined,
+  noSplit: process.env.SPLIT === "off",
+  finalizedAbove: process.env.SPLIT_FINALIZED_ABOVE ? BigInt(process.env.SPLIT_FINALIZED_ABOVE) : undefined,
+  claimPollMs: process.env.X402_CLAIM_POLL_MS ? Number(process.env.X402_CLAIM_POLL_MS) : undefined,
 });
+const SERVER_ADDRESS = merchant.address.toString();
+console.log(`Server address: ${SERVER_ADDRESS}`);
+console.log(`Charging in token ${TOKEN_ADDRESS} (${merchant.token.kind}); payment modes: ${merchant.modes.join(", ")}`);
+testHooks(merchant.signer);
 
-// Get Bob's wallet (the server/facilitator)
-const keys = loadKeys(KEYS_PATH);
-const bobAccount = await loadAccount(wallet, keys, "bob");
-const bob = bobAccount.address;
-console.log(`Server address: ${bob}`);
-
-const paymentMethod = USE_SPONSORED_FPC
-  ? await setupSponsoredPayment(wallet)
-  : undefined;
-const fee = paymentMethod ? { paymentMethod } : undefined;
-
-// The token is whatever setup put in deploy.json; its kind is read from the chain.
-const tokens = new TokenRegistry({ node, wallet, account: bob, fee });
-const facilitatorSigner = new RealFacilitatorAztecSigner(bobAccount, node, tokens);
-const sellingIn = await tokens.get(TOKEN_ADDRESS);
-// Fail now, not at the first buyer, if this account may not charge in the token.
-await facilitatorSigner.assertCanSell(TOKEN_ADDRESS);
-console.log(`Charging in token ${TOKEN_ADDRESS} (${sellingIn.kind})`);
-const facilitator = new ExactAztecFacilitatorScheme(facilitatorSigner, [NETWORK]);
-await facilitator.initialize();
-
-// Configure payment-gated routes
-const routes: RoutesConfig = {
+// Payment-gated routes: the merchant fills in network, token, address and payment modes.
+const routes = {
   "/api/weather/:id": {
-    network: NETWORK,
-    asset: TOKEN_ADDRESS,
     amount: PRICE_AMOUNT,
-    payTo: SERVER_ADDRESS,
-    maxTimeoutSeconds: 600,
     description: "Current weather data — costs $0.01 per resource (real Aztec payment)",
   },
   [ACHIEVEMENT_PATH]: {
-    network: NETWORK,
-    asset: TOKEN_ADDRESS,
     amount: PRICE_AMOUNT,
-    payTo: SERVER_ADDRESS,
-    maxTimeoutSeconds: 600,
-    description:
-      "x402 Private Payments achievement skill (markdown) — costs $0.01 per unlock",
+    description: "x402 Private Payments achievement skill (markdown) — costs $0.01 per unlock",
   },
 };
+const middleware = merchant.middleware(routes);
 
-const middleware = createPaymentMiddleware(routes, { facilitator });
+/**
+ * Test-only: with X402_TEST_CRASH_BEFORE_TAKE_IN=<file>, the first ref payment
+ * makes the server exit after its proof is stored and before it is taken in
+ * (once: the file marks it done), so a restart must replay it.
+ */
+function testHooks(signer: typeof merchant.signer): void {
+  const marker = process.env.X402_TEST_CRASH_BEFORE_TAKE_IN;
+  if (!marker) return;
+  const receive = signer.receiveRefPayment.bind(signer);
+  signer.receiveRefPayment = async (...args) => {
+    if (!existsSync(marker)) {
+      writeFileSync(marker, "crashed\n");
+      console.log("TEST HOOK: exiting after storing a proof, before taking it in.");
+      process.exit(75);
+    }
+    return receive(...args);
+  };
+}
 
 // Bun.serve adapter (same as mock demo)
 async function handleRequest(req: Request): Promise<Response> {
   const url = new URL(req.url);
 
   if (url.pathname === "/" || url.pathname === "/health") {
-    return Promise.resolve(
-      Response.json({
-        status: "ok",
-        network: NETWORK,
-        tokenAddress: TOKEN_ADDRESS,
-        tokenKind: sellingIn.kind,
-        serverAddress: SERVER_ADDRESS,
-        gatedRoutes: Object.keys(routes),
-      }),
-    );
+    const jobs = await merchant.status();
+    return Response.json({
+      status: jobs.warnings.length === 0 ? "ok" : "warn",
+      network: NETWORK,
+      tokenAddress: TOKEN_ADDRESS,
+      tokenKind: merchant.token.kind,
+      paymentModes: merchant.modes,
+      serverAddress: SERVER_ADDRESS,
+      gatedRoutes: Object.keys(routes),
+      jobs,
+    });
   }
 
   return new Promise((resolve) => {
@@ -216,7 +211,7 @@ async function handleRequest(req: Request): Promise<Response> {
 }
 
 const server = Bun.serve({
-  port: PORT,
+  port: PORT_ENV ?? PORT,
   idleTimeout: 255,
   fetch: handleRequest,
   error(error) {

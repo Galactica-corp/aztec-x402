@@ -444,7 +444,7 @@ describe("ExactAztecFacilitatorScheme", () => {
         amountFound: 100_000n,
       });
       const retry = await shortScheme.verify(createPayload(), createRequirements());
-      expect(retry.invalidReason).not.toContain("payment verification in progress");
+      expect(retry.invalidReason ?? "").not.toContain("payment verification in progress");
     });
 
     it("consumes commitment after settlement", async () => {

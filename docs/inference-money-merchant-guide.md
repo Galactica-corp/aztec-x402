@@ -11,8 +11,8 @@ The SDK is [`@galactica-net/inference-money-core`](https://www.npmjs.com/package
 
 ## What changes and what does not
 
-Unchanged: the HTTP protocol (402, prepare, pay, retry), the middleware and the client packages, the route
-configuration, and how a payment is verified (the token's completion log). A buyer infers the token kind from the
+Unchanged for the commitment flow: the HTTP protocol (402, prepare, pay, retry), the middleware and the client
+packages, the route configuration, and how a payment is verified (the token's completion log). A buyer infers the token kind from the
 route's `asset`, so nothing extra goes into the 402.
 
 New for the merchant:
@@ -23,6 +23,13 @@ New for the merchant:
    If you have a front end, give it a deposit flow (below).
 3. **Each request takes exactly one payment.** A second payment into the same request is refused, so buyers keep a
    record of what they paid (the SDK's `PaymentGate`).
+4. **Two more ways to be paid** (section 2b), offered next to the commitment flow in the same 402:
+   - **`ref`, private amount.** The buyer makes a private transfer under a reference you hand out and gives you the
+     transaction's offchain messages with the retried request. Nothing on chain shows the amount or names you, and you
+     send no transaction per request. The trade-off: a payment depends on your server's data folder for a few hours,
+     until it is consolidated (automatically).
+   - **`split`, pay from Ethereum in one step.** The buyer makes one round-amount deposit on Ethereum that pays you the
+     price; you serve once it is two blocks deep and claim on Aztec in the background. The buyer collects the change.
 
 ## 1. Get your merchant account listed
 
@@ -54,10 +61,10 @@ the exact version the x402 packages pin:
 
 ```sh
 npm install @galactica-net/x402-agent @galactica-net/x402-mechanism @galactica-net/x402-middleware \
-  @galactica-net/inference-money-core@0.3.0
+  @galactica-net/inference-money-core@0.4.0
 ```
 
-The SDK pins its `@aztec-labs/*` dependencies exactly (`6.0.0-rc.3` for 0.3.0); use the same release everywhere in
+The SDK pins its `@aztec-labs/*` dependencies exactly (`6.0.0` for 0.4.0); use the same release everywhere in
 your server, or the two copies of the SDK disagree about artifacts and addresses. Never set `SEED` in a process that
 loads the SDK: importing it throws.
 
@@ -71,58 +78,152 @@ import { TESTNET_MANIFEST } from "@galactica-net/inference-money-core/deployment
 const USDC = TESTNET_MANIFEST.l2.token.address; // 6 decimals, like tUSDC
 ```
 
-| Testnet (Aztec 6.0.0-rc.3, SDK 0.3.0) | Address |
+| Testnet (Aztec 6.0.0, SDK 0.4.0) | Address |
 |---|---|
-| USDC (inference-money) | `0x23d496050d4e697a0c8960fdc54fbe4ec4cdbbfd8487d296ff7c79b90c950eb2` |
-| tUSDC (AIP-20, faucet) | `0x08b5c7a74699f9336cb31f42872d9f067f52aef34afe2d2eb34dd0c3e3b36358` |
-| Sponsored FPC (pays fees) | `0x2adfb70e860909f0db8268b3fec80bce52a94559963444f5c0341816b8412130` |
+| USDC (inference-money) | `0x2609810ea3dbc6b7da45970fcda8c60b2f33cf5d030cf7758075e1e14eb3ef44` |
+| tUSDC (AIP-20, faucet) | `0x27d92f6c4b7890ca4fca1487f2e042984c7427bd210bbc65a544237c11d61fff` |
+| Sponsored FPC (pays fees) | `0x2d8fff82a3b0c15d0a89169e7d8d043e079ab94d52031f1de1e4972ebad169d3` |
 | Sepolia USDC (Circle) | `0x1c7D4B196Cb0C7B01d743Fbc6116a902379C7238` |
 | Bridge on Sepolia: portal, router | `TESTNET_MANIFEST.l1.portal`, `TESTNET_MANIFEST.l1.router` |
 
-### Facilitator signer
+### The merchant server: `createMerchant`
 
-The facilitator opens requests through a `TokenRegistry`. The registry reads each `asset`'s contract class from the
-chain and picks the AIP-20 or inference-money adapter, so one signer serves both tokens. Copy
-`packages/demo/src/aztec/facilitator-signer.ts` into your server (about 60 lines; it isn't published). Then call
-`assertCanSell` for every asset at start:
-
-```ts
-import { createNodeClient, createPXEWallet, sponsoredFeePayment, TokenRegistry } from "@galactica-net/x402-agent/aztec";
-import { ExactAztecFacilitatorScheme } from "@galactica-net/x402-mechanism/exact/facilitator";
-import { RealFacilitatorAztecSigner } from "./facilitator-signer.js";
-
-const node = createNodeClient("https://aztec-testnet.drpc.org"); // not createAztecNodeClient: see below
-const wallet = await createPXEWallet(node, { pxe: { proverEnabled: true } });
-const merchant = /* your listed account, loaded into `wallet` as today */;
-const fee = { paymentMethod: await sponsoredFeePayment(wallet) };
-
-const tokens = new TokenRegistry({ node, wallet, account: merchant.address, fee });
-const signer = new RealFacilitatorAztecSigner(merchant, node, tokens);
-for (const asset of [USDC /*, TUSDC */]) await signer.assertCanSell(asset); // throws merchant_not_listed
-const facilitator = new ExactAztecFacilitatorScheme(signer, ["aztec:testnet"]);
-await facilitator.initialize();
-```
-
-Always create node clients with `createNodeClient`. On the public dRPC testnet host it caps JSON-RPC batches at the
-host's limit; without the cap, proving fails there.
-
-### Routes
-
-A 402 offers a single asset, so a route charges in exactly one token. You have two options:
-
-- **Inference-money USDC only:** set every route's `asset` to `USDC`.
-- **Both tokens:** give each token its own route, and let the client pick the route. Both can pay the same `payTo`.
+One call sets up everything the server needs: your account in a persistent wallet, the facilitator (through a
+`TokenRegistry`, which reads the token's kind from the chain), the payment store, the background jobs, and split
+payments when you give it an Ethereum RPC. It checks at start that your account may sell in the token
+(`merchant_not_listed` otherwise), so a misconfigured server fails then and not at the first buyer.
 
 ```ts
-const routes: RoutesConfig = {
-  "/api/usdc/infer": { network: "aztec:testnet", asset: USDC, amount: "10000", payTo: MERCHANT, maxTimeoutSeconds: 600 },
-  "/api/tusdc/infer": { network: "aztec:testnet", asset: TUSDC, amount: "10000", payTo: MERCHANT, maxTimeoutSeconds: 600 },
-};
-app.use(createPaymentMiddleware(routes, { facilitator }));
+import { createMerchant } from "@galactica-net/x402-agent/aztec";
+import { TESTNET_MANIFEST } from "@galactica-net/inference-money-core/deployments";
+
+const merchant = await createMerchant({
+  network: "testnet",                       // or "local"; nodeUrl overrides the node
+  keys: { secretKey, signingKey, salt },    // your listed account; type: "schnorr_initializerless" if it is one
+  token: TESTNET_MANIFEST.l2.token.address,
+  dataDir: "/var/lib/x402",                 // must survive restarts and redeploys (below)
+  l1RpcUrl: process.env.L1_RPC_URL,         // optional: turns on split payments
+});
+
+app.use(merchant.middleware({
+  "/api/infer": { amount: "10000" },        // base units: 10000 is $0.01 (6 decimals)
+  "/api/summary": { amount: "50000", description: "A summary" },
+}));
 ```
 
-`amount` is in base units (6 decimals: `10000` is $0.01). Allow enough `maxTimeoutSeconds` for the buyer to prove on
-their device; the demo uses 600 on testnet.
+A route needs only `amount`. The merchant fills in `network`, `asset` (the token), `payTo` (your address), `modes` (every
+payment the token supports, most private first) and `maxTimeoutSeconds` (600, enough for a buyer to prove on their
+device). Anything a route sets wins. `merchant.middleware()` returns the framework-agnostic middleware from
+`@galactica-net/x402-middleware`; `merchant.routes()` returns the filled-in routes if you build it yourself.
+
+A 402 offers a single asset, so a route charges in exactly one token. To accept AIP-20 and the inference-money USDC
+side by side, create one merchant per token (each with its own `dataDir`) and give each token its own routes; both can
+use the same account.
+
+The node client comes from `createNodeClient`: on the public dRPC testnet host it caps JSON-RPC batches at the host's
+limit; without the cap, proving fails there. If you build anything yourself, use it too, not `createAztecNodeClient`.
+
+## 2b. Private amounts and payment from Ethereum (ref and split)
+
+The commitment flow publishes each payment's amount, and with public prices the amount names you. `ref` payments hide
+it; `split` payments let a buyer without USDC on Aztec pay in one Ethereum transaction. `createMerchant` offers both for
+the inference-money USDC (`split` only with `l1RpcUrl`), next to the commitment flow, with nothing more to set up.
+
+A route's `modes` lists the payments to offer, most private first. Each offered mode gets its own `accepts` entry, all
+on one nonce; `extra.mode` tells them apart. A client that does not know `extra.mode` takes the first entry and runs the
+commitment flow on its nonce, so existing clients keep working. `split` is offered only while your listing has landed
+and no switch-off is scheduled.
+
+A mode you leave out is never offered or accepted. Leave out `commitment` and no payment shows its amount on chain, but
+clients that only know the commitment flow cannot pay you. When none of your listed modes is available (say `split`
+alone while a switch-off is scheduled), the 402 has no `accepts` entries and says so in `error`.
+
+### What runs in the background
+
+`createMerchant` starts these jobs; you don't call anything:
+
+- **Taking in payments stored before a crash.** The middleware stores every proof before acting on it. At start, a
+  proof that was stored but never taken into the wallet is taken in (possible within 26 h of the buyer's transaction,
+  the offchain-message lifetime).
+- **Consolidation.** A `ref` payment's note reaches you offchain, inside the proof, so until you consolidate it exists
+  only in your data folder. Consolidation merges your notes into one note you send yourself on chain, recoverable from
+  your keys alone. It runs at start and every 6 h (`consolidateEveryMs`), each time only if a payment came in since the
+  last one, and first takes in every proof since then. A failed run is retried within minutes.
+- **Claiming split deposits.** Once a switch-off of yours takes effect, buyers can take back deposits you have not
+  claimed, so the job claims each served deposit as soon as it can, retrying with backoff and rebuilding a claim an
+  Ethereum reorg moved. A claim it marks `failed` (the deposit no longer verifies on L1) was served unpaid.
+
+### Your part
+
+- **Keep your account keys safe.** They recover every consolidated payment.
+- **Keep `dataDir` on storage that survives restarts and redeploys**, such as a mounted volume, never a container's
+  own filesystem. It holds your wallet's store (`pxe/`) and the payment store (`x402-state.sqlite`). What depends on
+  it is short-lived: the payments since the last consolidation (hours), unclaimed split deposits, and which references
+  were served. Losing the whole disk loses at most those; a backup routine adds little. If only half of the folder
+  comes back, `createMerchant` says so at start: with the payment store but not the wallet's, the payments since the
+  last consolidation are taken in again from their proofs (within 26 h); with the wallet's store but not the payment
+  store, served references and pending split claims are lost.
+- **Watch `merchant.status()`**, for example from your health check. It reports whether this instance runs the jobs,
+  the last consolidation, how many payments wait for one and since when, stored proofs not taken in yet, and split
+  claims by state. Its `warnings` are empty when nothing needs you; the jobs also log each warning hourly. A payment
+  that has waited 12 h for consolidation is a warning, 20 h an error (after 26 h it can't be restored from its proof).
+- **Choose your split confirmation depth.** A deposit is served at 2 blocks (about 24 s). Until your claim lands, a
+  reorg or a bridge pause risks the price of that request. `finalizedAbove` makes prices at or above it wait for L1
+  finality.
+
+A deposit made before your listing landed could be returned to the buyer after you served it, so `createMerchant`
+reads your listing's block time at start and refuses such deposits (`before-listing`).
+
+### Several server instances
+
+Each instance needs its own `dataDir`: a wallet's store belongs to one process. The instances share one payment
+store, so a buyer is served once whichever instance they reach (serving a reference is atomic in the store). On one
+host, open the same SQLite file in each and pass it as `store`:
+
+```ts
+const merchant = await createMerchant({ ...options, dataDir: `/var/lib/x402/instance-${id}`,
+  store: sqliteStateStore("/var/lib/x402/payments.sqlite") });
+```
+
+The background jobs run in one instance at a time: a lease in the store picks it, and another instance takes over
+within a minute when it stops or hangs. Its consolidation first takes in every payment since the last one, so notes
+another instance took in are merged too.
+
+Across hosts, SQLite is not safe (not over a network filesystem either): pass a `PaymentStateStore` on a shared
+database instead, and the lease and served marks work the same way.
+
+On SIGTERM and SIGINT the merchant stops its jobs (so a deploy doesn't cut a consolidation in half), hands the lease
+on, and then lets the process exit as usual. Turn this off with `handleSignals: false` and call `merchant.stop()`
+yourself.
+
+### The reference secret
+
+References are an HMAC of the nonce, the route and the quoted price under a secret, so a 402 writes nothing. By default the
+secret is derived from your account's secret key: the same on every instance, and nothing to store. A server that
+already has an `x402-ref-secret` file in `dataDir` keeps using it, so quotes it already issued stay valid. Pass
+`secret` (≥ 32 bytes) to choose your own; it must then be the same on every instance and kept across restarts.
+
+### Manual wiring
+
+`createMerchant` is built from parts you can use directly, for a custom store or wallet setup:
+`AztecFacilitatorSigner` (the facilitator signer), `SplitMerchant` (split terms, verification and claims),
+`MerchantJobs` (the background jobs, with `status()`), all from `@galactica-net/x402-agent/aztec`, and
+`sqliteStateStore`/`createPaymentMiddleware` from `@galactica-net/x402-middleware`. `packages/agent/src/aztec/merchant.ts`
+shows how they fit together. A custom `PaymentStateStore` implements the interface in `@galactica-net/x402-core`,
+including the consolidation record (`takenInSince`, `refProofs`, `consolidatedAt`, `markConsolidated`) and the lease
+(`acquireLease`, `releaseLease`); the store suite in `packages/middleware/src/__tests__/sqlite-store.test.ts` is the
+behaviour to match.
+
+### Refusals your server sends (402)
+
+| `error` | Retry? | Meaning |
+|---|---|---|
+| `invalid payment reference` | no | The reference is not this server's for that nonce and price (a replay for another request, a lowered price) |
+| `invalid or expired payment nonce` | no | More than the quote's timeout plus 26 h old |
+| `payment already used` | no | This reference was served already. A reference is served once, also to the buyer who paid it: if your response did not reach the buyer, it cannot fetch it again with the same payment |
+| `another payment under this reference was served` | no | A valid payment, but the reference was served to a different one first (someone else who saw the 402 paid it). You keep both payments and serve one: a ref note is already in your wallet; a split deposit you do not claim is claimed by its buyer's agent to release the change, which pays you the price too |
+| `… not-mined` / `… unconfirmed` (with `retryable: true`) | yes, same payload | The transaction is not mined yet, or the deposit is not deep enough |
+| `… underpaid` / `no-payment` / `foreign` / `not-found` / `before-listing` | no | The proof does not pay this request |
 
 ## 3. Buyer changes (x402 clients you ship)
 
@@ -143,6 +244,13 @@ const wallet = gate ? await gate.bindWallet(create) : await create(node);
 const tokens = new TokenRegistry({ node, wallet, account: buyer.address, fee, paymentGate: gate });
 const fetchWithPayment = wrapFetchWithPayment(fetch, new ExactAztecClientScheme(new RealClientAztecSigner(buyer, tokens)));
 ```
+
+`RealClientAztecSigner` also pays `ref` offers (`payPrivate`). `ExactAztecClientScheme` picks the first entry its
+signer can pay. **Persist the proof before sending it**: pass `onPayload` to `wrapFetchWithPayment` and store the payload.
+If the response is lost, send the same payload again with `sendPayment` (never pay again: the gate refuses a second
+payment of one reference). A `split` offer is paid by a client with an L1 wallet; `packages/demo/src/aztec/split-buyer.ts`
+shows it, and the agent CLI has `pay --from-ethereum`. A buyer checks the offer's `chainId` and `portal` against its
+own manifest, and deposits a round amount, never the bare price.
 
 The signer checks `payTo` before asking you to prepare: an unlisted payee is refused with `merchant_not_listed`.
 Nothing is opened or paid in that case. The `aztec-x402` agent CLI does all of this already. `PXEWallet` builds on
@@ -222,8 +330,9 @@ All refusal strings: "Refusals" in the [integration doc](https://github.com/Gala
 
 ## 6. Privacy notes for merchants
 
-- **Your prices are public, so the amount of a payment usually identifies you as its recipient.** Avoid unique
-  prices if that matters to you.
+- **Your prices are public, so the amount of a commitment payment usually identifies you as its recipient.** Offer
+  `ref` first: it shows no amount and does not name you. A `split` deposit shows the buyer's Ethereum address and a
+  round amount, never you or the price.
 - **Use the sponsor for fees** (as above). An account that pays its own fees is named as fee payer in public.
 - **Keep request commitments out of logs and URLs.** Anyone who knows a commitment can tell whether it was paid and
   by which account.
@@ -238,8 +347,10 @@ The full list: "What each action makes public" in the integration doc.
 - [ ] Receiving account deployed, bound to your treasury, and listed by the merchant admin.
 - [ ] `@galactica-net/inference-money-core` and `@aztec-labs/*` pinned to the versions the x402 packages use; no `SEED`.
 - [ ] USDC address read from `TESTNET_MANIFEST`; one route per token.
-- [ ] Facilitator signer through `TokenRegistry`; `assertCanSell` for every asset at start; `createNodeClient`.
+- [ ] The server built with `createMerchant` (one merchant per token), routes through `merchant.middleware()`.
 - [ ] Buyers you ship pay through a `PaymentGate` with a persistent store.
+- [ ] `dataDir` on storage that survives restarts and redeploys; `merchant.status()` in your health check; an L1 RPC
+  for split.
 - [ ] Front end: deposit with stored drafts and tickets, binding consent, claim with progress and recovery.
-- [ ] Tested on a local network first: `bun run setup:sandbox:inference` and `bun run e2e:sandbox` in this
-  repository ([readme](../readme.md)).
+- [ ] Tested on a local network first: `bun run setup:sandbox:inference`, then `bun run e2e:sandbox`,
+  `bun run e2e:split`, `bun run e2e:http` and `bun run e2e:instances` in this repository ([readme](../readme.md)).

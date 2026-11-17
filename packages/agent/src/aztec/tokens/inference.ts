@@ -20,18 +20,23 @@ import { Fr } from "@aztec-labs/aztec.js/fields";
 import type { AztecNode } from "@aztec-labs/aztec.js/node";
 import {
   PaymentGate,
+  PaymentProofRefusedError,
   PaymentRefusedError,
+  consolidate,
   memoryPaymentStore,
   merchantStatus,
   openRequest,
+  payPrivate,
   payRequest,
+  receivePayment,
   syncMerchantList,
   tokenArtifact,
   tokenRefusalOf,
   type MerchantList,
+  type PaymentFee,
   type PaymentStore,
 } from "@galactica-net/inference-money-core";
-import type { PrepareCommitmentResult } from "@galactica-net/x402-core";
+import type { ModeVerification, PrepareCommitmentResult, RefPaymentProof } from "@galactica-net/x402-core";
 import { unwrapAztecSdkResult } from "@galactica-net/x402-core";
 import { TokenRefusedError } from "../../errors.js";
 import type { TokenAdapter, TokenContext } from "./adapter.js";
@@ -66,8 +71,13 @@ export class InferenceMoneyToken implements TokenAdapter {
   /** Synced before every use: sides are judged at the list's block, so a kept list goes stale. */
   private readonly syncList = (): Promise<MerchantList> => syncMerchantList(this.ctx.node, this.address);
 
+  /** The sponsor when the session has one; otherwise the account pays from its own Fee Juice (named as the fee payer). */
+  private get fee(): PaymentFee {
+    return this.ctx.fee ?? "account-public";
+  }
+
   private get listOptions() {
-    return { resync: this.syncList, fee: this.ctx.fee };
+    return { resync: this.syncList, fee: this.fee };
   }
 
   async assertCanSell(): Promise<void> {
@@ -124,6 +134,45 @@ export class InferenceMoneyToken implements TokenAdapter {
     } catch (error) {
       throw asTokenError(error);
     }
+  }
+
+  async payPrivate(payTo: AztecAddress, amount: bigint, paymentRef: string): Promise<RefPaymentProof> {
+    const gate = this.ctx.paymentGate;
+    if (!gate) {
+      throw new Error("Paying in the inference-money token needs a wallet built through createPaymentGate().");
+    }
+    try {
+      return await payPrivate(
+        gate,
+        this.ctx.wallet,
+        this.address,
+        { from: this.ctx.account, to: payTo, amount, paymentRef: Fr.fromHexString(paymentRef) },
+        { list: await this.syncList(), ...this.listOptions },
+      );
+    } catch (error) {
+      throw asTokenError(error);
+    }
+  }
+
+  async receivePayment(proof: RefPaymentProof, expected: { paymentRef: string; price: bigint }): Promise<ModeVerification> {
+    try {
+      const received = await receivePayment(this.ctx.wallet, this.ctx.node, this.address, this.ctx.account, proof, {
+        paymentRef: Fr.fromHexString(expected.paymentRef),
+        price: expected.price,
+      });
+      return { isValid: true, amountFound: received.amount, transaction: received.txHash.toString() };
+    } catch (error) {
+      if (error instanceof PaymentProofRefusedError) {
+        // Not mined yet: the same proof verifies later. Every other refusal is final for this proof.
+        return { isValid: false, reason: error.reason, error: error.message, retryable: error.reason === "not-mined" };
+      }
+      throw error;
+    }
+  }
+
+  async consolidate(): Promise<string | undefined> {
+    const txHash = await consolidate(this.ctx.wallet, this.ctx.node, this.address, this.ctx.account, { fee: this.fee });
+    return txHash?.toString();
   }
 
   async privateBalance(): Promise<bigint> {

@@ -2,10 +2,15 @@ import {
   type FacilitatorAztecSigner,
   type AztecNetwork,
   type ExactAztecPayload,
+  type ModeVerification,
+  type PaymentMode,
   SCHEME,
   CAIP_FAMILY,
+  RefAztecPayloadSchema,
+  SplitAztecPayloadSchema,
   isValidAztecAddress,
   parseAztecPaymentExtra,
+  payloadMode,
 } from "@galactica-net/x402-core";
 import type {
   SchemeNetworkFacilitator,
@@ -15,6 +20,7 @@ import type {
   SettleResponse,
   FacilitatorContext,
   Network,
+  PaymentOffer,
 } from "../../x402-types.js";
 
 /**
@@ -182,11 +188,44 @@ export class ExactAztecFacilitatorScheme implements SchemeNetworkFacilitator {
     return extra;
   }
 
+  /**
+   * The `accepts` entries to offer for one 402: `ref` when the signer takes
+   * private payments in `asset`, `split` when it also has split terms for
+   * this price now, and `commitment` always.
+   */
+  async offerPayment(
+    asset: string,
+    price: string,
+    modes: ReadonlyArray<PaymentMode>,
+    paymentRef: string,
+  ): Promise<PaymentOffer> {
+    const available = this.signer.paymentModes
+      ? new Set(await this.signer.paymentModes(asset, [...modes]))
+      : new Set<PaymentMode>(["commitment"]);
+    const offers: PaymentOffer["offers"] = [];
+    for (const mode of modes) {
+      if (!available.has(mode)) continue;
+      if (mode === "commitment") {
+        offers.push({ mode, extra: { mode } });
+      } else if (mode === "ref" && this.signer.receiveRefPayment) {
+        offers.push({ mode, extra: { mode, paymentRef } });
+      } else if (mode === "split" && this.signer.verifySplitDeposit && this.signer.splitTerms) {
+        const terms = await this.signer.splitTerms(asset, BigInt(price));
+        if (terms) offers.push({ mode, extra: { mode, paymentRef, ...terms } });
+      }
+    }
+    return { offers };
+  }
+
   async verify(
     payload: PaymentPayload,
     requirements: PaymentRequirements,
     _context?: FacilitatorContext,
   ): Promise<VerifyResponse> {
+    const mode = payloadMode(payload.payload);
+    if (mode === "ref" || mode === "split") {
+      return this.verifyMode(mode, payload, requirements);
+    }
     const aztecPayload = parseAztecPayload(payload.payload);
     const extra = parseAztecPaymentExtra(requirements.extra);
     const commitment = extra.commitment;
@@ -327,11 +366,78 @@ export class ExactAztecFacilitatorScheme implements SchemeNetworkFacilitator {
     }
   }
 
+  /**
+   * Verifies a `ref` or `split` payment against the reference and price in
+   * `requirements` (set by the server from what it issued, not from the
+   * client). Whether the reference was served already is the server's to
+   * track: this only checks the payment.
+   */
+  private async verifyMode(
+    mode: "ref" | "split",
+    payload: PaymentPayload,
+    requirements: PaymentRequirements,
+  ): Promise<VerifyResponse> {
+    const fail = (reason: string, message: string, retryable = false): VerifyResponse => ({
+      isValid: false,
+      invalidReason: reason,
+      invalidMessage: message,
+      ...(retryable ? { extensions: { retryable: true } } : {}),
+    });
+    const paymentRef = parseAztecPaymentExtra(requirements.extra).paymentRef;
+    if (!paymentRef) return fail("missing payment reference", "The server issued no reference for this payment.");
+    const expected = { paymentRef, price: BigInt(requirements.amount) };
+
+    let result: ModeVerification;
+    try {
+      if (mode === "ref") {
+        if (!this.signer.receiveRefPayment) return fail("unsupported mode", "This facilitator takes no ref payments.");
+        const parsed = RefAztecPayloadSchema.safeParse(payload.payload);
+        if (!parsed.success) return fail("malformed", "Ref payment payload is malformed.");
+        if (parsed.data.paymentRef !== paymentRef) return fail("malformed", "The proof names another reference.");
+        const { mode: _mode, ...proof } = parsed.data;
+        result = await this.signer.receiveRefPayment(requirements.asset, proof, expected);
+      } else {
+        if (!this.signer.verifySplitDeposit) return fail("unsupported mode", "This facilitator takes no split payments.");
+        const parsed = SplitAztecPayloadSchema.safeParse(payload.payload);
+        if (!parsed.success) return fail("malformed", "Split payment payload is malformed.");
+        if (parsed.data.paymentRef !== paymentRef || BigInt(parsed.data.price) !== expected.price) {
+          return fail("malformed", "The proof names other terms than this payment's.");
+        }
+        const { mode: _mode, ...proof } = parsed.data;
+        result = await this.signer.verifySplitDeposit(requirements.asset, proof, expected);
+      }
+    } catch (error) {
+      // An unexpected failure (node down, RPC error) says nothing about the payment: let the buyer retry.
+      const message = error instanceof Error ? error.message : String(error);
+      return fail(`verification error: ${message}`, `Failed to verify payment: ${message}`, true);
+    }
+
+    if (!result.isValid) {
+      const reason = result.reason ?? "payment verification failed";
+      return fail(reason, `Payment verification failed: ${result.error ?? reason}`, result.retryable === true);
+    }
+    const extensions: Record<string, unknown> = {};
+    if (result.splitClaim) extensions.splitClaim = result.splitClaim;
+    if (result.transaction) extensions.transaction = result.transaction;
+    if (result.amountFound !== undefined) extensions.amountFound = result.amountFound.toString();
+    return { isValid: true, extensions };
+  }
+
   async settle(
     payload: PaymentPayload,
     requirements: PaymentRequirements,
     _context?: FacilitatorContext,
   ): Promise<SettleResponse> {
+    const mode = payloadMode(payload.payload);
+    if (mode === "ref" || mode === "split") {
+      // Settled when paid: the server's store tracks what was served.
+      const tx = mode === "ref" ? payload.payload.txHash : payload.payload.l1TxHash;
+      return {
+        success: true,
+        transaction: typeof tx === "string" ? tx : "",
+        network: requirements.network,
+      };
+    }
     const aztecPayload = parseAztecPayload(payload.payload);
 
     // Consume the commitment and txHash

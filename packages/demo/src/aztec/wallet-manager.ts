@@ -18,6 +18,8 @@ import { NO_FROM } from "@aztec-labs/aztec.js/account";
 import { TxStatus } from "@aztec-labs/aztec.js/tx";
 import { getInitialTestAccountsData } from "@aztec-labs/accounts/testing";
 import type { AztecNode } from "@aztec-labs/aztec.js/node";
+import { computeSiloedPrivateInitializationNullifier } from "@aztec-labs/stdlib/hash";
+import { MerkleTreeId } from "@aztec-labs/stdlib/trees";
 import { paymentGateFor } from "@galactica-net/x402-agent/aztec";
 import { createPXEWallet, type PXEWallet } from "./pxe-wallet.js";
 import type { AccountManager } from "@aztec-labs/aztec.js/wallet";
@@ -166,6 +168,13 @@ export async function setupSponsoredPayment(
   return new SponsoredFeePaymentMethod(sponsoredFPC.address);
 }
 
+/** A demo account's keys as `createMerchant` takes them, with the account contract it uses. */
+export async function merchantKeys(keys: StoredKeys, who: "alice" | "bob") {
+  const k = keys[who];
+  const type = (await isGenesisTestAccount(k)) ? ("schnorr_initializerless" as const) : ("schnorr" as const);
+  return { secretKey: k.secretKey, signingKey: k.signingKey, salt: k.salt, address: k.address, type };
+}
+
 async function createAccountFromKeys(
   wallet: PXEWallet,
   keys: StoredKeys,
@@ -181,6 +190,18 @@ async function createAccountFromKeys(
     return wallet.createSchnorrInitializerlessAccount(secretKey, salt, signingKey);
   }
   return wallet.createSchnorrAccount(secretKey, salt, signingKey);
+}
+
+/**
+ * Whether an account contract was deployed. Its instance is not published (the
+ * node's `getContract` does not know it), but its constructor always emits the
+ * private initialization nullifier.
+ */
+async function isAccountDeployed(node: AztecNode, account: AccountManager): Promise<boolean> {
+  const instance = await account.getInstance();
+  const nullifier = await computeSiloedPrivateInitializationNullifier(instance.address, instance.initializationHash);
+  const [index] = await node.findLeavesIndexes("latest", MerkleTreeId.NULLIFIER_TREE, [nullifier]);
+  return index !== undefined || (await node.getContract(instance.address)) !== undefined;
 }
 
 /**
@@ -213,8 +234,7 @@ export async function deployAccounts(
     if (genesis) {
       console.log(`  ${name} registered (genesis-funded) at ${account.address}`);
     } else {
-      const onChain = await node.getContract(account.address);
-      if (onChain) {
+      if (await isAccountDeployed(node, account)) {
         console.log(`  ${name} already deployed on-chain — skipping.`);
       } else {
         console.log(`  Deploying ${name} account...`);

@@ -63,4 +63,4 @@ Because the current stable tx effects do not expose a public commitment-to-note-
 - Main flow: `readme.md`
 - Middleware nonce/prepare lifecycle: `packages/middleware/src/middleware.ts`
 - Facilitator commitment binding: `packages/mechanism/src/exact/facilitator/scheme.ts`
-- Real Aztec verifier: `packages/demo/src/aztec/facilitator-signer.ts`
+- Real Aztec verifier: `packages/agent/src/aztec/facilitator-signer.ts` (`AztecFacilitatorSigner`)

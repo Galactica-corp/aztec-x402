@@ -2,15 +2,16 @@
  * Real ClientAztecSigner — pays a merchant-opened request from the buyer's
  * account, in whichever supported token the challenge names.
  *
- * Flow:
+ * `ref` mode: payPrivate() pays under the merchant's reference and returns
+ * the proof to hand over. Commitment flow:
  * 1. Merchant returns { commitment, offchainMessage?, prepareTxHash }
  * 2. processOffchainMessage() registers the partial note where the token delivers it offchain
  * 3. finalizePayment() pays into the commitment
  *
  * The token-specific part of each step is in tokens/.
  */
-import type { ClientAztecSigner } from "@galactica-net/x402-core";
-import type { AztecAddress } from "@aztec-labs/aztec.js/addresses";
+import type { ClientAztecSigner, RefPaymentProof } from "@galactica-net/x402-core";
+import { AztecAddress } from "@aztec-labs/aztec.js/addresses";
 import type { TokenAdapter } from "./tokens/adapter.js";
 
 interface AztecAccount {
@@ -48,5 +49,11 @@ export class RealClientAztecSigner implements ClientAztecSigner {
   ): Promise<string> {
     const token = await this.tokens.get(tokenAddress);
     return token.pay(commitment, amount);
+  }
+
+  async payPrivate(tokenAddress: string, payTo: string, amount: bigint, paymentRef: string): Promise<RefPaymentProof> {
+    const token = await this.tokens.get(tokenAddress);
+    if (!token.payPrivate) throw new Error(`Token ${tokenAddress} (${token.kind}) takes no private payments under a reference.`);
+    return token.payPrivate(AztecAddress.fromStringUnsafe(payTo), amount, paymentRef);
   }
 }

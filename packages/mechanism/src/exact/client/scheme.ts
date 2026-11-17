@@ -1,6 +1,7 @@
 import {
   type ClientAztecSigner,
   SCHEME,
+  SplitTermsSchema,
   generateCorrelationId,
   parseAztecPaymentExtra,
 } from "@galactica-net/x402-core";
@@ -33,11 +34,29 @@ export class ExactAztecClientScheme implements SchemeNetworkClient {
     return this.signer.getAddress();
   }
 
+  /**
+   * The first entry this signer can pay: `ref` needs `payPrivate`, `split`
+   * needs `paySplit`, the commitment flow (no mode) is always payable.
+   */
+  selectRequirement(accepts: PaymentRequirements[]): PaymentRequirements | undefined {
+    return accepts.find((a) => {
+      if (a.scheme !== this.scheme) return false;
+      const mode = parseAztecPaymentExtra(a.extra).mode;
+      if (mode === "ref") return this.signer.payPrivate !== undefined;
+      if (mode === "split") return this.signer.paySplit !== undefined;
+      return true;
+    });
+  }
+
   async createPaymentPayload(
     x402Version: number,
     paymentRequirements: PaymentRequirements,
     _context?: PaymentPayloadContext,
   ): Promise<PaymentPayloadResult> {
+    const mode = parseAztecPaymentExtra(paymentRequirements.extra).mode;
+    if (mode === "ref") return this.payRef(x402Version, paymentRequirements);
+    if (mode === "split") return this.paySplit(x402Version, paymentRequirements);
+
     const senderAddress = await this.signer.getAddress();
     const correlationId = generateCorrelationId();
     const extra = parseAztecPaymentExtra(paymentRequirements.extra);
@@ -79,5 +98,25 @@ export class ExactAztecClientScheme implements SchemeNetworkClient {
       x402Version,
       payload,
     };
+  }
+
+  private async payRef(x402Version: number, req: PaymentRequirements): Promise<PaymentPayloadResult> {
+    const { paymentRef } = parseAztecPaymentExtra(req.extra);
+    if (!paymentRef) throw new Error("missing paymentRef in a ref payment's requirements");
+    if (!this.signer.payPrivate) throw new Error("this signer cannot make ref payments");
+    const proof = await this.signer.payPrivate(req.asset, req.payTo, BigInt(req.amount), paymentRef);
+    return { x402Version, payload: { mode: "ref", ...proof } };
+  }
+
+  private async paySplit(x402Version: number, req: PaymentRequirements): Promise<PaymentPayloadResult> {
+    const extra = parseAztecPaymentExtra(req.extra);
+    if (!extra.paymentRef) throw new Error("missing paymentRef in a split payment's requirements");
+    if (!this.signer.paySplit) throw new Error("this signer cannot make split payments");
+    const terms = SplitTermsSchema.parse(extra);
+    if (terms.price !== req.amount || terms.merchant.toLowerCase() !== req.payTo.toLowerCase()) {
+      throw new Error("split terms disagree with the payment's amount or recipient");
+    }
+    const proof = await this.signer.paySplit(req.asset, { ...terms, paymentRef: extra.paymentRef });
+    return { x402Version, payload: { mode: "split", ...proof } };
   }
 }

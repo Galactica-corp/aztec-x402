@@ -94,6 +94,12 @@ export interface SchemeNetworkClient {
   /** Get the sender's address (used by the client wrapper for the prepare phase) */
   getSenderAddress?(): Promise<string>;
 
+  /**
+   * The `accepts` entry this client pays, out of those of its scheme, or
+   * undefined when it can pay none. Without it, the first entry is taken.
+   */
+  selectRequirement?(accepts: PaymentRequirements[]): PaymentRequirements | undefined;
+
   createPaymentPayload(
     x402Version: number,
     paymentRequirements: PaymentRequirements,
@@ -133,6 +139,19 @@ export interface SchemeNetworkFacilitator {
     },
   ): Promise<Record<string, unknown>>;
 
+  /**
+   * The payments to offer for a 402: one entry per mode the facilitator can
+   * take for `asset` now, out of `modes` and in their order, each with the
+   * `extra` fields of its `accepts` entry. `ref` and `split` carry
+   * `paymentRef`, which the server derived for this 402.
+   */
+  offerPayment?(
+    asset: string,
+    price: string,
+    modes: ReadonlyArray<"commitment" | "ref" | "split">,
+    paymentRef: string,
+  ): Promise<PaymentOffer>;
+
   verify(
     payload: PaymentPayload,
     requirements: PaymentRequirements,
@@ -144,6 +163,11 @@ export interface SchemeNetworkFacilitator {
     requirements: PaymentRequirements,
     context?: FacilitatorContext,
   ): Promise<SettleResponse>;
+}
+
+/** What a facilitator offers for one 402; see {@link SchemeNetworkFacilitator.offerPayment}. */
+export interface PaymentOffer {
+  offers: Array<{ mode: "commitment" | "ref" | "split"; extra: Record<string, unknown> }>;
 }
 
 /** Server-side: parses prices and enhances payment requirements */

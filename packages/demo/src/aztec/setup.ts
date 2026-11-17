@@ -23,6 +23,9 @@
  *   TOKEN — `aip20` (default) or `inference`; L1_RPC_URL — the L1 RPC, used by `inference` only
  *                       (default http://localhost:8545, or a public Sepolia RPC on testnet).
  *   FUNDING_L1_KEY — testnet `inference` only: a Sepolia key with USDC and ETH that funds the payer.
+ *   INFERENCE_INSTANCE — testnet `inference` only: `shipped` (default, the SDK's deployment, whose admin
+ *                       must list the server) or `own` (deploys a test bridge of our own with a mock USDC and
+ *                       lists the server itself; FUNDING_L1_KEY then needs only Sepolia ETH).
  *   TOKEN_ADDRESS, DRIPPER_ADDRESS — reuse an existing token and its Dripper instead of
  *                       deploying oUSD (e.g. the canonical testnet tUSDC the agent CLI uses).
  */
@@ -34,14 +37,15 @@ import { DripperContract } from "@aztec-foundation/aztec-standards/dist/src/arti
 import { unwrapAztecSdkResult } from "@galactica-net/x402-core";
 import { createPXEWallet } from "./pxe-wallet.js";
 import { writeFileSync, existsSync, readFileSync } from "fs";
-import { join, dirname } from "path";
+import { join } from "path";
 import { ensureKeys, deployAccounts, setupSponsoredPayment } from "./wallet-manager.js";
 import {
   dripToPrivate,
   tokenConstructorWithDripperArgs,
 } from "./token-faucet.js";
 import { isSandboxNetwork, shouldEnableProver } from "./network-config.js";
-import { setupInferenceToken, setupTestnetInferenceToken } from "./setup-inference.js";
+import { setupInferenceToken, setupOwnTestnetInferenceToken, setupTestnetInferenceToken } from "./setup-inference.js";
+import { DATA_DIR } from "./data-dir.js";
 
 const TESTNET_NODE_URL = "https://aztec-testnet.drpc.org";
 const NETWORK = process.env.AZTEC_NETWORK ?? "aztec:sandbox";
@@ -59,8 +63,6 @@ const TOKEN_DECIMALS = 6;
 const MINT_AMOUNT = 1_000_000n; // 1.0 oUSD (6 decimals)
 const TX_TIMEOUT = 240;
 
-const __dirname = dirname(new URL(import.meta.url).pathname);
-const DATA_DIR = process.env.DATA_DIR ?? __dirname;
 const CONFIG_PATH = join(DATA_DIR, "deploy.json");
 const KEYS_PATH = join(DATA_DIR, "keys.json");
 
@@ -150,18 +152,39 @@ async function main() {
 
   if (TOKEN === "inference") {
     const common = { node, l1RpcUrl: L1_RPC_URL, wallet, merchant: bob, payer: alice, amount: MINT_AMOUNT, log: console.log };
+    const manifestPath = join(DATA_DIR, "inference-manifest.json");
+    const instance = process.env.INFERENCE_INSTANCE ?? "shipped";
+    if (instance !== "shipped" && instance !== "own") throw new Error(`Unknown INFERENCE_INSTANCE "${instance}" (expected: shipped, own).`);
+    // A bridge of our own (local, or testnet with `own`) keeps its manifest here; the shipped one comes with the SDK.
+    const own = isSandboxNetwork(NETWORK) || instance === "own";
+    const ownKey = (): `0x${string}` => {
+      const key = fundingKey();
+      if (!key) throw new Error("INFERENCE_INSTANCE=own needs FUNDING_L1_KEY: a Sepolia key with ETH for the deploys.");
+      return key;
+    };
     const { tokenAddress } = isSandboxNetwork(NETWORK)
-      ? await setupInferenceToken({ ...common, nodeUrl: NODE_URL, manifestPath: join(DATA_DIR, "inference-manifest.json") })
-      : await setupTestnetInferenceToken({ ...common, fundingKey: fundingKey() });
+      ? await setupInferenceToken({ ...common, nodeUrl: NODE_URL, manifestPath })
+      : instance === "own"
+        ? await setupOwnTestnetInferenceToken({
+            ...common,
+            nodeUrl: NODE_URL,
+            manifestPath,
+            adminSecretPath: join(DATA_DIR, "inference-admin-secret"),
+            fundingKey: ownKey(),
+          })
+        : await setupTestnetInferenceToken({ ...common, fundingKey: fundingKey() });
     saveConfig({
       nodeUrl: NODE_URL,
       network: NETWORK,
       aliceAddress: config.aliceAddress,
       bobAddress: config.bobAddress,
       tokenAddress,
-      tokenName: `USD Coin (inference-money, ${isSandboxNetwork(NETWORK) ? "local" : "testnet"})`,
+      tokenName: `USD Coin (inference-money, ${isSandboxNetwork(NETWORK) ? "local" : own ? "testnet, own instance" : "testnet"})`,
       tokenSymbol: "USDC",
       tokenDecimals: String(TOKEN_DECIMALS),
+      // The server takes split payments from this L1; an own bridge's manifest is kept here, the shipped one comes with the SDK.
+      l1RpcUrl: L1_RPC_URL,
+      ...(own ? { manifestPath } : {}),
     });
     console.log(`\nConfig written to ${CONFIG_PATH}`);
     console.log("\nSetup complete!");

@@ -12,7 +12,7 @@ services:
       # Public v6 testnet RPC. Override with NODE_URL.
       NODE_URL: ${NODE_URL:-https://aztec-testnet.drpc.org}
     volumes:
-      - aztec-data:/app/packages/demo/src/aztec/data
+      - aztec-data:/app/packages/demo/.data
     restart: unless-stopped
 
 volumes:

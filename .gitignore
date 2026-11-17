@@ -6,7 +6,10 @@ coverage/
 .env
 .env.*
 !.env.example
-store/
+# A PXE store at the repository root (not packages/middleware/src/store, which is source).
+/store/
+# The demo's keys, deployment and runtime state (packages/demo/src/aztec/data-dir.ts).
+packages/demo/.data/
 deploy.json
 keys.json
 inference-manifest.json
