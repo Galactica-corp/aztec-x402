@@ -9,9 +9,9 @@ import { SponsoredFeePaymentMethod } from "@aztec-labs/aztec.js/fee";
 import { getContractInstanceFromInstantiationParams } from "@aztec-labs/aztec.js/contracts";
 import { TxStatus } from "@aztec-labs/aztec.js/tx";
 import type { AccountManager } from "@aztec-labs/aztec.js/wallet";
+import type { PaymentGate } from "@galactica-net/inference-money-core";
 import { SponsoredFPCContractArtifact } from "@aztec-labs/noir-contracts.js/SponsoredFPC";
 import { SPONSORED_FPC_SALT } from "@aztec-labs/constants";
-import { TokenContract } from "@aztec-foundation/aztec-standards/dist/src/artifacts/Token.js";
 import { join } from "path";
 import { createNodeClient } from "./node-client.js";
 import { createPXEWallet, type PXEWallet } from "./pxe-wallet.js";
@@ -19,6 +19,9 @@ import { loadAccountKeys, type AccountKeys } from "./keystore.js";
 import type { NetworkConfig } from "../networks.js";
 import { NodeUnreachableError, UsageError } from "../errors.js";
 import { assertNodeVersion } from "./node-version.js";
+import type { TokenAdapter } from "./tokens/adapter.js";
+import { filePaymentStore } from "./tokens/payment-store.js";
+import { paymentGateFor, TokenRegistry } from "./tokens/registry.js";
 
 /** Long enough for client-side proving plus a checkpointed block on testnet. */
 export const TX_TIMEOUT_SECONDS = 300;
@@ -29,6 +32,8 @@ export interface Session {
   wallet: PXEWallet;
   account: AccountManager;
   address: AztecAddress;
+  /** The tokens this account holds or pays with, by address. */
+  tokens: TokenRegistry;
   /** Options every `send()` needs: sender, fee payment, and how long to wait. */
   sendOpts: {
     from: AztecAddress;
@@ -38,9 +43,19 @@ export interface Session {
   fee?: { paymentMethod: SponsoredFeePaymentMethod };
 }
 
-export async function openWallet(network: NetworkConfig, dataDir: string): Promise<{
+export interface SessionOptions {
+  /**
+   * Address of the token this session will pay with. Some kinds need the
+   * wallet built in a particular way (tokens/inference.ts), which can only be
+   * done before it exists.
+   */
+  payingWith?: string;
+}
+
+export async function openWallet(network: NetworkConfig, dataDir: string, opts: SessionOptions = {}): Promise<{
   node: AztecNode;
   wallet: PXEWallet;
+  paymentGate?: PaymentGate;
 }> {
   const node = createNodeClient(network.nodeUrl);
   // Fail fast with a clear code: the PXE needs the node for everything, even key derivation.
@@ -51,14 +66,19 @@ export async function openWallet(network: NetworkConfig, dataDir: string): Promi
     throw new NodeUnreachableError(network.nodeUrl, error);
   }
   assertNodeVersion(info.nodeVersion, network.nodeUrl);
-  const wallet = await createPXEWallet(node, {
-    ephemeral: false,
-    pxe: {
-      proverEnabled: network.proverEnabled,
-      dataDirectory: join(dataDir, "pxe"),
-    },
-  });
-  return { node, wallet };
+  const create = (walletNode: AztecNode) =>
+    createPXEWallet(walletNode, {
+      ephemeral: false,
+      pxe: {
+        proverEnabled: network.proverEnabled,
+        dataDirectory: join(dataDir, "pxe"),
+      },
+    });
+  const paymentGate = opts.payingWith
+    ? await paymentGateFor(node, opts.payingWith, () => filePaymentStore(join(dataDir, "requests.json")))
+    : undefined;
+  const wallet = paymentGate ? await paymentGate.bindWallet(create) : await create(node);
+  return { node, wallet, paymentGate };
 }
 
 export async function accountFromKeys(wallet: PXEWallet, keys: Omit<AccountKeys, "address" | "createdAt" | "type">) {
@@ -78,7 +98,11 @@ export async function sponsoredFeePayment(wallet: PXEWallet): Promise<SponsoredF
   return new SponsoredFeePaymentMethod(sponsoredFPC.address);
 }
 
-export async function openSession(network: NetworkConfig, dataDir: string): Promise<Session> {
+export async function openSession(
+  network: NetworkConfig,
+  dataDir: string,
+  opts: SessionOptions = {},
+): Promise<Session> {
   const keys = loadAccountKeys(dataDir);
   if (!keys) {
     throw new UsageError(
@@ -86,7 +110,7 @@ export async function openSession(network: NetworkConfig, dataDir: string): Prom
       "no_wallet",
     );
   }
-  const { node, wallet } = await openWallet(network, dataDir);
+  const { node, wallet, paymentGate } = await openWallet(network, dataDir, opts);
   const account = await accountFromKeys(wallet, keys);
   const address = account.address;
   if (address.toString() !== keys.address) {
@@ -100,6 +124,7 @@ export async function openSession(network: NetworkConfig, dataDir: string): Prom
     wallet,
     account,
     address,
+    tokens: new TokenRegistry({ node, wallet, account: address, fee, paymentGate }),
     fee,
     sendOpts: {
       from: address,
@@ -109,13 +134,7 @@ export async function openSession(network: NetworkConfig, dataDir: string): Prom
   };
 }
 
-/** Register a token contract with the PXE (idempotent) and return a handle. */
-export async function tokenAt(session: Pick<Session, "node" | "wallet">, address: string): Promise<TokenContract> {
-  const tokenAddress = AztecAddress.fromStringUnsafe(address);
-  const instance = await session.node.getContract(tokenAddress);
-  if (!instance) {
-    throw new UsageError(`Token contract ${address} is not deployed on this network.`, "token_not_found");
-  }
-  await session.wallet.registerContract(instance, TokenContract.artifact);
-  return TokenContract.at(tokenAddress, session.wallet);
+/** Identify a token contract, register it with the PXE (idempotent) and return its adapter. */
+export function tokenAt(session: Pick<Session, "tokens">, address: string): Promise<TokenAdapter> {
+  return session.tokens.get(address);
 }

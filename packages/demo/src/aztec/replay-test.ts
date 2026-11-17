@@ -6,16 +6,13 @@
  * then stamps a second prepared payment onto many unpaid resources.
  * Mutated headers must all fail.
  */
-import { createNodeClient } from "@galactica-net/x402-agent/aztec";
-import { AztecAddress } from "@aztec-labs/aztec.js/addresses";
-import { TokenContract } from "@aztec-foundation/aztec-standards/dist/src/artifacts/Token.js";
-import { createPXEWallet } from "./pxe-wallet.js";
+import { createNodeClient, TokenRegistry } from "@galactica-net/x402-agent/aztec";
 import { readFileSync } from "fs";
 import { join, dirname } from "path";
 import { ExactAztecClientScheme } from "@galactica-net/x402-mechanism/exact/client";
 import { PaymentRequiredSchema, type ParsedPaymentRequirements } from "@galactica-net/x402-mechanism";
 import { RealClientAztecSigner } from "./client-signer.js";
-import { loadKeys, loadAccount, setupSponsoredPayment } from "./wallet-manager.js";
+import { loadKeys, loadAccount, openDemoWallet, setupSponsoredPayment } from "./wallet-manager.js";
 
 const SERVER_URL = process.env.SERVER_URL ?? "http://localhost:4402";
 const REQUEST_TIMEOUT_MS = 60_000;
@@ -47,23 +44,15 @@ const NODE_URL = config.nodeUrl;
 const isRemoteNetwork = config.network !== "aztec:sandbox";
 
 const node = createNodeClient(NODE_URL);
-const wallet = await createPXEWallet(node, {
-  ephemeral: true,
-  pxe: { proverEnabled: isRemoteNetwork },
-});
+const { wallet, paymentGate } = await openDemoWallet(node, isRemoteNetwork, config.tokenAddress);
 
 const keys = loadKeys(KEYS_PATH);
 const aliceAccount = await loadAccount(wallet, keys, "alice");
-const tokenAddress = AztecAddress.fromStringUnsafe(config.tokenAddress);
-const tokenInstance = await node.getContract(tokenAddress);
-if (tokenInstance) {
-  await wallet.registerContract(tokenInstance, TokenContract.artifact);
-}
-const token = await TokenContract.at(tokenAddress, wallet);
 
 const paymentMethod = isRemoteNetwork ? await setupSponsoredPayment(wallet) : undefined;
-const feeOpts = paymentMethod ? { fee: { paymentMethod } } : undefined;
-const clientSigner = new RealClientAztecSigner(aliceAccount, token, feeOpts);
+const fee = paymentMethod ? { paymentMethod } : undefined;
+const tokens = new TokenRegistry({ node, wallet, account: aliceAccount.address, fee, paymentGate });
+const clientSigner = new RealClientAztecSigner(aliceAccount, tokens);
 const scheme = new ExactAztecClientScheme(clientSigner);
 
 const senderAddress = await scheme.getSenderAddress?.();

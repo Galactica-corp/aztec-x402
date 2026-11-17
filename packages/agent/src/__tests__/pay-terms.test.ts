@@ -8,50 +8,43 @@ import { mkdtempSync } from "fs";
 import { tmpdir } from "os";
 import { join } from "path";
 
-const USDC = "0x2bb09ca02aeabb84fbe69537a0bf4b5ed57112466dc4666f9639157fe8dcfcf7";
-const PAY_TO_A = "0x" + "aa".repeat(32);
-const PAY_TO_B = "0x" + "bb".repeat(32);
+import * as realClient from "@galactica-net/x402-client";
+import * as realSession from "../aztec/session.js";
+
+// The canonical testnet tUSDC (AIP-20): a payment to it needs no merchant listing.
+const TUSDC = "0x08b5c7a74699f9336cb31f42872d9f067f52aef34afe2d2eb34dd0c3e3b36358";
+const PAY_TO_A = "0x0" + "a".repeat(63);
+const PAY_TO_B = "0x0" + "b".repeat(63);
 const transfers: unknown[] = [];
 
 const swapped = {
   scheme: "exact",
   network: "aztec:testnet",
-  asset: USDC,
+  asset: TUSDC,
   amount: "40000",
   payTo: PAY_TO_B,
   maxTimeoutSeconds: 120,
   extra: { nonce: "n-2", commitment: "0x" + "ff".repeat(32) },
 };
 
+// Module mocks last for the whole test run, so each keeps the real exports
+// and only replaces what this test needs. The real client signer pays through
+// the token below, which records any transfer.
+const token = {
+  preflight: async () => {},
+  pay: async (...args: unknown[]) => {
+    transfers.push(args);
+    return "0x" + "cc".repeat(32);
+  },
+};
 mock.module(join(import.meta.dir, "../aztec/session.ts"), () => ({
-  TX_TIMEOUT_SECONDS: 300,
-  openWallet: async () => {
-    throw new Error("openWallet should not run");
-  },
-  accountFromKeys: async () => {
-    throw new Error("accountFromKeys should not run");
-  },
-  sponsoredFeePayment: async () => {
-    throw new Error("sponsoredFeePayment should not run");
-  },
-  openSession: async () => ({ account: { address: PAY_TO_A }, fee: undefined }),
-  tokenAt: async () => ({}),
-}));
-
-mock.module(join(import.meta.dir, "../aztec/client-signer.ts"), () => ({
-  RealClientAztecSigner: class {
-    async getAddress() {
-      return PAY_TO_A;
-    }
-    async finalizePayment(...args: unknown[]) {
-      transfers.push(args);
-      return "0x" + "cc".repeat(32);
-    }
-  },
+  ...realSession,
+  openSession: async () => ({ account: { address: PAY_TO_A }, tokens: { get: async () => token }, fee: undefined }),
+  tokenAt: async () => token,
 }));
 
 mock.module("@galactica-net/x402-client", () => ({
-  PaymentTermsMismatchError: class PaymentTermsMismatchError extends Error {},
+  ...realClient,
   // The client has already accepted a prepare bound to a different 402.
   wrapFetchWithPayment(
     _fetchFn: unknown,
@@ -74,7 +67,7 @@ function challenge(amount: string, payTo: string): string {
         {
           scheme: "exact",
           network: "aztec:testnet",
-          asset: USDC,
+          asset: TUSDC,
           amount,
           payTo,
           maxTimeoutSeconds: 120,

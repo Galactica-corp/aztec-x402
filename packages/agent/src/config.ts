@@ -7,6 +7,7 @@
  *   <network>/account.json      Aztec account keys (mode 0600) — never print
  *   <network>/pxe/              private state (notes, synced blocks)
  *   <network>/payments.jsonl    payment ledger, used for the daily limit
+ *   <network>/requests.json     inference-money payment records (a request is never paid twice)
  *   <network>/deposits.json     pending bridge deposits (claim secrets)
  */
 import { existsSync, mkdirSync, readFileSync, writeFileSync } from "fs";

@@ -40,18 +40,18 @@ aztec-x402 status
 
 ## Demo script (Aztec testnet)
 
-Prerequisite: a merchant to buy from. The reference merchant charges 0.01 testnet USDC per resource:
+Prerequisite: a merchant to buy from. The reference merchant charges 0.01 `tUSDC` (the faucet-minted test token) per resource:
 
 ```bash
-bun run setup:usdc     # once: merchant accounts on testnet, using the canonical testnet USDC
+bun run setup:tusdc    # once: merchant accounts on testnet, using the canonical testnet tUSDC
 bun run server         # http://localhost:4402
 ```
 
 Then talk to the agent:
 
 1. **"Set yourself up to pay for things privately."** The agent runs `status`, creates its Aztec wallet, and reports the address. No transaction needed.
-2. **"Get some test money."** The agent runs `faucet` and mints 10 private USDC (about a minute — a proof is generated locally).
-3. **"Buy me the x402 achievement at http://localhost:4402/api/buy-x402-achievement — up to 5 cents."** The agent checks the price (0.01 USDC), pays with `--max-amount 0.05`, and returns the achievement skill with the Aztec tx hash. About 2 minutes.
+2. **"Get some test money."** The agent runs `faucet` and mints 10 private tUSDC (about a minute — a proof is generated locally).
+3. **"Buy me the x402 achievement at http://localhost:4402/api/buy-x402-achievement — up to 5 cents."** The agent checks the price (0.01 tUSDC), pays with `--max-amount 0.05`, and returns the achievement skill with the Aztec tx hash. About 2 minutes.
 4. **Guardrail moment: "Now buy it again, but don't spend more than half a cent."** The CLI refuses before any money moves (exit 3, `policy_rejected`), and the agent asks you instead of raising the cap.
 5. **"Help me fund you from my own wallet."** The agent serves a local page — or, when it runs somewhere your browser cannot reach, sends a link to the hosted page at `aztec-x402.unfz.to`. Connect MetaMask on Sepolia (a little Sepolia ETH for gas), sign the planned transactions, and the agent finds the deposit on L1 and claims it on Aztec a few minutes later.
 
@@ -91,10 +91,11 @@ Funding end to end with real Sepolia transactions (the page in Chromium, signed 
 | Capability | Status |
 | --- | --- |
 | Agent wallet (initializerless Schnorr, no deploy tx) | Live on testnet |
-| Testnet USDC faucet (canonical `aztec-standards` USDC + Dripper) | Live on testnet |
+| Testnet faucet (`tUSDC`: canonical `aztec-standards` token + Dripper) | Live on testnet |
+| Paying in inference-money `USDC` (merchant-listed token) | Implemented; tested on a local network |
 | Price check, spend-capped private payment, payment ledger | Live on testnet |
 | Funding page with browser wallet; agent claims on Aztec | Live on testnet via the **Fee Juice** portal (agent gas); local page or hosted link (`aztec-x402.unfz.to/fund.html`) for agents the user cannot reach |
-| Funding the agent with **USDC from Ethereum** | Next: Aztec 6 testnet, using the inference-money USDC bridge (Circle Sepolia USDC → private AIP-20 USDC, one Permit2 signature). Needs the x402 stack on Aztec 6. |
+| Funding the agent with **USDC from Ethereum** | Next: the inference-money USDC bridge (Circle Sepolia USDC → private USDC, one Permit2 signature) as a `fund` route. |
 | Published npm package and Claude Code marketplace entry | After review of this branch |
 | Mainnet | Not yet; the network registry has a slot for it. |
 
