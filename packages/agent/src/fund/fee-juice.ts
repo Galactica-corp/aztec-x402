@@ -44,8 +44,11 @@ import {
 } from "./bridge.js";
 import { trimAmount } from "../x402.js";
 
-/** Fee Juice the agent asks for by default: plenty for hundreds of transactions. */
-const DEFAULT_AMOUNT = "100";
+/**
+ * Fee Juice the agent asks for by default, in whole tokens (18 decimals): about ten payments on mainnet at
+ * late-2026 fees (~1M L2 gas per payment at ~2.4e12 per gas, padded 1.5× for the max fee). Real AZTEC there.
+ */
+const DEFAULT_AMOUNT = "25";
 /** Most public RPCs cap eth_getLogs ranges; search in chunks of this many blocks. */
 const LOG_CHUNK_BLOCKS = 10_000n;
 
