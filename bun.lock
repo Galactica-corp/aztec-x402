@@ -26,7 +26,7 @@
         "@aztec-labs/stdlib": "6.0.0",
         "@aztec-labs/wallet-sdk": "6.0.0",
         "@aztec-labs/wallets": "6.0.0",
-        "@galactica-net/inference-money-core": "0.4.0",
+        "@galactica-net/inference-money-core": "1.0.0",
         "@galactica-net/x402-client": "workspace:*",
         "@galactica-net/x402-core": "workspace:*",
         "@galactica-net/x402-mechanism": "workspace:*",
@@ -73,7 +73,7 @@
         "@aztec-labs/stdlib": "6.0.0",
         "@aztec-labs/wallet-sdk": "6.0.0",
         "@aztec-labs/wallets": "6.0.0",
-        "@galactica-net/inference-money-core": "0.4.0",
+        "@galactica-net/inference-money-core": "1.0.0",
         "@galactica-net/x402-agent": "workspace:*",
         "@galactica-net/x402-client": "workspace:*",
         "@galactica-net/x402-core": "workspace:*",
@@ -345,7 +345,7 @@
 
     "@fastify/otel": ["@fastify/otel@0.16.0", "", { "dependencies": { "@opentelemetry/core": "^2.0.0", "@opentelemetry/instrumentation": "^0.208.0", "@opentelemetry/semantic-conventions": "^1.28.0", "minimatch": "^10.0.3" }, "peerDependencies": { "@opentelemetry/api": "^1.9.0" } }, "sha512-2304BdM5Q/kUvQC9qJO1KZq3Zn1WWsw+WWkVmFEaj1UE2hEIiuFqrPeglQOwEtw/ftngisqfQ3v70TWMmwhhHA=="],
 
-    "@galactica-net/inference-money-core": ["@galactica-net/inference-money-core@0.4.0", "", { "dependencies": { "@aztec-labs/aztec.js": "6.0.0", "@aztec-labs/constants": "6.0.0", "@aztec-labs/foundation": "6.0.0", "@aztec-labs/noir-contracts.js": "6.0.0", "@aztec-labs/standard-contracts": "6.0.0", "@aztec-labs/stdlib": "6.0.0", "@aztec-labs/wallets": "6.0.0", "viem": "2.56.7", "zod": "4.6.5" } }, "sha512-kANzEDaqwEymg9PmlHQdF4XpTYPvXXPnF9DDt8FXnfyyoqcdggKvb++WvEBkv6SpSlb/c8dsco3SGiM59PbQTw=="],
+    "@galactica-net/inference-money-core": ["@galactica-net/inference-money-core@1.0.0", "", { "dependencies": { "@aztec-labs/aztec.js": "6.0.0", "@aztec-labs/constants": "6.0.0", "@aztec-labs/foundation": "6.0.0", "@aztec-labs/noir-contracts.js": "6.0.0", "@aztec-labs/standard-contracts": "6.0.0", "@aztec-labs/stdlib": "6.0.0", "@aztec-labs/wallets": "6.0.0", "viem": "2.56.7", "zod": "4.6.5" } }, "sha512-2be6WVH4SbVJSca2F7CHuk8G1eD64txlzhr5baKt/HYFaFxKl4SA5v4wiqyBkNGXvNeWzVK1TuK/P+3ocEVfjg=="],
 
     "@galactica-net/x402-agent": ["@galactica-net/x402-agent@workspace:packages/agent"],
 
