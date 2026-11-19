@@ -29,6 +29,7 @@ import {
   syncMerchantList,
   waitSplitClaimable,
   type BridgeManifest,
+  type FeeChoice,
 } from "@galactica-net/inference-money-core";
 import type { PaymentPayload, PaymentRequirements } from "@galactica-net/x402-mechanism";
 import { SplitTermsSchema, parseAztecPaymentExtra, parsePrice } from "@galactica-net/x402-core";
@@ -37,6 +38,7 @@ import { createNodeClient } from "../aztec/node-client.js";
 import { openSession } from "../aztec/session.js";
 import { fundPageUrl, type ResolvedContext } from "../config.js";
 import { CliError, UsageError, messageOf } from "../errors.js";
+import { assertFeeConsent, assertHoldsFeeJuice } from "../fees.js";
 import { encodePlan, openBrowser } from "./fund.js";
 import { startFundServer } from "../fund/server.js";
 import {
@@ -363,6 +365,9 @@ export async function collectChange(ctx: ResolvedContext, opts: { allowBind: boo
   const open = readSplitRecords(ctx.dataDir).filter((r) => r.ticket && !r.status.startsWith("change_"));
   if (open.length === 0) return { collected: [], waiting: [], note: "No change to collect." };
   const m = manifestFor(ctx);
+  // The bridge's sponsor where there is one; else the agent pays its own fees, with the user's consent (fees.ts).
+  const sponsored = ctx.network.sponsoredFees && m.l2.sponsoredFpc !== undefined;
+  const fee: FeeChoice = sponsored ? "sponsored" : "account-public";
   const node = createNodeClient(ctx.network.nodeUrl);
   const collected = [];
   const waiting = [];
@@ -397,9 +402,11 @@ export async function collectChange(ctx: ResolvedContext, opts: { allowBind: boo
       continue;
     }
     if (!session) {
+      if (!sponsored) assertFeeConsent(ctx);
       progress("Opening wallet and syncing private state...");
       session = await openSession(ctx.network, ctx.dataDir);
-      await registerSponsor(session.wallet, m);
+      if (sponsored) await registerSponsor(session.wallet, m);
+      else await assertHoldsFeeJuice(ctx, session.node, session.address);
       await registerBridgeContracts(session.wallet, m);
     }
     try {
@@ -410,10 +417,10 @@ export async function collectChange(ctx: ResolvedContext, opts: { allowBind: boo
             : `The merchant has not claimed the deposit of ${record.id} in ${SELF_CLAIM_AFTER_MS / 3_600_000} h; claiming it to release the change...`,
         );
         await waitSplitClaimable(change.claim, node, session.wallet, m, change.buyer, undefined, { attempts: 1, pollMs: 0 });
-        await claimSplit(change.claim, node, session.wallet, m, { from: change.buyer });
+        await claimSplit(change.claim, node, session.wallet, m, { from: change.buyer, fee });
       }
       progress(`Collecting ${amount} USDC change of payment ${record.id}...`);
-      const tx = await claimChange(change, node, session.wallet, m, { allowBind: opts.allowBind });
+      const tx = await claimChange(change, node, session.wallet, m, { allowBind: opts.allowBind, fee });
       saveSplitRecord(ctx.dataDir, { ...record, status: "change_collected", changeTxHash: tx.toString() });
       collected.push({ id: record.id, amount, txHash: tx.toString() });
     } catch (error) {

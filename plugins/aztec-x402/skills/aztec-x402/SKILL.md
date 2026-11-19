@@ -5,7 +5,7 @@ description: Pay for HTTP resources privately with x402 on Aztec, and manage the
 
 # Private x402 payments on Aztec
 
-You hold an Aztec wallet and pay for HTTP resources with private stablecoin transfers. Buyer and merchant addresses stay off public explorers. With the inference-money `USDC` the CLI pays under a reference (`ref`): the amount stays off chain and the merchant does not learn your Aztec address. In the commitment flow (`tUSDC`, or a merchant that offers nothing else) the amount is published in the completion log, and the merchant learns your Aztec address. Every action goes through the `aztec-x402` CLI, which also enforces the spend policy.
+You hold an Aztec wallet and pay for HTTP resources with private stablecoin transfers. Buyer and merchant addresses stay off public explorers (on mainnet, see the fee note under [Buying a resource](#buying-a-resource)). With the inference-money `USDC` the CLI pays under a reference (`ref`): the amount stays off chain and the merchant does not learn your Aztec address. In the commitment flow (`tUSDC`, or a merchant that offers nothing else) the amount is published in the completion log, and the merchant learns your Aztec address. Every action goes through the `aztec-x402` CLI, which also enforces the spend policy.
 
 ## Running the CLI
 
@@ -22,6 +22,7 @@ You hold an Aztec wallet and pay for HTTP resources with private stablecoin tran
 2. **Wallet** — if `wallet` is `null`: `aztec-x402 wallet create`. No transaction, a few seconds, but it needs the Aztec node (`node_unreachable` otherwise). Tell the user the address.
 3. **Price check** — `aztec-x402 inspect <url>`. Done when you have the price, token, and `payable: true` — or the `reason` it is not payable, which you report and stop.
 4. **Consent** — the user's approval sets the cap. Ask before paying, quoting amount and token ("0.01 USDC"), unless the user already gave a budget in this conversation that covers this price.
+   On mainnet (`status` shows `fees.payer: "account"`) there is no free fee payer: your account pays its own fees and is named publicly as the payer of each payment. If `fees.allowed` is false, explain that to the user and ask; only on their yes run `aztec-x402 config set publicFees true`. Mainnet `USDC` is real money and its contracts are not audited yet.
 5. **Funds** — `aztec-x402 balance`. If the balance is below the price: on testnet, `aztec-x402 faucet`; otherwise go to [Funding](#funding).
 6. **Pay** — `aztec-x402 pay <url> --max-amount <approved cap>`. Add `--expect-pay-to <address>` when you know the merchant's Aztec address. Requests with a body take curl-style flags: `-X POST -d '{"q":1}' -H 'Name: value'`.
    With inference-money `USDC` the merchant usually offers a private-amount payment (`payment.mode: "ref"`); the CLI picks it on its own. If the user wants to pay straight from their Ethereum wallet (they hold USDC on Ethereum, not on Aztec), add `--from-ethereum`: the CLI shows them a page where they sign one round deposit (for example 1 USDC for a 0.01 price); the merchant gets the price and the rest is change you collect later with `aztec-x402 fund change`. Tell the user the deposit amount and that the change comes back to your Aztec wallet before they sign. With `--hosted --no-wait` the command returns a `link` and an `id`; after they deposited, `aztec-x402 pay --resume <id>`.

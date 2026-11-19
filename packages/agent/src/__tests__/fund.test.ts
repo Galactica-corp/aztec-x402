@@ -99,6 +99,7 @@ describe("funding plan", () => {
     },
     policy: { maxPerPayment: "1", dailyLimit: "5" },
     dataDir: "/tmp",
+    publicFees: false,
   };
 
   test("round-trips through the URL fragment and never carries the secret", async () => {

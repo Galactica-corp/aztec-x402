@@ -45,10 +45,12 @@ Commands:
   fund change [--allow-bind]  Collect the change of payments from Ethereum
   config get | set <key> <value>
                               Keys: network, nodeUrl, policy.maxPerPayment,
-                              policy.dailyLimit
+                              policy.dailyLimit, publicFees (true: on mainnet,
+                              pay fees from the agent's own Fee Juice, which
+                              names its account as each payment's fee payer)
 
 Global options:
-  --network NAME              testnet (default) or local
+  --network NAME              testnet (default), mainnet or local
   --quiet                     No progress lines on stderr
   --verbose                   Aztec SDK logs on stderr
   -h, --help                  This help

@@ -28,7 +28,8 @@ While `fund` or `fund claim` runs it holds the wallet database: run no other wal
 
 | Network | Route | User signs on L1 | Agent receives |
 | --- | --- | --- | --- |
-| testnet (Aztec 5.x, Sepolia) | Fee Juice portal | faucet mint of test FEE (if needed), approve, `depositToAztecPublic` | Fee Juice (Aztec gas) in your account, shown by `balance` under `feeJuice`. On testnet you still pay fees through the free sponsored fee payer, so this route mainly demonstrates the deposit flow. |
+| mainnet (Ethereum) | Fee Juice portal | approve AZTEC (they must hold it; no faucet), `depositToAztecPublic` | Fee Juice in your account. On mainnet you need it: you pay your own fees. The claim pays its own fee from the deposit, so it works with an empty account. |
+| testnet (Aztec 6.x, Sepolia) | Fee Juice portal | faucet mint of test FEE (if needed), approve, `depositToAztecPublic` | Fee Juice (Aztec gas) in your account, shown by `balance` under `feeJuice`. On testnet you still pay fees through the free sponsored fee payer, so this route mainly demonstrates the deposit flow. |
 
 Fee Juice deposits are public on L1 by protocol design: the amount and your Aztec address are visible on Sepolia. Payments you make afterwards hide buyer and merchant addresses from Aztec observers. A commitment payment publishes its amount in the completion log; a `ref` payment does not (see protocol.md).
 

@@ -20,6 +20,7 @@ import { hostname } from "node:os";
 import { join, resolve } from "node:path";
 import type { AztecAddress } from "@aztec-labs/aztec.js/addresses";
 import { Fr, GrumpkinScalar } from "@aztec-labs/aztec.js/fields";
+import { getFeeJuiceBalance } from "@aztec-labs/aztec.js/utils";
 import type { AztecNode } from "@aztec-labs/aztec.js/node";
 import type { BridgeManifest } from "@galactica-net/inference-money-core";
 import type { PaymentMode, PaymentStateStore } from "@galactica-net/x402-core";
@@ -32,7 +33,7 @@ import {
   type RoutesConfig,
 } from "@galactica-net/x402-middleware";
 import { createPublicClient, http } from "viem";
-import { NETWORKS, type NetworkConfig } from "../networks.js";
+import { builtInBridge, NETWORKS, type NetworkConfig } from "../networks.js";
 import { AztecFacilitatorSigner } from "./facilitator-signer.js";
 import { MerchantJobs, type MerchantStatus } from "./merchant-jobs.js";
 import type { PXEWallet } from "./pxe-wallet.js";
@@ -52,7 +53,7 @@ export interface MerchantKeys {
 }
 
 export interface CreateMerchantOptions {
-  /** A network from {@link NETWORKS} by name ("testnet", "local"), or a full config. */
+  /** A network from {@link NETWORKS} by name ("testnet", "mainnet", "local"), or a full config. */
   network: string | NetworkConfig;
   /** Overrides the network's node URL. */
   nodeUrl?: string;
@@ -67,7 +68,7 @@ export interface CreateMerchantOptions {
   dataDir: string;
   /** An Ethereum RPC: turns on split payments (one L1 deposit pays) for the inference-money token. */
   l1RpcUrl?: string;
-  /** The bridge deployment (default: the SDK's testnet deployment). */
+  /** The bridge deployment (default: the SDK's deployment on this network). */
   manifest?: BridgeManifest;
   /** Split payments off even with an L1 RPC. */
   noSplit?: boolean;
@@ -81,7 +82,11 @@ export interface CreateMerchantOptions {
   secret?: Uint8Array;
   /** A store shared by instances on several hosts (default: SQLite in `dataDir`, for one host). */
   store?: PaymentStateStore;
-  /** Pay fees through the sponsor (default: the network's setting). */
+  /**
+   * Pay fees through the sponsor (default: the network's setting). Without it the
+   * merchant pays its own txs from its Fee Juice and is named as their fee payer,
+   * which reveals little: the merchant list is public.
+   */
   sponsoredFees?: boolean;
   consolidateEveryMs?: number;
   claimPollMs?: number;
@@ -213,11 +218,19 @@ function networkOf(o: CreateMerchantOptions): NetworkConfig {
   return o.nodeUrl ? { ...base, nodeUrl: o.nodeUrl } : base;
 }
 
-async function loadManifest(manifest?: BridgeManifest): Promise<BridgeManifest> {
-  if (manifest) return manifest;
-  const { parseManifest } = await import("@galactica-net/inference-money-core");
-  const { TESTNET_MANIFEST } = await import("@galactica-net/inference-money-core/deployments");
-  return parseManifest(TESTNET_MANIFEST);
+function loadManifest(network: NetworkConfig, manifest?: BridgeManifest): BridgeManifest {
+  const m = manifest ?? builtInBridge(network);
+  if (!m) throw new Error(`No inference-money bridge is known on network "${network.name}": pass its manifest.`);
+  return m;
+}
+
+/** Without a sponsor the merchant pays its own way; refused at startup, not at the first buyer, when it cannot. */
+async function assertHoldsFeeJuice(node: AztecNode, address: AztecAddress): Promise<void> {
+  if ((await getFeeJuiceBalance(address, node)) === 0n) {
+    throw new Error(
+      `This merchant pays its own fees and ${address} holds no Fee Juice: bridge some to it on L1 (the Fee Juice portal) first.`,
+    );
+  }
 }
 
 export async function createMerchant(o: CreateMerchantOptions): Promise<Merchant> {
@@ -252,21 +265,26 @@ export async function createMerchant(o: CreateMerchantOptions): Promise<Merchant
     throw new Error(`The keys derive ${address}, not ${o.keys.address}: wrong keys, or the wrong account type ("${o.keys.type ?? "schnorr"}").`);
   }
 
-  const fee = (o.sponsoredFees ?? network.sponsoredFees) ? { paymentMethod: await sponsoredFeePayment(wallet) } : undefined;
+  const sponsored = o.sponsoredFees ?? network.sponsoredFees;
+  if (!sponsored) await assertHoldsFeeJuice(node, address);
+  const fee = sponsored ? { paymentMethod: await sponsoredFeePayment(wallet) } : undefined;
   const tokens = new TokenRegistry({ node, wallet, account: address, fee });
   const token = await tokens.get(o.token);
 
   let split: SplitMerchant | undefined;
   if (token.kind === "inference-money" && o.l1RpcUrl && !o.noSplit) {
     const { registerBridgeContracts, registerSponsor } = await import("@galactica-net/inference-money-core");
-    const manifest = await loadManifest(o.manifest);
+    const manifest = loadManifest(network, o.manifest);
     if (manifest.l2.token.address.toLowerCase() !== o.token.toLowerCase()) {
       throw new Error(`The bridge manifest's token ${manifest.l2.token.address} is not the token sold (${o.token}).`);
     }
-    await registerSponsor(wallet, manifest);
+    // Claims go through the bridge's sponsor where there is one; else the merchant pays, like its other txs.
+    const splitSponsored = sponsored && manifest.l2.sponsoredFpc !== undefined;
+    if (splitSponsored) await registerSponsor(wallet, manifest);
     await registerBridgeContracts(wallet, manifest);
     split = await SplitMerchant.create({
       manifest,
+      fee: splitSponsored ? "sponsored" : "account-public",
       l1: createPublicClient({ transport: http(o.l1RpcUrl) }),
       node,
       wallet,
