@@ -20,7 +20,6 @@ import { hostname } from "node:os";
 import { join, resolve } from "node:path";
 import type { AztecAddress } from "@aztec-labs/aztec.js/addresses";
 import { Fr, GrumpkinScalar } from "@aztec-labs/aztec.js/fields";
-import { getFeeJuiceBalance } from "@aztec-labs/aztec.js/utils";
 import type { AztecNode } from "@aztec-labs/aztec.js/node";
 import type { BridgeManifest } from "@galactica-net/inference-money-core";
 import type { PaymentMode, PaymentStateStore } from "@galactica-net/x402-core";
@@ -35,6 +34,7 @@ import {
 import { createPublicClient, http } from "viem";
 import { builtInBridge, NETWORKS, type NetworkConfig } from "../networks.js";
 import { AztecFacilitatorSigner } from "./facilitator-signer.js";
+import { feeJuiceHeadroom, formatFeeJuice } from "./fee-limit.js";
 import { MerchantJobs, type MerchantStatus } from "./merchant-jobs.js";
 import type { PXEWallet } from "./pxe-wallet.js";
 import { openWallet, sponsoredFeePayment } from "./session.js";
@@ -224,13 +224,34 @@ function loadManifest(network: NetworkConfig, manifest?: BridgeManifest): Bridge
   return m;
 }
 
-/** Without a sponsor the merchant pays its own way; refused at startup, not at the first buyer, when it cannot. */
+/** Below this many typical transactions' worth of Fee Juice, `status()` warns. */
+export const LOW_FEE_JUICE_TXS = 5n;
+
+/**
+ * Without a sponsor the merchant pays its own way: refused at startup, not at the first buyer, when its Fee Juice
+ * cannot cover even one typical transaction's fee limit (which the node demands in full, not the fee charged).
+ */
 async function assertHoldsFeeJuice(node: AztecNode, address: AztecAddress): Promise<void> {
-  if ((await getFeeJuiceBalance(address, node)) === 0n) {
+  const { balance, txFeeLimit } = await feeJuiceHeadroom(node, address);
+  if (balance < txFeeLimit) {
     throw new Error(
-      `This merchant pays its own fees and ${address} holds no Fee Juice: bridge some to it on L1 (the Fee Juice portal) first.`,
+      `This merchant pays its own fees and ${address} holds ${formatFeeJuice(balance)} Fee Juice, less than the ` +
+        `${formatFeeJuice(txFeeLimit)} a typical transaction may charge at today's fees (the node refuses a tx whose ` +
+        `fee limit its payer cannot cover). Bridge Fee Juice to it on L1 (the Fee Juice portal) first; keep ` +
+        `${LOW_FEE_JUICE_TXS} transactions' worth or more.`,
     );
   }
+}
+
+/** A warning when the merchant's Fee Juice covers fewer than {@link LOW_FEE_JUICE_TXS} typical transactions. */
+export async function feeJuiceWarnings(node: AztecNode, address: AztecAddress): Promise<string[]> {
+  const { balance, txFeeLimit, txs } = await feeJuiceHeadroom(node, address);
+  if (txs >= LOW_FEE_JUICE_TXS) return [];
+  return [
+    `Fee Juice is low: ${formatFeeJuice(balance)} covers ${txs} transaction(s) at a fee limit of about ` +
+      `${formatFeeJuice(txFeeLimit)} each. Below one, opening requests, consolidating and claiming split deposits fail: ` +
+      "bridge more to the merchant account.",
+  ];
 }
 
 export async function createMerchant(o: CreateMerchantOptions): Promise<Merchant> {
@@ -328,6 +349,7 @@ export async function createMerchant(o: CreateMerchantOptions): Promise<Merchant
     leaseMs: o.leaseMs,
     // Each instance has its own dataDir: a restart after a crash takes its own lease back at once, not a minute later.
     instanceId: `${hostname()}:${dataDir}`,
+    extraWarnings: sponsored ? undefined : () => feeJuiceWarnings(node, address),
     log,
   });
   await jobs.start();

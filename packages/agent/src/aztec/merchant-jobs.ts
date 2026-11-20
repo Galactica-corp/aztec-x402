@@ -57,6 +57,8 @@ export interface MerchantJobsOptions {
   leaseMs?: number;
   /** How often the leader logs the warnings of {@link MerchantJobs.status} (default 1 h). */
   statusEveryMs?: number;
+  /** More warnings for {@link MerchantJobs.status}, such as low Fee Juice; a failure to read them is a warning too. */
+  extraWarnings?: () => Promise<string[]>;
   log?: (message: string) => void;
   now?: () => number;
 }
@@ -287,7 +289,7 @@ export class MerchantJobs {
     if (this.leader && !this.stopped) this.consolidationTimer = setTimeout(() => void this.consolidationTick(), delay);
   }
 
-  /** The jobs' state, from store reads only (cheap enough for a health check). */
+  /** The jobs' state, from store reads (plus `extraWarnings`, a node read for Fee Juice): cheap enough for a health check. */
   async status(): Promise<MerchantStatus> {
     const { store } = this.opts;
     const now = this.now();
@@ -320,6 +322,9 @@ export class MerchantJobs {
     if (splitClaims.failed > 0) warnings.push(`${splitClaims.failed} split deposit(s) no longer verify on L1 and were served unpaid.`);
     if (splitClaims.consumedUnknown > 0) {
       warnings.push(`${splitClaims.consumedUnknown} split deposit(s) were consumed by someone else: check the balance.`);
+    }
+    if (this.opts.extraWarnings) {
+      warnings.push(...(await this.opts.extraWarnings().catch((e: unknown) => [`Could not check: ${e instanceof Error ? e.message : String(e)}`])));
     }
     return {
       leader: this.leader,

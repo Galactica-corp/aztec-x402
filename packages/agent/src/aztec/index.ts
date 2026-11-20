@@ -41,6 +41,8 @@ export {
   checkStorage,
   merchantRoutes,
   stopOnSignals,
+  feeJuiceWarnings,
+  LOW_FEE_JUICE_TXS,
   PXE_DIR,
   STORE_FILE,
   LEGACY_SECRET_FILE,
@@ -50,4 +52,5 @@ export {
   type MerchantRoute,
   type StorageState,
 } from "./merchant.js";
+export { InsufficientFeeJuiceError, typicalTxFeeLimit, feeJuiceHeadroom, TYPICAL_TX_L2_GAS } from "./fee-limit.js";
 export { NETWORKS, type NetworkConfig, type TokenInfo } from "../networks.js";

@@ -50,8 +50,16 @@ export interface UsdcDepositRecord {
  * `exiting`: about to burn; no tx hash known yet. `unconfirmed`: the burn tx was handed to the node but its outcome is
  * unknown (`l2TxHash` set). `exited`: burned, ticket known, waiting for the epoch proof and the L1 withdraw.
  * `unknown`: interrupted before any hash was known; the balance tells whether it burned.
+ * `expired`: handed to the node but never included, and a finalized block is past every handed tx's expiry, so it can
+ * no longer land: nothing was burned.
  */
-export type UsdcWithdrawalStatus = "exiting" | "unconfirmed" | "exited" | "withdrawn" | "reverted" | "unknown";
+export type UsdcWithdrawalStatus = "exiting" | "unconfirmed" | "exited" | "withdrawn" | "reverted" | "unknown" | "expired";
+
+/** A burn tx handed to the node, and the last L2 timestamp (unix seconds) at which it can be included. */
+export interface HandedBurn {
+  txHash: string;
+  includeBy: string;
+}
 
 export interface UsdcWithdrawalRecord {
   id: string;
@@ -66,6 +74,20 @@ export interface UsdcWithdrawalRecord {
   l1TxHash?: string;
   status: UsdcWithdrawalStatus;
   error?: string;
+  /** For `unconfirmed`: every tx handed to the node that may be this burn (the SDK's `ExitUnconfirmedError.sent`). */
+  handed?: HandedBurn[];
+}
+
+/**
+ * The handed txs of an `unconfirmed` record. Records written before `handed` was kept carry the expiry only in the
+ * SDK's message ("It can be included until <ISO time>"), which is read back for their one tx.
+ */
+export function handedBurnsOf(r: UsdcWithdrawalRecord): HandedBurn[] | undefined {
+  if (r.handed?.length) return r.handed;
+  const until = r.error?.match(/can be included until (\d{4}-\d{2}-\d{2}T[\d:.]+Z)/)?.[1];
+  if (!until || !r.l2TxHash) return undefined;
+  const ms = Date.parse(until);
+  return Number.isNaN(ms) ? undefined : [{ txHash: r.l2TxHash, includeBy: String(Math.floor(ms / 1000)) }];
 }
 
 function readRecords<T>(path: string): T[] {

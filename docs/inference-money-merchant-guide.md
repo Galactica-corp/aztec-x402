@@ -137,8 +137,14 @@ differs:
 
 - **No fee sponsor.** The merchant pays its own transactions (opening requests, consolidating, claiming split
   deposits) from its account's Fee Juice and is named as their fee payer, which reveals little: the merchant list is
-  public. Bridge AZTEC to the account through the Fee Juice portal before starting; `createMerchant` refuses to start
-  when the account holds none. Keep it topped up, since every sale costs at least one transaction.
+  public. Bridge AZTEC to the account through the Fee Juice portal before starting.
+- **Keep several transactions' worth of Fee Juice, not just some.** The node refuses a transaction unless its payer's
+  Fee Juice covers the transaction's *fee limit* (its gas limit times its maximum fee per gas), and the wallet pads
+  both: an exit that is charged 1.9 FEE declares about 3.1, so an account with 2.1 FEE cannot send it. `createMerchant`
+  refuses to start below one typical transaction's fee limit (about 4 FEE at late-2026 fees), and `merchant.status()`
+  warns below five. The agent CLI checks each transaction's own fee limit before proving it and refuses with
+  `insufficient_fee_juice`, so nothing is sent. Every sale paid by the commitment flow and every consolidation and
+  split claim costs one transaction; `ref` payments cost none per request.
 - **Buyers pay their own fees too**, and are named as the fee payer of their payments. The `aztec-x402` CLI does so
   only after its user agreed (`publicFees`); offer `ref` first, so the payment shows no amount.
 - **Real USDC, unaudited contracts.** An audit follows this limited run: keep prices and balances small.
@@ -371,7 +377,8 @@ The full list: "What each action makes public" in the integration doc.
 - [ ] Receiving account deployed, bound to your treasury, and listed by the merchant admin.
 - [ ] `@galactica-net/inference-money-core` and `@aztec-labs/*` pinned to the versions the x402 packages use; no `SEED`.
 - [ ] USDC address read from `TESTNET_MANIFEST` (or `MAINNET_MANIFEST`); one route per token.
-- [ ] On mainnet: Fee Juice in the merchant account, and a way to see when it runs low.
+- [ ] On mainnet: several transactions' worth of Fee Juice in the merchant account (≥ 5 × the fee limit, about 20 FEE
+  at late-2026 fees), and `merchant.status()` warnings in your monitoring to see when it runs low.
 - [ ] The server built with `createMerchant` (one merchant per token), routes through `merchant.middleware()`.
 - [ ] Buyers you ship pay through a `PaymentGate` with a persistent store.
 - [ ] `dataDir` on storage that survives restarts and redeploys; `merchant.status()` in your health check; an L1 RPC

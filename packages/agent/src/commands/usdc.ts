@@ -16,7 +16,7 @@
  * Both resume: `deposit claim`, `withdraw finish`.
  */
 import { AztecAddress } from "@aztec-labs/aztec.js/addresses";
-import { TxHash } from "@aztec-labs/aztec.js/tx";
+import { TxHash, TxStatus } from "@aztec-labs/aztec.js/tx";
 import type { AztecNode } from "@aztec-labs/aztec.js/node";
 import {
   ExitDestinationError,
@@ -64,6 +64,7 @@ import {
   depositDraftOf,
   depositTicketOf,
   exitTicketOf,
+  handedBurnsOf,
   isOpenWithdrawal,
   readUsdcDeposits,
   readUsdcWithdrawals,
@@ -451,7 +452,8 @@ export async function withdraw(ctx: ResolvedContext, opts: PageOptions & { amoun
     saveUsdcWithdrawal(ctx.dataDir, record);
   } catch (error) {
     if (error instanceof ExitUnconfirmedError) {
-      saveUsdcWithdrawal(ctx.dataDir, { ...record, status: "unconfirmed", l2TxHash: error.l2TxHash.toString(), error: messageOf(error) });
+      const handed = error.sent?.map((t) => ({ txHash: t.txHash.toString(), includeBy: t.expiresAt.toString() }));
+      saveUsdcWithdrawal(ctx.dataDir, { ...record, status: "unconfirmed", l2TxHash: error.l2TxHash.toString(), error: messageOf(error), handed });
       throw new CliError(
         `The burn ${error.l2TxHash} was sent but is not confirmed. Do not withdraw again: run \`aztec-x402 withdraw finish\`.`,
         "exit_unconfirmed",
@@ -559,6 +561,32 @@ async function payOut(
   );
 }
 
+/**
+ * Whether an `unconfirmed` burn can still land. `expired`: no handed tx is included, and the latest finalized L2 block
+ * is past every one's expiry, so none can be (a finalized block is never reorged away). `dropped`: none is included
+ * or held by the node, but one could still be. `open`: included, pending, or the expiry is unknown.
+ */
+export interface HandedFateNode {
+  getBlock(tag: "finalized"): Promise<{ header: { globalVariables: { timestamp: bigint } } } | undefined>;
+  getTxReceipt(txHash: TxHash): Promise<{ status: TxStatus }>;
+}
+
+export async function handedFate(
+  record: UsdcWithdrawalRecord,
+  node: HandedFateNode,
+): Promise<{ state: "expired" } | { state: "dropped"; until: string } | { state: "open" }> {
+  const handed = handedBurnsOf(record);
+  if (!handed?.length) return { state: "open" };
+  // Read the finalized block first: a tx not included as of the receipts below was not included by then either.
+  const finalized = await node.getBlock("finalized");
+  const receipts = await Promise.all(handed.map((t) => node.getTxReceipt(TxHash.fromString(t.txHash))));
+  if (receipts.some((r) => r.status !== TxStatus.DROPPED)) return { state: "open" };
+  const includeBy = handed.reduce((at, t) => (BigInt(t.includeBy) > at ? BigInt(t.includeBy) : at), 0n);
+  const finalizedAt = finalized?.header.globalVariables.timestamp;
+  if (finalizedAt !== undefined && finalizedAt > includeBy) return { state: "expired" };
+  return { state: "dropped", until: new Date(Number(includeBy) * 1000).toISOString() };
+}
+
 /** `withdraw finish`: settle burns whose outcome was unknown, then pay out the oldest one that is ready. */
 export async function withdrawFinish(ctx: ResolvedContext, opts: PageOptions) {
   const m = manifestFor(ctx);
@@ -572,6 +600,22 @@ export async function withdrawFinish(ctx: ResolvedContext, opts: PageOptions) {
       continue;
     }
     if (record.status === "unconfirmed" && record.l2TxHash) {
+      const fate = await handedFate(record, node);
+      if (fate.state === "expired") {
+        saveUsdcWithdrawal(ctx.dataDir, { ...record, status: "expired" });
+        settled.push({ id: record.id, status: "expired", note: "The burn was never included and can no longer be: nothing was burned. You can withdraw again." });
+        continue;
+      }
+      if (fate.state === "dropped") {
+        settled.push({
+          id: record.id,
+          status: "unconfirmed",
+          note:
+            `The node does not hold the burn and it is not included, but it could still be until ${fate.until}. ` +
+            "Run `aztec-x402 withdraw finish` again after that time (once a finalized block passes it); do not withdraw again before.",
+        });
+        continue;
+      }
       const found = await locateWithdrawal(toHex(record.recipient), BigInt(record.amount), TxHash.fromString(record.l2TxHash), node, m).catch(
         (error: unknown) => {
           settled.push({ id: record.id, status: "unconfirmed", note: `Not checkpointed yet: ${messageOf(error)}` });

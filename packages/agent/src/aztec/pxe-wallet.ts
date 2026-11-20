@@ -39,10 +39,12 @@
  * @see https://github.com/AztecProtocol/aztec-packages/pull/10613
  * @see https://github.com/AztecProtocol/aztec-packages/issues/15753
  */
+import { NO_FROM } from "@aztec-labs/aztec.js/account";
 import { CallAuthorizationRequest } from "@aztec-labs/aztec.js/authorization";
 import { extractOffchainOutput, NO_WAIT } from "@aztec-labs/aztec.js/contracts";
 import type { OffchainMessage } from "@aztec-labs/aztec.js/contracts";
 import { getGasLimits } from "@aztec-labs/wallet-sdk/base-wallet";
+import { getFeeJuiceBalance } from "@aztec-labs/aztec.js/utils";
 import { waitForTx } from "@aztec-labs/aztec.js/node";
 import { EmbeddedWallet as NodeEmbeddedWallet, type EmbeddedWalletOptions } from "@aztec-labs/wallets/embedded";
 import type { AztecNode } from "@aztec-labs/aztec.js/node";
@@ -52,6 +54,7 @@ import type { SendOptions } from "@aztec-labs/aztec.js/wallet";
 import { GasSettings } from "@aztec-labs/stdlib/gas";
 import { collectOffchainEffects } from "@aztec-labs/stdlib/tx";
 import { inspect } from "util";
+import { assertCoversFeeLimit } from "./fee-limit.js";
 
 interface SendTxWithAppReturnValuesResult {
   receipt?: { txHash?: { toString(): string }; debugLogs?: unknown[] };
@@ -68,6 +71,23 @@ function debugSend(message: string) {
 }
 
 export class PXEWallet extends NodeEmbeddedWallet {
+  /**
+   * Override: when the sender pays from its own Fee Juice (no fee payment method), refuse a tx whose fee limit
+   * exceeds that balance before it is proven. The node would refuse it anyway, but only after it was handed over,
+   * where it reads as "dropped" and a bridge exit must then be treated as possibly still landing.
+   *
+   * Fee options are completed without `forEstimation` only right before proving a tx that is sent (`sendTx`,
+   * {@link sendTxWithAppReturnValues}) or profiled; simulations estimate and are not checked.
+   */
+  protected override async completeFeeOptions(...args: Parameters<NodeEmbeddedWallet["completeFeeOptions"]>) {
+    const options = await super.completeFeeOptions(...args);
+    const [{ from, feePayer, forEstimation }] = args;
+    if (!forEstimation && from !== NO_FROM && !feePayer) {
+      assertCoversFeeLimit(from, await getFeeJuiceBalance(from, this.aztecNode), options.gasSettings.getFeeLimit().toBigInt());
+    }
+    return options;
+  }
+
   /**
    * Sends a transaction and returns the app call values from the proven execution.
    *
