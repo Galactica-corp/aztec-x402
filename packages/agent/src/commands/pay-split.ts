@@ -58,6 +58,7 @@ import {
   type SplitRecord,
 } from "../fund/split.js";
 import { toHex } from "../fund/bridge.js";
+import { requireBridgeManifest } from "../fund/usdc.js";
 import { progress } from "../output.js";
 import { appendLedger, checkPayment } from "../policy.js";
 import { saveStoredPayment } from "../proofs.js";
@@ -80,15 +81,8 @@ const MAX_DEPOSIT_HINTS = 8;
 
 const usdc = (v: bigint) => formatTokenAmount(v, { symbol: "USDC", name: "USDC", address: "", decimals: 6 });
 
-function manifestFor(ctx: ResolvedContext): BridgeManifest {
-  const m = bridgeManifestFor(ctx.network);
-  if (!m) {
-    throw new UsageError(
-      `No inference-money bridge is known for network ${ctx.network.name}; set AZTEC_X402_BRIDGE_MANIFEST to its manifest file.`,
-      "no_bridge",
-    );
-  }
-  return m;
+export function manifestFor(ctx: ResolvedContext): BridgeManifest {
+  return requireBridgeManifest(ctx.network, bridgeManifestFor(ctx.network));
 }
 
 export interface SplitStart {

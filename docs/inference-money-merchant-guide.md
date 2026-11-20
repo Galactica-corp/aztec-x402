@@ -38,8 +38,17 @@ New for the merchant:
    address to the account, and claim it. An account's first private claim binds it, for good, to the Ethereum
    address that made that deposit (its *funding address*). While listed, a merchant can withdraw anywhere; if it is
    ever switched off, it can withdraw only to its funding address. An account that is never bound can't withdraw
-   after a switch-off. The listing CLI can't check binding, so do it before you ask for the listing. The deposit flow
-   in section 4 does this.
+   after a switch-off. The listing CLI can't check binding, so do it before you ask for the listing. The agent CLI
+   does it when the account was created with `aztec-x402 wallet create` (its keys are in `<home>/<network>/account.json`,
+   which `createMerchant` takes as `type: "schnorr_initializerless"` keys):
+
+   ```sh
+   AZTEC_X402_HOME=~/.aztec-x402-merchant aztec-x402 --network mainnet deposit --amount 1 --allow-bind
+   ```
+
+   Sign the deposit on the page with the treasury wallet; the CLI claims it. On mainnet the claim's fee comes from the
+   account's Fee Juice (`aztec-x402 fund` first, and `config set publicFees true`). Later, `aztec-x402 withdraw --amount N
+   [--to ADDR]` pays USDC back out to Ethereum. The deposit flow in section 4 does the same in a front end.
 3. **Ask the token's merchant admin to list the address.** On testnet and mainnet the admin is Galactica: send
    them the account address and the network. The admin runs `bun run bridge merchants add deployments/<network>.json
    <address>` in the inference-money repository. A listing takes effect at once. Mainnet lists no merchants yet.

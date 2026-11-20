@@ -10,6 +10,7 @@ import { inspect, pay, resumePayment } from "./commands/pay.js";
 import { collectChange } from "./commands/pay-split.js";
 import { configGet, configSet, history, status } from "./commands/status.js";
 import { fund, fundClaim } from "./commands/fund.js";
+import { deposit, depositClaim, withdraw, withdrawFinish } from "./commands/usdc.js";
 
 export const HELP = `aztec-x402 — private x402 payments on Aztec for agents
 
@@ -43,6 +44,21 @@ Commands:
                               browser that cannot reach this machine)
   fund claim                  Finish deposits left pending
   fund change [--allow-bind]  Collect the change of payments from Ethereum
+  deposit --amount N [--allow-bind] [--hosted [--no-wait]] [--port P]
+        [--host H] [--no-open]
+                              Deposit USDC (inference-money) privately from
+                              the user's Ethereum wallet to the agent. The
+                              first deposit binds the account for good to the
+                              address it comes from (needs --allow-bind)
+  deposit claim [--allow-bind]
+                              Finish USDC deposits left pending
+  withdraw --amount N [--to ADDR] [--no-wait] [--hosted] [--port P]
+        [--host H] [--no-open]
+                              Burn USDC on Aztec and pay it out on Ethereum:
+                              to the funding address (users) or any --to
+                              (listed merchants). The user sends the payout
+                              from a page once the epoch is proven
+  withdraw finish             Pay out a withdrawal burned earlier
   config get | set <key> <value>
                               Keys: network, nodeUrl, policy.maxPerPayment,
                               policy.dailyLimit, publicFees (true: on mainnet,
@@ -84,6 +100,7 @@ const OPTIONS = {
   deposit: { type: "string" },
   resume: { type: "string" },
   "allow-bind": { type: "boolean" },
+  to: { type: "string" },
 } as const;
 
 async function run(argv: string[]): Promise<object> {
@@ -156,6 +173,25 @@ async function run(argv: string[]): Promise<object> {
         hosted: Boolean(values.hosted),
         wait: !values["no-wait"],
       });
+    case "deposit":
+    case "withdraw": {
+      const page = {
+        hosted: Boolean(values.hosted),
+        wait: !values["no-wait"],
+        open: !values["no-open"],
+        port: values.port ? Number(values.port) : undefined,
+        host: values.host,
+      };
+      if (command === "deposit") {
+        const allowBind = Boolean(values["allow-bind"]);
+        if (sub === "claim") return depositClaim(ctx, { allowBind });
+        if (sub !== undefined) throw new UsageError(`Unknown deposit subcommand "${sub}"`);
+        return deposit(ctx, { ...page, amount: values.amount, allowBind });
+      }
+      if (sub === "finish") return withdrawFinish(ctx, page);
+      if (sub !== undefined) throw new UsageError(`Unknown withdraw subcommand "${sub}"`);
+      return withdraw(ctx, { ...page, amount: values.amount, to: values.to });
+    }
     default:
       throw new UsageError(`Unknown command "${command}". Run \`aztec-x402 --help\`.`);
   }
