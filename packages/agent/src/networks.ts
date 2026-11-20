@@ -7,7 +7,8 @@
  * (see config.ts), so a local network or a new deployment needs no release.
  */
 import type { AztecNetwork } from "@galactica-net/x402-core";
-import { TESTNET_MANIFEST } from "@galactica-net/inference-money-core/deployments";
+import type { BridgeManifest } from "@galactica-net/inference-money-core";
+import { MAINNET_MANIFEST, TESTNET_MANIFEST } from "@galactica-net/inference-money-core/deployments";
 
 export interface TokenInfo {
   symbol: string;
@@ -29,8 +30,14 @@ export interface NetworkConfig {
   nodeUrl: string;
   /** Local network runs without real proofs; public networks need the prover. */
   proverEnabled: boolean;
-  /** Pay fees through the canonical Sponsored FPC (free on testnet / local). */
+  /**
+   * Pay fees through the canonical Sponsored FPC (free on testnet / local).
+   * Without one (mainnet) every account pays its own Fee Juice and is named as
+   * the fee payer of its txs; a buyer must opt in to that (fees.ts).
+   */
   sponsoredFees: boolean;
+  /** Symbol of the L1 asset the Fee Juice portal bridges (default "FEE", testnet's faucet token). */
+  feeAssetSymbol?: string;
   /** Settlement layer chain id — where deposits are signed. */
   l1ChainId: number;
   l1ChainName: string;
@@ -78,6 +85,28 @@ export const NETWORKS: Record<string, NetworkConfig> = {
       },
     ],
   },
+  mainnet: {
+    name: "mainnet",
+    caip2: "aztec:mainnet",
+    nodeUrl: MAINNET_MANIFEST.l2.nodeUrl,
+    proverEnabled: true,
+    // No sponsor on mainnet: each account pays its own Fee Juice, bridged from AZTEC.
+    sponsoredFees: false,
+    feeAssetSymbol: "AZTEC",
+    l1ChainId: 1,
+    l1ChainName: "Ethereum",
+    l1RpcUrl: "https://ethereum-rpc.publicnode.com",
+    l1ExplorerUrl: "https://etherscan.io",
+    tokens: [
+      {
+        // Ethereum USDC bridged by inference-money; payable only to its listed merchants.
+        symbol: "USDC",
+        name: "USDC (inference-money, bridged from Ethereum)",
+        address: MAINNET_MANIFEST.l2.token.address,
+        decimals: 6,
+      },
+    ],
+  },
   local: {
     name: "local",
     caip2: "aztec:sandbox",
@@ -92,3 +121,11 @@ export const NETWORKS: Record<string, NetworkConfig> = {
 };
 
 export const DEFAULT_NETWORK = "testnet";
+
+/** The inference-money deployments this package ships, by network name. */
+const BRIDGES: Record<string, BridgeManifest> = { testnet: TESTNET_MANIFEST, mainnet: MAINNET_MANIFEST };
+
+/** The inference-money bridge deployed on `network`, or undefined where this package ships none (local). */
+export function builtInBridge(network: Pick<NetworkConfig, "name">): BridgeManifest | undefined {
+  return BRIDGES[network.name];
+}

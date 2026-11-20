@@ -9,7 +9,7 @@ import { SponsoredFeePaymentMethod } from "@aztec-labs/aztec.js/fee";
 import { getContractInstanceFromInstantiationParams } from "@aztec-labs/aztec.js/contracts";
 import { TxStatus } from "@aztec-labs/aztec.js/tx";
 import type { AccountManager } from "@aztec-labs/aztec.js/wallet";
-import type { PaymentGate } from "@galactica-net/inference-money-core";
+import { SendJournal, type PaymentGate } from "@galactica-net/inference-money-core";
 import { SponsoredFPCContractArtifact } from "@aztec-labs/noir-contracts.js/SponsoredFPC";
 import { SPONSORED_FPC_SALT } from "@aztec-labs/constants";
 import { join } from "path";
@@ -32,6 +32,8 @@ export interface Session {
   wallet: PXEWallet;
   account: AccountManager;
   address: AztecAddress;
+  /** Set when opened with `journal: true`. */
+  journal?: SendJournal;
   /** The tokens this account holds or pays with, by address. */
   tokens: TokenRegistry;
   /** Options every `send()` needs: sender, fee payment, and how long to wait. */
@@ -50,12 +52,15 @@ export interface SessionOptions {
    * done before it exists.
    */
   payingWith?: string;
+  /** Build the wallet through a {@link SendJournal}, which bridge exits (`exitToL1`) require. */
+  journal?: boolean;
 }
 
 export async function openWallet(network: NetworkConfig, dataDir: string, opts: SessionOptions = {}): Promise<{
   node: AztecNode;
   wallet: PXEWallet;
   paymentGate?: PaymentGate;
+  journal?: SendJournal;
 }> {
   const node = createNodeClient(network.nodeUrl);
   // Fail fast with a clear code: the PXE needs the node for everything, even key derivation.
@@ -77,8 +82,14 @@ export async function openWallet(network: NetworkConfig, dataDir: string, opts: 
   const paymentGate = opts.payingWith
     ? await paymentGateFor(node, opts.payingWith, () => filePaymentStore(join(dataDir, "requests.json")))
     : undefined;
-  const wallet = paymentGate ? await paymentGate.bindWallet(create) : await create(node);
-  return { node, wallet, paymentGate };
+  if (paymentGate && opts.journal) throw new Error("A wallet is built through a payment gate or a send journal, not both");
+  const journal = opts.journal ? new SendJournal(node) : undefined;
+  const wallet = paymentGate
+    ? await paymentGate.bindWallet(create)
+    : journal
+      ? await journal.bindWallet(create)
+      : await create(node);
+  return { node, wallet, paymentGate, journal };
 }
 
 export async function accountFromKeys(wallet: PXEWallet, keys: Omit<AccountKeys, "address" | "createdAt" | "type">) {
@@ -110,7 +121,7 @@ export async function openSession(
       "no_wallet",
     );
   }
-  const { node, wallet, paymentGate } = await openWallet(network, dataDir, opts);
+  const { node, wallet, paymentGate, journal } = await openWallet(network, dataDir, opts);
   const account = await accountFromKeys(wallet, keys);
   const address = account.address;
   if (address.toString() !== keys.address) {
@@ -124,6 +135,7 @@ export async function openSession(
     wallet,
     account,
     address,
+    journal,
     tokens: new TokenRegistry({ node, wallet, account: address, fee, paymentGate }),
     fee,
     sendOpts: {

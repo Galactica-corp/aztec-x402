@@ -114,6 +114,10 @@ DATA_DIR=packages/demo/.data/testnet TOKEN=inference INFERENCE_INSTANCE=own FUND
 DATA_DIR=packages/demo/.data/testnet FUNDING_L1_KEY=0x… bun run e2e:split
 ```
 
+## Mainnet
+
+`@galactica-net/inference-money-core` 1.0.0 ships the inference-money deployment on Aztec mainnet (`MAINNET_MANIFEST`), and the agent and merchant support it with `network: "mainnet"` / `--network mainnet` (`aztec:mainnet`). The demo scripts stay on testnet. Mainnet has no fee sponsor: merchants pay their own transactions from Fee Juice (the merchant list is public anyway), and buyers pay theirs, which names the buyer's account as the fee payer of each payment. The agent CLI does that only after the user agrees (`config set publicFees true`). A private fee payer (a USDC-paid fee contract) can be added later through the SDK's `{ paymentMethod }` fee option. The contracts are not audited yet, and mainnet lists no merchants yet: see the [merchant guide](docs/inference-money-merchant-guide.md#mainnet).
+
 ## Running a Local Network
 
 ```bash

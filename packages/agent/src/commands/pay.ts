@@ -32,6 +32,7 @@ import { RealClientAztecSigner } from "../aztec/client-signer.js";
 import { openSession, tokenAt } from "../aztec/session.js";
 import { sameAddress, type ResolvedContext } from "../config.js";
 import { CliError, PolicyError, UsageError, isProverError, proverFailed } from "../errors.js";
+import { assertFeeConsent, assertHoldsFeeJuice } from "../fees.js";
 import { setInflightPayment } from "../inflight.js";
 import { appendLedger, checkPayment, type PaymentLimits } from "../policy.js";
 import { decodePaymentRequired, describeRequirement, formatTokenAmount, modeOf } from "../x402.js";
@@ -190,8 +191,11 @@ export async function pay(ctx: ResolvedContext, url: string, opts: PayOptions) {
   const price = formatTokenAmount(BigInt(requirement.amount), token);
   progress(`Price: ${price} ${token.symbol} to ${requirement.payTo} — within policy.`);
 
+  assertFeeConsent(ctx);
+
   progress("Opening wallet and syncing private state...");
   const session = await openSession(ctx.network, ctx.dataDir, { payingWith: token.address });
+  await assertHoldsFeeJuice(ctx, session.node, session.address);
   // Refuse what the token's own rules would, also before the merchant prepares.
   const adapter = await tokenAt(session, token.address);
   await adapter.preflight(AztecAddress.fromStringUnsafe(requirement.payTo));

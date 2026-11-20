@@ -5,6 +5,7 @@ import { PaymentModeSchema } from "./modes.js";
 export const AztecNetworkSchema = z.enum([
   AZTEC_NETWORKS.SANDBOX,
   AZTEC_NETWORKS.TESTNET,
+  AZTEC_NETWORKS.MAINNET,
   AZTEC_NETWORKS.DEVNET,
 ]);
 

@@ -25,11 +25,10 @@ import {
   type ClaimTicket,
   type DepositDraft,
 } from "@galactica-net/inference-money-core";
-import { TESTNET_MANIFEST } from "@galactica-net/inference-money-core/deployments";
 import type { PaymentRequirements } from "@galactica-net/x402-mechanism";
 import type { SplitPaymentProof, SplitTerms } from "@galactica-net/x402-core";
 import { createPublicClient, encodeFunctionData, erc20Abi, http, parseEventLogs, type Log } from "viem";
-import type { NetworkConfig } from "../networks.js";
+import { builtInBridge, type NetworkConfig } from "../networks.js";
 import { CliError, UsageError } from "../errors.js";
 import { OWNER_WORD, type FundingPlan, type Hex, type PlanStep } from "./bridge.js";
 
@@ -101,13 +100,13 @@ export const draftOf = (r: SplitRecord): DepositDraft => decodeDepositDraft(r.dr
 export const ticketOf = (r: SplitRecord): ClaimTicket | undefined => (r.ticket ? decodeClaimTicket(r.ticket) : undefined);
 
 /**
- * The bridge this agent deposits through: the SDK's testnet deployment, or on
- * another network the manifest file named by AZTEC_X402_BRIDGE_MANIFEST.
+ * The bridge this agent deposits through: the manifest file named by
+ * AZTEC_X402_BRIDGE_MANIFEST, else the SDK's deployment on this network.
  */
 export function bridgeManifestFor(network: NetworkConfig): BridgeManifest | undefined {
   const path = process.env.AZTEC_X402_BRIDGE_MANIFEST;
   if (path) return parseManifest(JSON.parse(readFileSync(path, "utf-8")));
-  return network.name === "testnet" ? parseManifest(TESTNET_MANIFEST) : undefined;
+  return builtInBridge(network);
 }
 
 /** Refuses split terms for another bridge than the agent's own, or another payment than the 402's. */

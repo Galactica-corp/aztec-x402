@@ -38,11 +38,20 @@ New for the merchant:
    address to the account, and claim it. An account's first private claim binds it, for good, to the Ethereum
    address that made that deposit (its *funding address*). While listed, a merchant can withdraw anywhere; if it is
    ever switched off, it can withdraw only to its funding address. An account that is never bound can't withdraw
-   after a switch-off. The listing CLI can't check binding, so do it before you ask for the listing. The deposit flow
-   in section 4 does this.
-3. **Ask the token's merchant admin to list the address.** On testnet the admin is Galactica: send them the
-   account address. The admin runs `bun run bridge merchants add deployments/testnet.json <address>` in the
-   inference-money repository. A listing takes effect at once.
+   after a switch-off. The listing CLI can't check binding, so do it before you ask for the listing. The agent CLI
+   does it when the account was created with `aztec-x402 wallet create` (its keys are in `<home>/<network>/account.json`,
+   which `createMerchant` takes as `type: "schnorr_initializerless"` keys):
+
+   ```sh
+   AZTEC_X402_HOME=~/.aztec-x402-merchant aztec-x402 --network mainnet deposit --amount 1 --allow-bind
+   ```
+
+   Sign the deposit on the page with the treasury wallet; the CLI claims it. On mainnet the claim's fee comes from the
+   account's Fee Juice (`aztec-x402 fund` first, and `config set publicFees true`). Later, `aztec-x402 withdraw --amount N
+   [--to ADDR]` pays USDC back out to Ethereum. The deposit flow in section 4 does the same in a front end.
+3. **Ask the token's merchant admin to list the address.** On testnet and mainnet the admin is Galactica: send
+   them the account address and the network. The admin runs `bun run bridge merchants add deployments/<network>.json
+   <address>` in the inference-money repository. A listing takes effect at once. Mainnet lists no merchants yet.
 4. **Check the listing.** The x402 server checks it at start and refuses to run when the account is not listed (see
    `assertCanSell` below). To check by hand: `merchantStatus(await syncMerchantList(node, token), account).merchant`
    from `@galactica-net/inference-money-core`.
@@ -98,7 +107,7 @@ import { createMerchant } from "@galactica-net/x402-agent/aztec";
 import { TESTNET_MANIFEST } from "@galactica-net/inference-money-core/deployments";
 
 const merchant = await createMerchant({
-  network: "testnet",                       // or "local"; nodeUrl overrides the node
+  network: "testnet",                       // or "mainnet" (with MAINNET_MANIFEST), "local"; nodeUrl overrides the node
   keys: { secretKey, signingKey, salt },    // your listed account; type: "schnorr_initializerless" if it is one
   token: TESTNET_MANIFEST.l2.token.address,
   dataDir: "/var/lib/x402",                 // must survive restarts and redeploys (below)
@@ -119,6 +128,26 @@ device). Anything a route sets wins. `merchant.middleware()` returns the framewo
 A 402 offers a single asset, so a route charges in exactly one token. To accept AIP-20 and the inference-money USDC
 side by side, create one merchant per token (each with its own `dataDir`) and give each token its own routes; both can
 use the same account.
+
+### Mainnet
+
+`network: "mainnet"` with `token: MAINNET_MANIFEST.l2.token.address` (from the same `…/deployments` import) runs the
+same server against the mainnet deployment; split payments use `MAINNET_MANIFEST` and an Ethereum mainnet RPC. What
+differs:
+
+- **No fee sponsor.** The merchant pays its own transactions (opening requests, consolidating, claiming split
+  deposits) from its account's Fee Juice and is named as their fee payer, which reveals little: the merchant list is
+  public. Bridge AZTEC to the account through the Fee Juice portal before starting.
+- **Keep several transactions' worth of Fee Juice, not just some.** The node refuses a transaction unless its payer's
+  Fee Juice covers the transaction's *fee limit* (its gas limit times its maximum fee per gas), and the wallet pads
+  both: an exit that is charged 1.9 FEE declares about 3.1, so an account with 2.1 FEE cannot send it. `createMerchant`
+  refuses to start below one typical transaction's fee limit (about 4 FEE at late-2026 fees), and `merchant.status()`
+  warns below five. The agent CLI checks each transaction's own fee limit before proving it and refuses with
+  `insufficient_fee_juice`, so nothing is sent. Every sale paid by the commitment flow and every consolidation and
+  split claim costs one transaction; `ref` payments cost none per request.
+- **Buyers pay their own fees too**, and are named as the fee payer of their payments. The `aztec-x402` CLI does so
+  only after its user agreed (`publicFees`); offer `ref` first, so the payment shows no amount.
+- **Real USDC, unaudited contracts.** An audit follows this limited run: keep prices and balances small.
 
 The node client comes from `createNodeClient`: on the public dRPC testnet host it caps JSON-RPC batches at the host's
 limit; without the cap, proving fails there. If you build anything yourself, use it too, not `createAztecNodeClient`.
@@ -333,7 +362,8 @@ All refusal strings: "Refusals" in the [integration doc](https://github.com/Gala
 - **Your prices are public, so the amount of a commitment payment usually identifies you as its recipient.** Offer
   `ref` first: it shows no amount and does not name you. A `split` deposit shows the buyer's Ethereum address and a
   round amount, never you or the price.
-- **Use the sponsor for fees** (as above). An account that pays its own fees is named as fee payer in public.
+- **Use the sponsor for fees** where there is one (testnet). An account that pays its own fees is named as fee payer
+  in public; on mainnet, which has no sponsor, every merchant and buyer does.
 - **Keep request commitments out of logs and URLs.** Anyone who knows a commitment can tell whether it was paid and
   by which account.
 - **A user's first private payment to you announces you as their payee once,** under a tag derived from your
@@ -346,7 +376,9 @@ The full list: "What each action makes public" in the integration doc.
 
 - [ ] Receiving account deployed, bound to your treasury, and listed by the merchant admin.
 - [ ] `@galactica-net/inference-money-core` and `@aztec-labs/*` pinned to the versions the x402 packages use; no `SEED`.
-- [ ] USDC address read from `TESTNET_MANIFEST`; one route per token.
+- [ ] USDC address read from `TESTNET_MANIFEST` (or `MAINNET_MANIFEST`); one route per token.
+- [ ] On mainnet: several transactions' worth of Fee Juice in the merchant account (≥ 5 × the fee limit, about 20 FEE
+  at late-2026 fees), and `merchant.status()` warnings in your monitoring to see when it runs low.
 - [ ] The server built with `createMerchant` (one merchant per token), routes through `merchant.middleware()`.
 - [ ] Buyers you ship pay through a `PaymentGate` with a persistent store.
 - [ ] `dataDir` on storage that survives restarts and redeploys; `merchant.status()` in your health check; an L1 RPC

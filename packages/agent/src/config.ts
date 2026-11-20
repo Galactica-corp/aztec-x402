@@ -31,6 +31,12 @@ export interface UserConfig {
   policy?: Partial<SpendPolicy>;
   /** Extra tokens per network name, merged over the built-in registry. */
   tokens?: Record<string, TokenInfo[]>;
+  /**
+   * Consent to pay fees from the agent's own Fee Juice where the network has no
+   * sponsor (mainnet), which names the agent's account as the payer of every
+   * payment it makes (fees.ts).
+   */
+  publicFees?: boolean;
 }
 
 /** Hosted copy (Unfazed) of plugins/aztec-x402/skills/aztec-x402/assets/fund.html. */
@@ -69,6 +75,8 @@ export interface ResolvedContext {
   policy: SpendPolicy;
   /** Directory holding this network's keys, PXE, and ledgers. */
   dataDir: string;
+  /** The user agreed to pay fees as the named fee payer on a network without a sponsor (fees.ts). */
+  publicFees: boolean;
 }
 
 /**
@@ -100,7 +108,16 @@ export function resolveContext(networkFlag?: string): ResolvedContext {
     network: { ...base, nodeUrl, tokens, l1RpcUrl: process.env.AZTEC_X402_L1_RPC_URL ?? base.l1RpcUrl },
     policy: { ...DEFAULT_POLICY, ...user.policy },
     dataDir,
+    publicFees: envFlag(process.env.AZTEC_X402_PUBLIC_FEES) ?? user.publicFees === true,
   };
+}
+
+/** "1"/"true" and "0"/"false"; undefined when unset, so the config file decides. */
+function envFlag(value: string | undefined): boolean | undefined {
+  if (value === undefined || value === "") return undefined;
+  if (/^(1|true|yes)$/i.test(value)) return true;
+  if (/^(0|false|no)$/i.test(value)) return false;
+  throw new UsageError(`Expected true or false, got "${value}".`);
 }
 
 export function sameAddress(a: string, b: string): boolean {

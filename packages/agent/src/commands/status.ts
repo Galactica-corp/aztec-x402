@@ -4,6 +4,7 @@ import { loadAccountKeys } from "../aztec/keystore.js";
 import { homeDir, readUserConfig, writeUserConfig, type ResolvedContext } from "../config.js";
 import { CliError, UsageError } from "../errors.js";
 import { NETWORKS } from "../networks.js";
+import { feeMode } from "../fees.js";
 import { readLedger, spentLast24h } from "../policy.js";
 import { formatTokenAmount } from "../x402.js";
 
@@ -32,6 +33,7 @@ export async function status(ctx: ResolvedContext) {
     node,
     wallet: keys ? { address: keys.address } : null,
     policy: ctx.policy,
+    fees: feeMode(ctx),
     spent24h: Object.fromEntries(
       ctx.network.tokens.map((t) => [t.symbol, formatTokenAmount(spentLast24h(ctx.dataDir, t), t)]),
     ),
@@ -56,7 +58,7 @@ export function history(ctx: ResolvedContext, opts: { limit?: number }) {
   return { network: ctx.network.name, payments: entries.slice(0, opts.limit ?? 20) };
 }
 
-const SETTABLE = ["network", "nodeUrl", "policy.maxPerPayment", "policy.dailyLimit"] as const;
+const SETTABLE = ["network", "nodeUrl", "policy.maxPerPayment", "policy.dailyLimit", "publicFees"] as const;
 
 export function configGet() {
   return { path: `${homeDir()}/config.json`, config: readUserConfig(), settable: SETTABLE };
@@ -71,6 +73,10 @@ export function configSet(key: string, value: string) {
       break;
     case "nodeUrl":
       config.nodeUrl = value;
+      break;
+    case "publicFees":
+      if (value !== "true" && value !== "false") throw new UsageError("publicFees must be true or false");
+      config.publicFees = value === "true";
       break;
     case "policy.maxPerPayment":
     case "policy.dailyLimit":

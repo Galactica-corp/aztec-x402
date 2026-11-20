@@ -21,6 +21,21 @@ The CLI carries this registry built in; `aztec-x402 status` prints the live view
 
 L1 contracts (Fee Juice portal, fee asset, its faucet) come from the node at run time: `curl -s -X POST <node RPC> -H 'content-type: application/json' -d '{"jsonrpc":"2.0","method":"aztec_getNodeInfo","params":[],"id":1}'` → `result.l1ContractAddresses`.
 
+## Aztec mainnet (`--network mainnet`)
+
+| Item | Value |
+| --- | --- |
+| Aztec version | 6.0.0 |
+| Node RPC | `https://aztec-mainnet.drpc.org`. Override with `AZTEC_X402_NODE_URL`. |
+| x402 network id (CAIP-2) | `aztec:mainnet` |
+| L1 | Ethereum (chain id 1), public RPC `https://ethereum-rpc.publicnode.com` |
+| `USDC` (inference-money, 6 decimals) | `0x1028cce2c0d549fb964df15109650cadc7fbe55e0f7c44dfa04a187c58205388` (`MAINNET_MANIFEST` of `@galactica-net/inference-money-core`) |
+| Fee payer | none: every account pays its own fees in Fee Juice, bridged from AZTEC |
+
+`USDC` is Ethereum USDC bridged by inference-money: real money. Its contracts are not audited yet, so keep amounts small. As on testnet it only pays listed merchants.
+
+There is no sponsor, so the agent pays its own fees and is named publicly as the fee payer of each payment it makes. The CLI refuses to pay that way (`public_fees_not_allowed`) until the user agrees: `aztec-x402 config set publicFees true` (or `AZTEC_X402_PUBLIC_FEES=1`). It then needs Fee Juice: `aztec-x402 fund` bridges AZTEC from the user's Ethereum wallet (they must already hold AZTEC; there is no faucet), and the claim pays its own fee from what it claims.
+
 ## Local network (`--network local`)
 
 `aztec start --local-network` (Aztec 6.0.0 tooling). Node `http://localhost:8080`, network id `aztec:sandbox`, no real proofs. The local network has no built-in tokens: add one with `config.json` (below). The aztec-x402 repo's `bun run setup:sandbox` (AIP-20) and `bun run setup:sandbox:inference` (inference-money USDC) deploy one and print its address in `deploy.json`.

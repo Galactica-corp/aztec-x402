@@ -13,7 +13,7 @@ import { UsageError } from "../errors.js";
  *
  * Accounts are initializerless Schnorr: the address is derived from the keys
  * and the account can send its first transaction (fees via Sponsored FPC on
- * testnet) without a separate deployment.
+ * testnet, from its own Fee Juice on mainnet) without a separate deployment.
  */
 export async function walletCreate(ctx: ResolvedContext) {
   const existing = loadAccountKeys(ctx.dataDir);

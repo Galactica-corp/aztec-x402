@@ -52,8 +52,11 @@ export interface PlanStep {
 
 export interface FundingPlan {
   v: 1;
-  /** `fund` (default): a deposit to the agent. `split`: a payment to a merchant, whose change the agent collects. */
-  kind?: "fund" | "split";
+  /**
+   * `fund` (default): a deposit to the agent. `split`: a payment to a merchant, whose change the agent collects.
+   * `withdraw`: the L1 payout of USDC the agent burned on Aztec.
+   */
+  kind?: "fund" | "split" | "withdraw";
   network: string;
   l1ChainId: number;
   l1ChainName: string;
@@ -64,6 +67,8 @@ export interface FundingPlan {
   amount: string;
   token: { symbol: string; decimals: number; address: Hex };
   portal: Hex;
+  /** The only L1 account allowed to sign (a bound account claims deposits from its funding address only). */
+  from?: Hex;
   title: string;
   /** One line on what the agent ends up with on Aztec. */
   result: string;

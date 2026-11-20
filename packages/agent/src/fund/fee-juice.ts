@@ -3,7 +3,9 @@
  * agent's Aztec account as Fee Juice (Aztec gas).
  *
  * On testnet the L1 fee asset has a public faucet (FeeAssetHandler.mint), so
- * the user only needs Sepolia ETH for gas. Fee Juice deposits are public by
+ * the user only needs Sepolia ETH for gas. On mainnet it is AZTEC, which the
+ * user must already hold, and there is no sponsor to pay for the claim: the
+ * claim pays its own fee from the Fee Juice it claims. Fee Juice deposits are public by
  * protocol design (`depositToAztecPublic`): the amount and recipient are
  * visible on L1. Payments the agent makes afterwards stay private.
  */
@@ -20,6 +22,8 @@ import { FeeJuicePortalAbi } from "@aztec-foundation/l1-artifacts/FeeJuicePortal
 import { TestERC20Abi } from "@aztec-foundation/l1-artifacts/TestERC20Abi";
 import { FeeJuiceContract } from "@aztec-labs/aztec.js/protocol";
 import { AztecAddress } from "@aztec-labs/aztec.js/addresses";
+import { BatchCall } from "@aztec-labs/aztec.js/contracts";
+import { FeeJuicePaymentMethodWithClaim } from "@aztec-labs/aztec.js/fee";
 import { Fr } from "@aztec-labs/aztec.js/fields";
 import { createNodeClient } from "../aztec/node-client.js";
 import { formatAmount, parsePrice } from "@galactica-net/x402-core";
@@ -40,8 +44,11 @@ import {
 } from "./bridge.js";
 import { trimAmount } from "../x402.js";
 
-/** Fee Juice the agent asks for by default: plenty for hundreds of transactions. */
-const DEFAULT_AMOUNT = "100";
+/**
+ * Fee Juice the agent asks for by default, in whole tokens (18 decimals): about ten payments on mainnet at
+ * late-2026 fees (~1M L2 gas per payment at ~2.4e12 per gas, padded 1.5× for the max fee). Real AZTEC there.
+ */
+const DEFAULT_AMOUNT = "25";
 /** Most public RPCs cap eth_getLogs ranges; search in chunks of this many blocks. */
 const LOG_CHUNK_BLOCKS = 10_000n;
 
@@ -58,6 +65,8 @@ export interface L1Addresses {
   portal: Hex;
   token: Hex;
   handler?: Hex;
+  /** The L1 fee asset's symbol, for the user (default "FEE"). */
+  symbol?: string;
 }
 
 function isZero(address: string): boolean {
@@ -87,6 +96,7 @@ export class FeeJuiceBridge implements BridgeAdapter {
       portal: toHex(portal),
       token: toHex(token),
       handler: handler && !isZero(handler) ? toHex(handler) : undefined,
+      symbol: network.feeAssetSymbol,
     });
   }
 
@@ -95,12 +105,16 @@ export class FeeJuiceBridge implements BridgeAdapter {
     return new FeeJuiceBridge(createPublicClient({ transport: http(l1RpcUrl) }), addresses);
   }
 
+  private get symbol(): string {
+    return this.addresses.symbol ?? "FEE";
+  }
+
   async describe(): Promise<BridgeDescription> {
     return {
       id: "fee-juice",
       title: "Fee Juice (Aztec gas)",
       result: "Fee Juice in the agent's Aztec account: gas for its own transactions.",
-      l1Token: { symbol: "FEE", decimals: FEE_JUICE_DECIMALS, address: this.addresses.token },
+      l1Token: { symbol: this.symbol, decimals: FEE_JUICE_DECIMALS, address: this.addresses.token },
       portal: this.addresses.portal,
       defaultAmount: DEFAULT_AMOUNT,
       privacy:
@@ -137,7 +151,7 @@ export class FeeJuiceBridge implements BridgeAdapter {
     }
     steps.push({
       id: "approve",
-      label: `Allow the Fee Juice portal to take ${this.formatAmount(amount)} FEE`,
+      label: `Allow the Fee Juice portal to take ${this.formatAmount(amount)} ${this.symbol}`,
       to: token,
       data: encodeFunctionData({ abi: TestERC20Abi, functionName: "approve", args: [portal, amount] }),
       skipIf: {
@@ -150,7 +164,7 @@ export class FeeJuiceBridge implements BridgeAdapter {
     });
     steps.push({
       id: "deposit",
-      label: `Deposit ${this.formatAmount(amount)} FEE to the agent on Aztec`,
+      label: `Deposit ${this.formatAmount(amount)} ${this.symbol} to the agent on Aztec`,
       to: portal,
       data: encodeFunctionData({
         abi: FeeJuicePortalAbi,
@@ -205,6 +219,7 @@ export class FeeJuiceBridge implements BridgeAdapter {
 
   async claim(session: Session, deposit: DepositRecord): Promise<string> {
     if (deposit.leafIndex === undefined) throw new Error("Deposit has no L1→L2 message index yet");
+    if (!session.fee) return this.claimPayingItself(session, deposit, BigInt(deposit.leafIndex));
     const feeJuice = FeeJuiceContract.withWallet(session.wallet);
     const result = await feeJuice.methods
       .claim(
@@ -214,6 +229,24 @@ export class FeeJuiceBridge implements BridgeAdapter {
         new Fr(BigInt(deposit.leafIndex)),
       )
       .send(session.sendOpts);
+    return result.receipt.txHash.toString();
+  }
+
+  /**
+   * Without a sponsor: the claim is the tx's fee payment (claimed in setup, then
+   * paid from), so an account with no Fee Juice yet can make it. It claims to
+   * the sender, which is always the agent here.
+   */
+  private async claimPayingItself(session: Session, deposit: DepositRecord, leafIndex: bigint): Promise<string> {
+    if (!session.address.equals(AztecAddress.fromStringUnsafe(deposit.recipient))) {
+      throw new Error(`Deposit is for ${deposit.recipient}, not this agent (${session.address}).`);
+    }
+    const paymentMethod = new FeeJuicePaymentMethodWithClaim(session.address, {
+      claimAmount: BigInt(deposit.amount),
+      claimSecret: Fr.fromString(deposit.secret),
+      messageLeafIndex: leafIndex,
+    });
+    const result = await new BatchCall(session.wallet, []).send({ ...session.sendOpts, fee: { paymentMethod } });
     return result.receipt.txHash.toString();
   }
 

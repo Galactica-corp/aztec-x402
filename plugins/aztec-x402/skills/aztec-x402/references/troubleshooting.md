@@ -30,6 +30,9 @@ Every failure prints `{"ok": false, "error": {"code": …, "message": …}}`. Fi
 | `deposit_reverted` | no | The user's deposit transaction failed on Ethereum; nothing was paid. |
 | `bind_consent_required` | no | `fund change` would bind the agent's account to the user's Ethereum address for good. Ask the user, then `fund change --allow-bind`. |
 | `payment_uncertain` | maybe | The transfer was sent or about to be, but not confirmed in time. It still counts toward the 24h limit. Check `aztec-x402 balance` against the price; ask the user before retrying. |
+| `public_fees_not_allowed` | no | The network has no fee sponsor (mainnet): paying would name your account as the fee payer. Explain it to the user and ask; only on their yes, `aztec-x402 config set publicFees true`, then retry. |
+| `no_fee_juice` | no | You pay your own fees on this network and hold no Fee Juice. `aztec-x402 fund` (see funding.md), then retry. |
+| `insufficient_fee_juice` | no | You hold Fee Juice, but less than this transaction's fee limit (`needed`; the node demands the whole limit, about 1.6× the fee charged). Nothing was sent. `aztec-x402 fund` more, then retry. |
 | `no_faucet` | no | No faucet for that token on this network. Fund via `aztec-x402 fund`. |
 | `insufficient_l1_balance` | no | The user's L1 wallet lacks the deposit token and there is no faucet for it. |
 | `message_timeout` | deposit on L1, not yet claimed | `aztec-x402 fund claim` later. |

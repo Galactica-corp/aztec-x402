@@ -133,7 +133,8 @@ function checkPlan(p) {
   if (!Number.isInteger(p.l1ChainId)) fail("chain");
   if (!ADDRESS.test(p.portal)) fail("portal");
   if (!Array.isArray(p.steps) || p.steps.length === 0 || p.steps.length > 10) fail("steps");
-  if (p.kind !== undefined && p.kind !== "fund" && p.kind !== "split") fail("kind");
+  if (p.kind !== undefined && p.kind !== "fund" && p.kind !== "split" && p.kind !== "withdraw") fail("kind");
+  if (p.from !== undefined && !ADDRESS.test(p.from)) fail("from");
   for (const s of p.steps) {
     if (!ADDRESS.test(s.to) || !CALLDATA.test(s.data)) fail("step " + s.id);
     if (s.kind === "sign" && (typeof s.typedData !== "object" || s.typedData === null)) fail("step " + s.id);
@@ -194,13 +195,17 @@ async function waitReceipt(hash) {
 function renderFacts() {
   $("deposit-card").hidden = false;
   const split = plan.kind === "split";
-  $("sub").textContent = split
-    ? "Sign one deposit on " + plan.l1ChainName + " with your browser wallet. It pays the merchant your agent is buying from; your agent collects the change on Aztec " + plan.network + "."
-    : "Sign a deposit on " + plan.l1ChainName + " with your browser wallet. Your agent then claims it on Aztec " + plan.network + ".";
+  const withdraw = plan.kind === "withdraw";
+  $("sub").textContent = withdraw
+    ? "Your agent burned " + plan.amount + " " + plan.token.symbol + " on Aztec " + plan.network + ". Send the payout on " + plan.l1ChainName + " with your browser wallet (any account can; you pay the gas)."
+    : split
+      ? "Sign one deposit on " + plan.l1ChainName + " with your browser wallet. It pays the merchant your agent is buying from; your agent collects the change on Aztec " + plan.network + "."
+      : "Sign a deposit on " + plan.l1ChainName + " with your browser wallet. Your agent then claims it on Aztec " + plan.network + ".";
   $("facts").innerHTML = [
     ["Agent (Aztec)", '<span class="mono">' + esc(plan.agent) + "</span>"],
-    ["You send", esc(plan.amount + " " + plan.token.symbol) + " on " + esc(plan.l1ChainName)],
-    [split ? "Goes to" : "Agent receives", esc(plan.result)],
+    withdraw ? ["Paid out", esc(plan.result)] : ["You send", esc(plan.amount + " " + plan.token.symbol) + " on " + esc(plan.l1ChainName)],
+    ...(withdraw ? [] : [[split ? "Goes to" : "Agent receives", esc(plan.result)]]),
+    ...(plan.from ? [["Sign with", '<span class="mono">' + esc(plan.from) + "</span>"]] : []),
     ["Portal", '<span class="mono">' + esc(plan.portal) + "</span>"],
   ].map(([k, v]) => "<dt>" + k + "</dt><dd>" + v + "</dd>").join("");
   $("privacy").textContent = (MODE === "hosted" ? "Check that the agent address matches the one your agent gave you. " : "") + plan.privacy;
@@ -227,6 +232,9 @@ function renderSteps() {
     const payCls = MODE !== "local" ? "" : phase === "done" ? "done" : phase === "paying" ? "active" : phase === "failed" ? "failed" : "";
     rows.push(row(++n, l1Cls, "Agent finds the deposit on " + plan.l1ChainName, "A few blocks after it is mined."));
     rows.push(row(++n, payCls, "Agent hands the merchant the payment", "The merchant checks the deposit and serves your agent's request."));
+  } else if (plan.kind === "withdraw") {
+    const cls = MODE !== "local" ? "" : phase === "done" ? "done" : phase === "waiting_l1" ? "active" : phase === "failed" ? "failed" : "";
+    rows.push(row(++n, cls, "Agent confirms the payout", "It checks on " + esc(plan.l1ChainName) + " that the withdrawal was paid."));
   } else if (MODE === "local") {
     const order = ["signing", "waiting_l1", "waiting_message", "claiming", "done"];
     const reached = (p) => order.indexOf(phase) >= order.indexOf(p);
@@ -251,11 +259,16 @@ async function refreshLocal() {
   renderFacts();
   renderSteps();
   if (phase === "done") {
-    setStatus(plan.kind === "split" ? "Done. The merchant was paid; your agent collects the change later." : "Done. The agent's balance is " + l2Balance + ".", "ok");
+    setStatus(
+      plan.kind === "split" ? "Done. The merchant was paid; your agent collects the change later."
+        : plan.kind === "withdraw" ? "Done. " + plan.result + " was paid out."
+        : "Done. The agent's balance is " + l2Balance + ".", "ok");
     $("go").disabled = true;
-    $("go").textContent = plan.kind === "split" ? "Paid" : "Funded";
+    $("go").textContent = plan.kind === "split" ? "Paid" : plan.kind === "withdraw" ? "Withdrawn" : "Funded";
   } else if (phase === "failed") {
-    setStatus("Claim failed: " + (serverError || "unknown error") + '. Ask the agent to run "aztec-x402 fund claim".', "err");
+    setStatus("Failed: " + (serverError || "unknown error") + ". Your agent can resume it; nothing is lost.", "err");
+  } else if (plan.kind === "withdraw" && phase === "waiting_l1") {
+    setStatus("Withdrawal sent. Your agent is confirming the payout…", "warn");
   } else if (phase === "paying") {
     setStatus("Deposit found. Your agent is handing the merchant the payment…", "warn");
   } else if (phase === "waiting_message" || phase === "waiting_l1") {
@@ -271,6 +284,9 @@ async function connect() {
     return;
   }
   owner = (await eth("eth_requestAccounts", []))[0];
+  if (plan.from && owner.toLowerCase() !== plan.from.toLowerCase()) {
+    throw new Error("Connect " + plan.from + ": your agent's account only accepts deposits from that address (connected: " + short(owner) + ").");
+  }
   const want = "0x" + plan.l1ChainId.toString(16);
   if ((await eth("eth_chainId", [])) !== want) {
     await eth("wallet_switchEthereumChain", [{ chainId: want }]);
@@ -318,15 +334,18 @@ async function run() {
     renderSteps();
   }
   $("go").textContent = "Signed";
-  const deposit = txStatus.deposit;
+  const withdraw = plan.kind === "withdraw";
+  const sent = withdraw ? txStatus.withdraw : txStatus.deposit;
   if (MODE === "local") {
-    if (deposit && deposit.hash) await api("/api/submitted", { l1TxHash: deposit.hash, owner });
+    if (sent && sent.hash) await api("/api/submitted", { l1TxHash: sent.hash, owner });
     submitted = true;
-    setStatus("Deposit sent. Waiting for your agent to pick it up…", "warn");
+    setStatus(withdraw ? "Withdrawal sent. Your agent is confirming the payout…" : "Deposit sent. Waiting for your agent to pick it up…", "warn");
     await refreshLocal();
   } else {
     renderSteps();
-    setStatus("Deposit sent. Your agent will claim it on Aztec in a few minutes — you can close this page and ask it to confirm.", "ok");
+    setStatus(withdraw
+      ? "Withdrawal sent. You can close this page; your agent confirms it when you ask."
+      : "Deposit sent. Your agent will claim it on Aztec in a few minutes — you can close this page and ask it to confirm.", "ok");
   }
 }
 

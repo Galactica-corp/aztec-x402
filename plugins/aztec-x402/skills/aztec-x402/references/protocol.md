@@ -29,7 +29,7 @@ A merchant with an Ethereum connection also offers a **split deposit**: the user
 
 | Who | Learns |
 | --- | --- |
-| Public observers of Aztec | That some transactions happened and which token contract they touched. Buyer and merchant addresses stay hidden, and so do private balances. With the commitment flow they also see the amount: it is plaintext in the note-completion log, next to the token's `private_balances` slot. With `ref` the amount travels offchain to the merchant and is not on chain. |
+| Public observers of Aztec | That some transactions happened and which token contract they touched. Buyer and merchant addresses stay hidden, and so do private balances; on mainnet the buyer's own account is named as each payment's fee payer (below). With the commitment flow they also see the amount: it is plaintext in the note-completion log, next to the token's `private_balances` slot. With `ref` the amount travels offchain to the merchant and is not on chain. |
 | The merchant | That this request was paid and how much. With the commitment flow also by which Aztec address; with `ref` not even that. With `split`, the user's Ethereum address. |
 | Observers of Ethereum (L1) | Deposits from L1 into Aztec, when the user funds the agent from Ethereum (see funding.md). |
 
@@ -37,7 +37,7 @@ The content is delivered over HTTP, off-chain, so nothing on-chain links an Azte
 
 ## Costs and timing
 
-A commitment payment is two Aztec transactions: the merchant's prepare and the client's transfer. A `ref` payment is one (the client's). A `split` payment is one Ethereum transaction for the user, then one Aztec claim by the merchant and one by the agent to collect the change. Fees are paid by a sponsored fee contract on testnet. Expect 1–3 minutes per payment, mostly proof generation and block inclusion.
+A commitment payment is two Aztec transactions: the merchant's prepare and the client's transfer. A `ref` payment is one (the client's). A `split` payment is one Ethereum transaction for the user, then one Aztec claim by the merchant and one by the agent to collect the change. Fees are paid by a sponsored fee contract on testnet. Mainnet has none: the merchant pays its own transactions, and the agent pays its own from Fee Juice, which names the agent's account publicly as the fee payer of each payment it makes (the amount in `ref` mode and the merchant stay hidden). Its Fee Juice deposit on Ethereum links that account to the Ethereum address it came from. The CLI does that only after the user agreed (`publicFees`). Expect 1–3 minutes per payment, mostly proof generation and block inclusion.
 
 ## Background
 

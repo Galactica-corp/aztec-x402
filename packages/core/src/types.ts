@@ -37,6 +37,8 @@ export const AZTEC_NETWORKS = {
   SANDBOX: "aztec:sandbox",
   /** Aztec public testnet */
   TESTNET: "aztec:testnet",
+  /** Aztec mainnet */
+  MAINNET: "aztec:mainnet",
   /** Legacy Aztec v4 devnet */
   DEVNET: "aztec:devnet",
 } as const satisfies Record<string, AztecNetwork>;

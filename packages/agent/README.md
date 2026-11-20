@@ -32,7 +32,11 @@ Node 22+ (or Bun). Proofs are generated locally; expect 1–3 minutes per paying
 | `fund --hosted [--no-wait]` | Same via a link to the hosted page, for a browser that cannot reach the agent | until claimed / instant |
 | `fund claim` | Find pending deposits on L1 and claim them | minutes |
 | `fund change [--allow-bind]` | Collect the change of payments made from Ethereum | minutes |
-| `config get` / `config set <key> <value>` | `network`, `nodeUrl`, `policy.maxPerPayment`, `policy.dailyLimit` | < 1s |
+| `deposit --amount N [--allow-bind]` | Page: user deposits USDC privately from Ethereum (Permit2), agent claims it. The first deposit binds the account to that Ethereum address for good | until claimed |
+| `deposit claim [--allow-bind]` | Finish USDC deposits left pending | minutes |
+| `withdraw --amount N [--to ADDR] [--no-wait]` | Burn USDC on Aztec; once the epoch is proven, the user sends the payout from a page. To the funding address (users) or `--to` (listed merchants) | about an hour |
+| `withdraw finish` | Settle an unconfirmed burn and pay out a ready withdrawal | until paid out |
+| `config get` / `config set <key> <value>` | `network`, `nodeUrl`, `policy.maxPerPayment`, `policy.dailyLimit`, `publicFees` | < 1s |
 
 Every command prints one JSON document on stdout (`"ok": true|false`) and progress on stderr. Exit codes: 0 ok, 1 error, 2 usage, 3 refused by the spend policy.
 
@@ -44,6 +48,8 @@ The CLI pays in the tokens of its registry (`src/networks.ts`, plus `config.json
 | --- | --- | --- |
 | `tUSDC` | AIP-20 | Test token; `faucet` mints it. |
 | `USDC` | inference-money | Sepolia USDC bridged by [inference-money](https://github.com/Galactica-corp/inference-money). No faucet. Payable only to merchants on the token's list: any other payee is refused before the merchant is asked to prepare (`merchant_not_listed`). |
+
+On mainnet (`--network mainnet`) the registry has `USDC`: Ethereum USDC bridged by inference-money, real money on unaudited contracts. Mainnet has no fee sponsor, so the agent pays its own fees from Fee Juice (`fund` bridges AZTEC) and is named publicly as the fee payer of each payment. It refuses to (`public_fees_not_allowed`) until the user agrees with `config set publicFees true` or `AZTEC_X402_PUBLIC_FEES=1`.
 
 A registry entry is just symbol, address and decimals. The kind is read from the contract's class on chain (`src/aztec/tokens/registry.ts`), and each kind's rules live in its adapter under `src/aztec/tokens/`. To add a kind, implement `TokenAdapter` (`adapter.ts`) and add its artifact to `identifyToken`.
 
@@ -72,6 +78,8 @@ config.json                 network, policy, extra tokens
 <network>/deposits.json     pending deposits with claim secrets, mode 0600
 <network>/proofs/           payments not yet acknowledged by the merchant (ref proofs hold its only note), mode 0600
 <network>/split-payments.json  payments from Ethereum, with the salts that collect the change, mode 0600
+<network>/usdc-deposits.json   USDC deposits with their claim salts, mode 0600
+<network>/usdc-withdrawals.json  USDC exits with their tickets, mode 0600
 <network>/downloads/        large or binary paid responses
 ```
 
@@ -84,7 +92,7 @@ The page is one self-contained file, owned by the skill: [`plugins/aztec-x402/sk
 
 Either way the CLI builds the plan (owner-independent calldata plus "skip if" reads), the page fills in the connected account and asks the wallet to sign, and the CLI finds the deposit by watching the portal's L1 logs for the agent's address and the deposit's secret hash. The claim secret never leaves the CLI. After the L1 deposit, the CLI waits for the L1→L2 message and proves the claim on Aztec.
 
-Routes are bridge adapters (`src/fund/bridge.ts`). On Aztec 5 testnet the live route is the Fee Juice portal on Sepolia: the user gets test FEE from the public faucet, approves, and deposits; the agent receives Fee Juice for its own gas. A stablecoin adapter (USDC via the inference-money bridge) is the planned next route; the CLI can already pay in that token.
+Routes are bridge adapters (`src/fund/bridge.ts`). On testnet the live route is the Fee Juice portal on Sepolia: the user gets test FEE from the public faucet, approves, and deposits; the agent receives Fee Juice for its own gas. On mainnet the same route bridges AZTEC, which the user must hold; the claim pays its own fee from the deposit, so an account with no Fee Juice yet can make it. USDC through the inference-money bridge has its own commands, `deposit` and `withdraw` (`src/commands/usdc.ts`). They use the same page: a deposit is Permit2 approval, a signed permit and the router deposit, as for split payments; a withdrawal is one `TokenPortal.withdraw` that any account may send, built once the epoch is proven. After changing the page, redeploy the hosted copy (below): an older hosted copy refuses `withdraw` plans.
 
 ## Library
 

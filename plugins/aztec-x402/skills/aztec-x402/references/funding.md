@@ -28,11 +28,21 @@ While `fund` or `fund claim` runs it holds the wallet database: run no other wal
 
 | Network | Route | User signs on L1 | Agent receives |
 | --- | --- | --- | --- |
-| testnet (Aztec 5.x, Sepolia) | Fee Juice portal | faucet mint of test FEE (if needed), approve, `depositToAztecPublic` | Fee Juice (Aztec gas) in your account, shown by `balance` under `feeJuice`. On testnet you still pay fees through the free sponsored fee payer, so this route mainly demonstrates the deposit flow. |
+| mainnet (Ethereum) | Fee Juice portal | approve AZTEC (they must hold it; no faucet), `depositToAztecPublic` | Fee Juice in your account. On mainnet you need it: you pay your own fees. The claim pays its own fee from the deposit, so it works with an empty account. |
+| testnet (Aztec 6.x, Sepolia) | Fee Juice portal | faucet mint of test FEE (if needed), approve, `depositToAztecPublic` | Fee Juice (Aztec gas) in your account, shown by `balance` under `feeJuice`. On testnet you still pay fees through the free sponsored fee payer, so this route mainly demonstrates the deposit flow. |
 
 Fee Juice deposits are public on L1 by protocol design: the amount and your Aztec address are visible on Sepolia. Payments you make afterwards hide buyer and merchant addresses from Aztec observers. A commitment payment publishes its amount in the completion log; a `ref` payment does not (see protocol.md).
 
-A stablecoin route (USDC: Ethereum → private USDC on Aztec, one Permit2 signature) is not in the CLI yet. Until then, the test token `tUSDC` comes from `aztec-x402 faucet`.
+## USDC: `deposit` and `withdraw`
+
+The inference-money USDC moves with its own commands, on the same page in the same two modes (`--hosted`, `--no-wait`, `--port`, `--host`, `--no-open`).
+
+- **`aztec-x402 deposit --amount N`**: the user approves Permit2 once, signs the deposit permit (no transaction) and sends a private deposit from their Ethereum wallet; you find it on L1, wait for the message (several minutes) and claim it into your private balance. On mainnet the claim's fee is yours (Fee Juice, `publicFees`). The user needs USDC and a little ETH; the wallet must be an ordinary key account (a Safe or other contract wallet cannot sign it).
+- **Binding.** Your account's first USDC deposit binds it for good to the Ethereum address that made it: later deposits must come from that address, and you can withdraw only to it. Explain this and ask which address the user will deposit from; only on their yes add `--allow-bind`. Without it the command refuses before anything is signed. Once bound, the page accepts only that address.
+- **`aztec-x402 withdraw --amount N`**: burns USDC in your account and pays it out on Ethereum to your funding address (a listed merchant account may name `--to ADDR`). The payout needs the epoch holding the burn to be proven on L1, often an hour or more: the command waits up to 90 minutes, then serves the page, where the user sends one transaction (they pay its gas; the USDC can only go to the recipient). With `--no-wait` it returns right after the burn; run `aztec-x402 withdraw finish` later. A withdrawal shows the recipient and the amount on Ethereum.
+- **Recovering**: `aztec-x402 deposit claim [--allow-bind]` finishes deposits left pending. `aztec-x402 withdraw finish` settles a burn whose outcome was unknown and pays out the oldest ready one. A new `withdraw` is refused while an earlier one is not settled, so nothing burns twice. A burn the node dropped stays unsettled until it can no longer be included (`finish` names the time, at most about a day); after that time `finish` marks it `expired`, nothing burned, and `withdraw` works again. Records live in `usdc-deposits.json` and `usdc-withdrawals.json` (mode 0600; the deposit's draft is the only copy of its claim salt).
+
+On testnet the test token `tUSDC` still comes from `aztec-x402 faucet`.
 
 ## Recovering
 
